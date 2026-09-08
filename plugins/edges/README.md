@@ -20,6 +20,7 @@ not here.
 | `working-with-horizon3-mcp` | Horizon3 / NodeZero pentest results |
 | `working-with-jira-mcp` | Atlassian MCP, Jira reads + writes, JQL |
 | `working-with-m365-connector` | Microsoft 365 / Outlook connector |
+| `working-with-mcp-connectors` | MCP connector health and preflight (tool-agnostic) |
 | `working-with-playwright` | Playwright headless capture in uv venvs |
 | `working-with-runlayer` | Runlayer MCP governance denies |
 | `working-with-slack-mcp` | Slack MCP search and reads |
