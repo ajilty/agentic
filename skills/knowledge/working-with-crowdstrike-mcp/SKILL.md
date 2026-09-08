@@ -1,6 +1,6 @@
 ---
 name: working-with-crowdstrike-mcp
-description: "CrowdStrike Falcon MCP (falcon_* tools): NG-SIEM CQL gotchas \u2014 head(3) schema discovery, groupBy limit truncates lexicographically (use top()), numbers as strings, token-overflow spill files, blocked processes logged under ProcessBlocked not ProcessRollup2 \u2014 plus FQL syntax, detection write-path traps, the falcon_search_applications (Discover) broken pagination cursor, the Spotlight (falcon_search_vulnerabilities) no-product-filter limit, and RTR read-only limits. Use before composing falcon_search_ngsiem queries, paging Discover applications, scoping Spotlight vulns, reading blocked-process telemetry, or running RTR \u2014 or when results come back empty, truncated, or spilled to tool-results files."
+description: "CrowdStrike Falcon MCP (falcon_* tools): NG-SIEM CQL gotchas \u2014 head(3) schema discovery, groupBy limit truncates lexicographically (use top()), numbers as strings, token-overflow spill files, blocked processes logged under ProcessBlocked not ProcessRollup2 \u2014 plus FQL syntax, falcon_aggregate_detections silently dropping records that lack the faceted field (pass missing), the free-text q param being a fuzzy multi-token OR match, falcon_host_link paths differing by product (unified-detections vs activity-v2/detections vs automated-leads) and hosts/vulns exposing no console link at all, detection write-path traps, the falcon_search_applications (Discover) broken pagination cursor and ~52x product-name over-count, the Spotlight (falcon_search_vulnerabilities) no-product-filter limit, its rejection of host_info.hostname, and its zero-coverage blind spots for whole third-party product classes, and RTR read-only limits. Use before composing falcon_search_ngsiem queries, counting a detection queue, building a console deep-link, paging Discover applications, scoping Spotlight vulns, reading blocked-process telemetry, or running RTR \u2014 or when results come back empty, truncated, mis-counted, or spilled to tool-results files."
 ---
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
@@ -104,8 +104,13 @@ software inventory (`falcon_search_applications`) or RTR `filehash`, not `FileVe
 
 - **`OR` across two `regex()` calls → HTTP 400.** Reformulate as field-match alternation
   (`field=/.../i or field=/.../i`) rather than chaining `regex(...)` OR `regex(...)`.
-- **`falcon_search_detections` ignores its free-text `q` param** (resolves to a null filter).
-  Use explicit FQL field filters (`cmdline:`, `sha256:`, `device.hostname:`).
+- **`falcon_search_detections`'s free-text `q` param works, but it is a fuzzy multi-token OR
+  match** — this corrects an earlier note here that claimed it resolves to a null filter. A
+  single-token `q` is usable (a positive control returned 225 rows); a multi-token `q` returns
+  large numbers of unrelated rows, because the tokens are OR'd. Trust single-token results only,
+  and prefer explicit FQL field filters (`sha256:`, `device.hostname:`, `pattern_id:`) whenever
+  the field exists. Validate any empty `q` result against a positive control before reporting it
+  as a negative.
 - **CVE FQL is dotted: `cve.id:'…'`, not bare `cve:'…'`** — the bare form returns HTTP 400
   across the vuln/intel tools.
 - **A clean-empty result for a fresh CVE is the CORRECT answer, not an error.** Differentiate by
@@ -135,6 +140,12 @@ earlier one's output (e.g. `head(3)` to learn field names before `top()`).
   `falcon_aggregate_detections` returns empty silently** — `cmdline` is not a supported
   filter/aggregation field on the alerts endpoint (empty ≠ no match). Pivot to an indexed field:
   `pattern_id:`, `technique_id:`, `tags:`, or a time-boxed `created_timestamp:`.
+- **`falcon_aggregate_detections` silently drops records that lack the faceted field.** A facet
+  on `severity_name` summed to **237 against a `pagination.total` of 253**, and
+  `sum_other_doc_count` reported **0**, so nothing flagged the 16-record shortfall — the missing
+  rows simply had no `severity_name`. Pass the **`missing`** parameter to bucket them. Any queue
+  count built on this aggregation without it under-reports invisibly; cross-check the facet sum
+  against `pagination.total` every time.
 - **A detection's `automated_triage` block (Charlotte) is a fast first-pass anchor** —
   `triage_outcome` / `triage_recommendation` plus tags like `FC-Type-Penetration Testing`,
   `true_positive`, `FC-Action-No Remediation Required` often classify the alert (e.g. authorized
@@ -158,6 +169,11 @@ process telemetry) to answer "where is product X installed."
   console, Mount Service, Transport) reports as `name: "Veeam Backup & Replication"`, so a raw
   host count conflates the real servers with hundreds of agent-only workstations — filter on
   `host.product_type_desc` and read the component-level names, not the rolled-up product.
+  **Order of magnitude, measured:** one product returned **263 distinct hosts** where only **5**
+  ran the actual server role, a ~52x over-count. Taking the product-name count at face value
+  produces a wildly over-scoped affected-host list. **Diff two inventories** — Discover
+  (installed) against running-process telemetry (actually executing, with full paths) — and
+  treat the disagreement as the finding rather than trusting either alone.
 - **A host lists multiple co-existing versions** (an in-place upgrade leaves old component
   directories resident), so the *oldest* version on a host is a risk flag, not proof the old
   build is the active one — confirm on-host (RTR `filehash` / running-process telemetry) before
@@ -169,10 +185,20 @@ process telemetry) to answer "where is product X installed."
   X's CVEs" by product — reach a third-party product only by **enumerating its known CVE IDs**
   (`cve.id:'CVE-…',cve.id:'CVE-…'`). Consult `falcon://spotlight/vulnerabilities/fql-guide`; an
   unsupported field returns empty, not an error.
-- **Spotlight under-inventories third-party software.** It reported a product on 1 of ~50 hosts
-  that Discover and process telemetry both show running it — so do **not** use Spotlight to scope
-  a software estate; use `falcon_search_applications`. Treat "no Spotlight CVE on this host" as
-  *the scanner didn't see it*, not *not vulnerable*.
+- **Spotlight under-inventories third-party software, and the gap can be total.** It reported
+  one product on 1 of ~50 hosts that Discover and process telemetry both show running it. Worse
+  was later measured on another product: **zero findings tenant-wide**, including **zero on the
+  dedicated server running 16 of that product's services**, while the same host returned 96
+  findings covering two other vendors. The scanner was scanning that host and returning plenty;
+  it simply had **no evaluation logic for that product class** in the tenant. So the failure mode
+  is per-product, not per-host: a host with many findings can still be completely unassessed for
+  a given product. Combined with the no-product-filter limit above, you cannot even ask the
+  question. Do **not** use Spotlight to scope a software estate (use
+  `falcon_search_applications`), and never accept "no Spotlight CVE" as evidence for a
+  non-Microsoft product — including as an acceptance criterion on a remediation ticket.
+- **Spotlight FQL rejects `host_info.hostname`** with HTTP 400, verbatim
+  `property "host_info.hostname" not allowed`. Scope a host with **`aid`** instead (resolve it
+  first via `falcon_search_hosts`).
 - **`status:'reopen'` is a real signal** — a finding remediated then re-detected means a patch
   regressed or was incomplete; worth a root-cause check, not just a re-patch. Facet
   `['cve','host_info']` to get scoring + asset context in one call.
@@ -191,10 +217,20 @@ process telemetry) to answer "where is product X installed."
 
 ## Write path and console deep-links
 
-- **Console deep-link: use the detection's own `falcon_host_link` field, verbatim** (shape
-  `https://falcon.crowdstrike.com/unified-detections/<composite_id>?_cid=<code>`). Do **not**
+- **Console deep-link: use the detection's own `falcon_host_link` field, verbatim.** Do **not**
   hand-build a `…/unified-detections/?filter=…&info=<id>` URL — it renders an **unfiltered**
   detections page, not the target detection.
+  - **The path varies by `product`, so there is no one shape to template**:
+    `/unified-detections/<composite_id>?_cid=<code>` for `product: thirdparty`,
+    `/activity-v2/detections/<composite_id>?_cid=<code>` for `product: epp` (endpoint), and
+    `/automated-leads/<composite_id>?_cid=<code>` for signal / automated-lead rows. Templating
+    the third-party shape across an endpoint detection produces a **dead link that still looks
+    right**. Emit the field per row.
+  - **Only detections carry a link.** `falcon_search_hosts` returns no URL-shaped field at all,
+    so a host is reachable only via some detection's `falcon_host_link`. On
+    `falcon_search_vulnerabilities`, `remediation.entities[].link` was present but an **empty
+    string**, while `remediation.entities[].vendor_url` and `cve.vendor_advisory[]` hold
+    *external vendor* URLs — none of the three is a console deep-link.
 - **`falcon_update_detections` (status / resolution tag / comment / assignment)** works and is
   batchable (many `ids` per call). Gotchas:
   - The top-level **`comment` rollup field returns word-scrambled** — read the structured
