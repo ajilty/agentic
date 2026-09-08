@@ -1,6 +1,6 @@
 {
   "name": "playbooks",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "User-invoked workflows: opinionated ways of working across meta, office, coding, and security domains.",
   "author": {
     "name": "ajilty",
