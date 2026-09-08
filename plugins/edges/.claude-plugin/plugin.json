@@ -1,6 +1,6 @@
 {
   "name": "edges",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Knowledge to overcome model gaps: working-with-<tool> notes that fill model gaps on sharp edges of specific tools and vendors.",
   "author": {
     "name": "ajilty",
@@ -9,5 +9,8 @@
   "homepage": "https://github.com/ajilty/agentic",
   "repository": "https://github.com/ajilty/agentic",
   "license": "MIT",
-  "keywords": ["knowledge", "skills"]
+  "keywords": [
+    "knowledge",
+    "skills"
+  ]
 }
