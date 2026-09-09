@@ -1,6 +1,6 @@
 ---
 name: working-with-crowdstrike-mcp
-description: "CrowdStrike Falcon MCP (falcon_* tools). NG-SIEM CQL: head(3) schema discovery, groupBy(limit) truncating lexicographically (use top()), zero rows with job.processed_events 0 NOT being a negative, job.parsed_query dropping trailing stages, the repository param vs the #repo tag, numbers as strings, spill files, blocked processes under ProcessBlocked. FQL: a severity filter AND an is_closed:false filter EACH silently zero an endpoint queue whose rows carry score, no severity_name, and status new with is_closed true; aggregations drop records lacking the faceted field; cmdline wildcards return empty. Plus rtr_state:enabled being policy not liveness (40401 Could not establish sensor comms), alerts on journaled mail giving the envelope sender and a synthetic @journal.report.generator id, falcon_host_link varying by product, Discover paging, Spotlight blind spots. Use before an NG-SIEM query, triaging detections, deep-linking, reading a mail alert, or running RTR — or on empty, truncated or mis-counted results."
+description: "CrowdStrike Falcon MCP (falcon_* tools). NG-SIEM CQL: head(3) schema discovery, groupBy(limit) truncating lexicographically (use top()), zero rows with job.processed_events 0 NOT being a negative, job.parsed_query dropping trailing stages, the repository param vs the #repo tag, numbers as strings, spill files, blocked processes under ProcessBlocked. FQL: a severity filter AND an is_closed:false filter EACH silently zero an endpoint queue whose rows carry score, no severity_name, and status new with is_closed true; aggregations drop records lacking the faceted field; cmdline wildcards return empty. Discover: broken pagination cursor, ~52x product-name over-count, and versions accumulating with NO row ever retired, so it cannot answer whether a vulnerable version is still installed; application rows carry an opaque host.id asset id that joins to a host only via falcon_search_managed_assets id:'<cid>_<assetid>', which rejects list syntax (`invalid filter; operator in not allowed for property id`). RTR: a session_id is mandatory (`1 validation error for run_read_only_command_and_waitArguments / session_id / Field required`) and rtr_state:enabled is policy not liveness (40401 Could not establish sensor comms). Plus alerts on journaled mail giving the envelope sender and a synthetic @journal.report.generator id, falcon_host_link varying by product, Spotlight blind spots. Use before an NG-SIEM query, triaging detections, deep-linking, making any software-version claim, joining an application row to a host, reading a mail alert, or running RTR — or on empty, truncated or mis-counted results."
 ---
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
@@ -232,10 +232,30 @@ process telemetry) to answer "where is product X installed."
   produces a wildly over-scoped affected-host list. **Diff two inventories** — Discover
   (installed) against running-process telemetry (actually executing, with full paths) — and
   treat the disagreement as the finding rather than trusting either alone.
-- **A host lists multiple co-existing versions** (an in-place upgrade leaves old component
-  directories resident), so the *oldest* version on a host is a risk flag, not proof the old
-  build is the active one — confirm on-host (RTR `filehash` / running-process telemetry) before
-  calling it live-vulnerable.
+- **The inventory accumulates versions and never retires a row.** One host listed **three major
+  versions of the same product simultaneously**, long after two of them had been uninstalled.
+  Discover records what was **ever** installed, not what **is** installed: there is no removal
+  event, no last-seen decay, and no field separating resident-but-dead from active. Two
+  consequences. (1) It **cannot answer "are we still running the vulnerable version"** — it
+  returns that false positive indefinitely, and a patched host is indistinguishable from an
+  unpatched one. (2) An in-place upgrade that leaves old component directories resident looks
+  identical to a host that never upgraded. So the oldest version on a host is a **risk flag to go
+  check**, never a version claim. **Confirm on-host** (RTR `filehash` / running-process
+  telemetry) before stating any version, and never open *or* close a remediation ticket on
+  Discover alone.
+
+## falcon_search_managed_assets (joining an application row back to a host)
+
+- **An application record's `host.id` is an opaque asset id, not the 32-hex device id** the hosts
+  API returns. The two identifier spaces do not overlap, so handing a `host.id` to a host-scoped
+  call matches nothing — silently, as an empty result rather than an error. Join through managed
+  assets on the **composite** form: `id:'<cid>_<assetid>'` (customer id, underscore, the asset id
+  off the application row). Without that join, an "installed on N hosts" answer has no hostnames
+  attached to it.
+- **The `id` property rejects list syntax**, verbatim:
+  `invalid filter; operator in not allowed for property id`. This one is a hard error, not the
+  usual silent empty — `id:[...]` never works. Use FQL's comma-OR'd equality instead:
+  `id:'<a>',id:'<b>'`, several ids per call, rather than one call per asset.
 
 ## falcon_search_vulnerabilities (Spotlight)
 
@@ -263,6 +283,11 @@ process telemetry) to answer "where is product X installed."
 
 ## Real Time Response (RTR) — read-only tier
 
+- **`falcon_run_rtr_read_only_command_and_wait` requires a `session_id` and will not open a
+  session from `device_id` alone.** Verbatim:
+  `1 validation error for run_read_only_command_and_waitArguments / session_id / Field required`.
+  There is no implicit session and no device-id shortcut — call `falcon_init_rtr_session` on the
+  host first, carry its `session_id` into every command, and delete the session when done.
 - **The read-only command set cannot read a PE file's version property** (that needs the
   Active-Responder scripting tier / `runscript`). To identify a binary's build read-only, use
   `filehash` (SHA256/MD5) and map the hash via the software inventory, or `reg query` an app's
