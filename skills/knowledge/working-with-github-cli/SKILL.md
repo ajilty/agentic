@@ -143,7 +143,8 @@ activity lookups.
   subject to privacy, per-repo numbers reflect what the requester can see; they legitimately
   differ.
 - **Don't use `gh search prs --author=<x>` alone** for a person's footprint — it scopes to
-  listable repos, misses cross-org results, and skips review/comment surfaces.
+  listable repos, misses cross-org results, skips review/comment surfaces, and silently drops
+  every repo whose search index 422s (see the search-API asymmetry above).
 - **Don't paginate beyond 100 per surface** — narrow the window and declare truncation instead.
 - **External-org activity counts.** A PR in an unexpected org still belongs in a person's rollup
   if they authored or reviewed it. On a 404/permissions error, surface a missing-access item —
