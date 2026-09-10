@@ -38,7 +38,10 @@ shows as one candidate with a count. Each row carries `transcript_path` and
 `tool_use_id`: when a candidate needs the retries and the variant that worked,
 `grep` the id in that transcript rather than asking the user to remember. The
 journal captures what errored; the silent incomplete answers that make up
-most edges still come from your own read of this session.
+most edges still come from your own read of this session. Journal rows are
+local-only and their `tool` field carries the user's MCP server alias
+(`mcp__<alias>__<tool>`); an alias may name an entity, so normalize it to the
+vendor (`mcp__wiz__...`) before anything reaches a candidate.
 
 ## 2. Confirm
 

@@ -59,9 +59,13 @@ row=$(printf '%s' "$payload" | jq -c --arg home "$HOME" --arg now "$(date -u +%Y
       tool_use_id: (.tool_use_id // null),
       error: ($err | redact | .[0:400])
     }
-  | .fp = ((.tool + "|" + (.error | .[0:200])) | @base64 | .[0:24])
 ' 2>/dev/null) || exit 0
 [ -n "$row" ] || exit 0
+
+# Fingerprint = sha1 of tool + first 200 chars of the redacted error, so repeats of one
+# failure collapse to a count at harvest time. jq has no hash; do it here, fail-open.
+fp=$(printf '%s' "$row" | jq -r '.tool + "|" + (.error | .[0:200])' 2>/dev/null | shasum 2>/dev/null | cut -c1-16)
+[ -n "$fp" ] && row=$(printf '%s' "$row" | jq -c --arg fp "$fp" '.fp = $fp' 2>/dev/null || printf '%s' "$row")
 
 mkdir -p "$(dirname "$journal")" 2>/dev/null || exit 0
 printf '%s\n' "$row" >> "$journal" 2>/dev/null
