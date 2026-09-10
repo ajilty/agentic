@@ -1,6 +1,6 @@
 {
   "name": "edges",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Knowledge to overcome model gaps: working-with-<tool> notes that fill model gaps on sharp edges of specific tools and vendors.",
   "author": {
     "name": "ajilty",
