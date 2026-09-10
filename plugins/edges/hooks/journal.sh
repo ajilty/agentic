@@ -41,17 +41,24 @@ row=$(printf '%s' "$payload" | jq -c --arg home "$HOME" --arg now "$(date -u +%Y
     | gsub("\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b"; "<uuid>")
     | gsub("\\b[0-9]{6,}\\b"; "<n>")
     | gsub($home; "~");
-  ( if .hook_event_name == "PostToolUseFailure" then (.error // "" | tostring)
+  # Error-in-success: many connectors return HTTP 200 with an error payload inside. Only the
+  # head of the text is inspected, anchored to a status field or a leading error word, so a
+  # data row that merely mentions "error" does not qualify. Rows from this path say so.
+  def looks_failed: .[0:200] | test("^\\s*\\{?\\s*\"?(status_?[cC]ode|status)\"?\\s*:\\s*\"?[45][0-9]{2}|^\\s*(\\{\\s*\"error\"|Error\\b|ERROR\\b|Request failed|Failed to|Session terminated)");
+  ( if .hook_event_name == "PostToolUseFailure" then {e: (.error // "" | tostring), how: "PostToolUseFailure"}
     elif .hook_event_name == "PostToolUse" and ((.tool_response.isError? // .tool_response.is_error? // false) == true)
-      then text_of(.tool_response)
-    else "" end ) as $err
+      then {e: text_of(.tool_response), how: "PostToolUse:isError"}
+    elif .hook_event_name == "PostToolUse" and (text_of(.tool_response) | looks_failed)
+      then {e: text_of(.tool_response), how: "PostToolUse:error-in-success"}
+    else {e: "", how: ""} end ) as $hit
+  | $hit.e as $err
   | select($err != "")
   # Not edges: the user said no, or stopped the call.
   | select($err | test("denied by|Permission denied for tool|interrupted by user|Request interrupted"; "i") | not)
   | {
       ts: $now,
       harness: "claude-code",
-      event: .hook_event_name,
+      event: $hit.how,
       tool: .tool_name,
       project: ((.cwd // "") | gsub($home; "~")),
       session_id: (.session_id // null),

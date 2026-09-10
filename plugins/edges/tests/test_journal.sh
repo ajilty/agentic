@@ -43,10 +43,23 @@ run_hook "$J" "$(fail_payload Bash "$(head -c 5000 /dev/zero | tr '\0' x)")"
 # MCP error-in-success is captured; a clean MCP result is not.
 n=$(rows)
 run_hook "$J" "$(mcp_payload mcp__wiz__list_issues 'Failed to convert free text to graph query' true)"
-assert_eq "$(rows)" $((n+1)) "mcp isError -> row"; assert_eq "$(last | jq -r .event)" "PostToolUse" "mcp row event"
+assert_eq "$(rows)" $((n+1)) "mcp isError -> row"; assert_eq "$(last | jq -r .event)" "PostToolUse:isError" "mcp row event"
 assert_contains "$(last | jq -r .error)" "Failed to convert" "mcp error text taken from content"
 run_hook "$J" "$(mcp_payload mcp__wiz__list_issues 'ok' false)"
 assert_eq "$(rows)" $((n+1)) "clean mcp result -> no row"
+
+# Error-in-success: a 200 whose payload is an error is captured from the head of the text only.
+n=$(rows)
+splunk='{"status_code":400,"content":"Error parsing Splunk query: {\"messages\":[{\"type\":\"FATAL\",\"text\":\"Error in '"'"'where'"'"' command: The expression is malformed. A comparison term is missing.\"}]}"}'
+run_hook "$J" "$(jq -cn --arg t mcp__splunk__run_query --arg r "$splunk" '{hook_event_name:"PostToolUse",tool_name:$t,tool_input:{},tool_response:$r}')"
+assert_eq "$(rows)" $((n+1)) "status_code 400 in a 200 body -> row"
+assert_eq "$(last | jq -r .event)" "PostToolUse:error-in-success" "heuristic rows say so"
+assert_contains "$(last | jq -r .error)" "comparison term is missing" "splunk parser error kept"
+run_hook "$J" "$(jq -cn --arg t mcp__splunk__run_query '{hook_event_name:"PostToolUse",tool_name:$t,tool_input:{},tool_response:{content:[{type:"text",text:"Request failed: Session is not logged in."}]}}')"
+assert_eq "$(rows)" $((n+2)) "leading Request failed -> row"
+run_hook "$J" "$(jq -cn --arg t mcp__splunk__run_query '{hook_event_name:"PostToolUse",tool_name:$t,tool_input:{},tool_response:{content:[{type:"text",text:"{\"results\":[{\"message\":\"user saw an error dialog\",\"status_code\":\"200\"}]}"}]}}')"
+assert_eq "$(rows)" $((n+2)) "data that merely mentions error -> no row"
+assert_eq "$(sed -n 1p "$EDGES_JOURNAL" | jq -r .event)" "PostToolUseFailure" "failure rows keep their event name"
 
 # The user saying no, or stopping a call, is not an edge.
 n=$(rows)
