@@ -1,6 +1,6 @@
 ---
 name: working-with-splunk-mcp
-description: "Splunk MCP gotchas: `Request failed: Session is not logged in.` is session expiry not a bad query (known splunklib bug), saia_* assistant tools can return `Session terminated` and stay dead, only one splunk_run_query lands per re-prime so never batch them, a broken automatic CIM lookup (`Could not load lookup=LOOKUP-<name>`) aborting raw search and any CIM-aliased field reference regardless of app context — with tstats and rex on _raw as the fallbacks and what they cost you, JSON sourcetypes extracted twice so every field is a 2-value multivalue and stats count silently inflates, an absolute earliest_time in Splunk's own %m/%d/%Y:%H:%M:%S form rejected as `Invalid earliest_time`, multivalue fields dropping silently from table, _time rendered in the search head's timezone, splunk_get_indexes size/count fields stubbed, numbers as strings. Use when a splunk_run_query fails mid-session, when a search aborts on a lookup error, when a count looks doubled, when picking an index to search, or before firing multiple searches at once."
+description: "Splunk MCP gotchas: \"Request failed: Session is not logged in.\" is session expiry not a bad query (known splunklib bug) and only one splunk_run_query lands per re-prime, so never batch them; the saia_* assistant tools can return \"Session terminated\" and stay dead; a broken automatic CIM lookup (\"Could not load lookup=LOOKUP-<name>\") aborts a raw search and any CIM-aliased field reference regardless of app context, with tstats and rex on _raw as the fallbacks and what each costs; a JSON sourcetype extracted twice makes every field a 2-value multivalue so stats count inflates; an absolute earliest_time in Splunk own %m/%d/%Y:%H:%M:%S form is rejected as \"Invalid earliest_time\"; multivalue fields drop silently from table; _time renders in the search head timezone; splunk_get_indexes size/count fields are stubs; numbers come back as strings. Use when a splunk_run_query fails mid-session, a search aborts on a lookup error, a count looks doubled, picking an index, or before firing multiple searches at once."
 ---
 
 # Working with the Splunk MCP — sharp edges
@@ -47,7 +47,6 @@ Splunk MCP surface, not one server.
     negative.
   - Extracting the same values with `rex` on `_raw` works where the aliased field name does not.
 
-
 ## Choosing an index
 
 - **`splunk_get_indexes` size/count fields are stubbed.** It returns `currentDBSizeMB: "1"` and
@@ -60,12 +59,14 @@ Splunk MCP surface, not one server.
 
 ## Result shapes
 
-- **A JSON sourcetype can be extracted twice, making every field a 2-value multivalue of
-  identical values — and `stats count` silently inflates.** The same query returned 19,962 and
-  then 4,058 raw events where `| tstats count where index=<i>` gave a true 3,313 for the whole
-  sourcetype. **`dedup <id>` does NOT fix it.** Use `dc(<unique_id_field>)`, or
-  `mvindex(FIELD, 0)` — check whether the estate's own detection SPL already does one of these
-  and match it.
+- **A JSON sourcetype can be extracted twice, so every field comes back as a 2-value
+  multivalue of identical values and `stats count` inflates silently.** Confirm the shape
+  first: a single event whose every field renders as two identical values is the tell. Counts
+  built on it are not merely doubled — an event-count run over the sourcetype came back at
+  19,962 and then 4,058 against a `| tstats count where index=<i>` truth of 3,313 for the whole
+  sourcetype, so treat any raw-event count here as unreliable rather than as a fixed multiple.
+  **`dedup <id>` does NOT fix it.** Use `dc(<unique_id_field>)`, or `mvindex(FIELD, 0)` — and
+  check whether the estate's own detection SPL already does one of these, then match it.
 - **A multivalue field silently drops out of `table`.** A bare `table target{}.alternateId` on a
   sourcetype where that field is an array returns nothing for the column, with no error. Use
   `mvjoin('target{}.alternateId', "|")`.
@@ -74,7 +75,6 @@ Splunk MCP surface, not one server.
   before trusting any rendered time.
 - **An absolute `earliest_time` in Splunk's own `%m/%d/%Y:%H:%M:%S` form is rejected** —
   `HTTP 400 'Invalid earliest_time'`. Relative windows (`-60h`) work.
-
 
 - **Numbers come back as strings** (`"count": "28"`). Cast before doing math or comparisons.
 - **A raw-event `| table ...` dump overflows the response cap and spills to a
