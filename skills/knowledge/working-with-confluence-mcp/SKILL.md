@@ -1,6 +1,6 @@
 ---
 name: working-with-confluence-mcp
-description: "Atlassian MCP Confluence gotchas, read and write: CQL contributor queries return folders-only without type in (page, blogpost, comment), serial-only transport, 25K-token spill files, title vs body escaping asymmetry, numeric spaceId requirement, ADF-legal HTML. Use when calling createConfluencePage / updateConfluencePage / getConfluencePage or querying activity via CQL."
+description: "Atlassian MCP Confluence gotchas, read and write: CQL contributor queries return folders-only without type in (page, blogpost, comment), \"did anyone answer this\" needs THREE comment calls per page (inline/open, inline/resolved, footer) because getConfluencePageInlineComments defaults to resolutionStatus open and footer comments are invisible to both, CQL lastmodified is day-granular only, a bad space key in space in (...) returns a silent zero, serial-only transport, 25K-token spill files, title vs body escaping asymmetry, numeric spaceId requirement, ADF-legal HTML. Use when calling createConfluencePage / updateConfluencePage / getConfluencePage, checking whether a comment or question was ever answered, or querying activity via CQL."
 ---
 
 # Working with the Confluence side of the Atlassian MCP — sharp edges
@@ -24,12 +24,23 @@ not this skill's.
 
 - **`type in (page, blogpost, comment)` is required on `contributor =` queries.** Without it,
   CQL returns *only folders* — the #1 silent failure mode. One `type in (...)` query covers
-  pages and comments together; don't issue per-type queries.
+  pages and comments together; don't issue per-type queries. The folders-only failure is
+  specific to `contributor =`: `mention =` and `watcher =` queries returned real pages without
+  the clause on one tenant, so don't assume every CQL user-predicate needs it.
+- **A bad space key inside `space in ("A","B","C")` returns a silent zero for that key**, not an
+  error, so a "nothing in space X" claim built on a multi-key query is untrustworthy on its own.
+  Validate each key with a bare `space = "<KEY>"` probe before reporting an absence.
+- **`lastmodified >= "YYYY-MM-DD"` is day-granular only** — CQL cannot express an intra-day
+  window start. Over-fetch the whole day and filter client-side on the returned timestamp,
+  which is itself a **relative string**, so the boundary filter is approximate: a hit half an
+  hour outside a mid-morning window start will survive it. Say so rather than presenting the
+  window as exact.
 - **Comments are already in the unified result:** `type: "comment"` rows carry the body excerpt
   in `summary`, a title of `"Re: <parent page title>"`, and a `webUrl` with
   `?focusedCommentId=`. Don't call `getConfluencePageFooterComments` /
-  `getConfluencePageInlineComments` per page — only when threads or full bodies are explicitly
-  needed.
+  `getConfluencePageInlineComments` per page for *enumeration* — only when threads, full bodies,
+  or answered/unanswered state are needed. When they are, see below: it takes three calls.
+
 - **Create vs edit, cheaply:** the CQL result doesn't say which. If `author.displayName` matches
   the target user and `lastModified` is in-window, mark `created`; else `edited`. Version-level
   detail needs a per-page `getConfluencePage` — do that only on explicit request.
@@ -42,6 +53,22 @@ not this skill's.
 - `lastModified` returns as a **relative string** ("yesterday at 2:05 PM") — preserve it and
   note the ambiguity rather than fabricating an ISO timestamp.
 - Paginate via `cursor`; past a few hundred results, summarize and ask for a narrower range.
+
+## "Did anyone answer this?" needs THREE calls per page
+
+The comment tools each cover a disjoint slice, and each one's silence looks like an answer.
+
+- **`getConfluencePageInlineComments` defaults to `resolutionStatus: "open"`** and silently
+  omits the rest. Measured on one page: the default call returned 2 of a user's 4 comments;
+  passing `resolutionStatus: "resolved"` returned a 3rd.
+- **The 4th was a FOOTER comment, invisible to both inline calls** — and it was the only
+  genuinely unanswered one, and the most substantive. Only `getConfluencePageFooterComments`
+  returned it.
+- So the complete sweep is **inline/open + inline/resolved + footer**. Stopping after the inline
+  calls reports a page's one real open question as answered.
+- **`getConfluencePageFooterComments` with `includeReplies: true` returns an explicit
+  `hasReplies` boolean per comment** — a clean deterministic "nobody answered" signal. Use it
+  rather than inferring from an empty replies array or scraping the page.
 
 ## Create / update mechanics (write path)
 

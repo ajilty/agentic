@@ -1,6 +1,6 @@
 ---
 name: working-with-jira-mcp
-description: "Atlassian MCP Jira gotchas: response bloat past the 25K-token cap despite narrow fields, JQL's missing commentBy/changedBy, creation events absent from changelog, multi-accountId identities, ORDER BY lastmodified ASC hangs, ~3-call concurrency limit. Use before composing non-trivial JQL or bulk reads, or when a Jira call returns nothing, too much, or overflows."
+description: "Atlassian MCP Jira gotchas: response bloat past the 25K-token cap despite narrow fields (per-user-node avatar overhead, so cut maxResults not fields), JQL's missing commentBy/changedBy and missing mention field (text ~ \"Display Name\" is the only proxy and it matches stale text anywhere), creation events absent from changelog, multi-accountId identities, ORDER BY lastmodified ASC hangs, ~3-call concurrency limit, cloudId accepting the bare site URL. Use before composing non-trivial JQL or bulk reads, when sweeping for @-mentions of a person, or when a Jira call returns nothing, too much, or overflows."
 ---
 
 # Working with the Jira side of the Atlassian MCP — sharp edges
@@ -16,6 +16,16 @@ discover them live.
   regardless. Keep `maxResults` small (50 → 25 → 10), resume via `nextPageToken`. On overflow
   the tool saves the JSON to a temp file and returns the path — either re-run smaller or `jq`
   the file (`.issues.nodes[] | {key, summary: .fields.summary, status: .fields.status.name}`).
+  **Cut `maxResults`, not `fields` — the bloat is per-*node* overhead, not per-field.** Every
+  user node (assignee, reporter, comment author) carries four `avatarUrls` plus a `self` URL, so
+  a 20-issue page that includes `assignee` costs far more than 20 summaries, and dropping a
+  field or two barely moves it. Measured: 20-25 results with a narrow field list is safe; a
+  30-result `text ~ "<term>"` query overflowed *with* an explicit narrow field list and spilled
+  to a temp file.
+- **`cloudId` accepts the bare site URL** (`<your-site>.atlassian.net`) on `getJiraIssue` and
+  the Confluence read tools alike, so `getAccessibleAtlassianResources` is not a required first
+  call. That saves a round trip, which matters when the transport is serialized against another
+  consumer.
 - **Never call `getJiraIssue` without an explicit `fields` list** — the default is `*all` and
   returns everything, including rendered descriptions in multiple formats.
 - **Pass `responseContentFormat: "markdown"` when reading comments** — ADF (the default) is a
@@ -48,6 +58,12 @@ discover them live.
 - **Issue creation is NOT in `changelog.histories[]`.** The creator lives on
   `fields.creator` (+ `fields.created`); synthesize the create event from those. This is the
   single biggest correctness gap in activity summaries.
+- **JQL has no `mention` field.** "Issues where someone @-mentioned X" cannot be expressed;
+  `text ~ "Display Name"` is the only available proxy and it matches the display-name **literal
+  anywhere** in summary, description or comments. So it returns issues whose mention is months
+  stale, and misses any mention rendered without that literal. **Every hit needs its comment
+  thread read** to tell an in-window ask from old text — treat the query as a candidate
+  generator, never as an answer.
 - **`comment ~ "text"` matches OLD comments on freshly-updated issues** — an `updated` window
   does not window the comment matches. Content aimed at a person may also live in *description
   edits*, which no comment JQL sees; only a changelog read catches those.
