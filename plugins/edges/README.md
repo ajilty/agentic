@@ -19,6 +19,7 @@ not here.
 | `working-with-github-cli` | `gh` across a SAML-protected enterprise |
 | `working-with-horizon3-mcp` | Horizon3 / NodeZero pentest results |
 | `working-with-jira-mcp` | Atlassian MCP, Jira reads + writes, JQL |
+| `working-with-knowbe4-phisher` | KnowBe4 PhishER reported-phish queue |
 | `working-with-m365-connector` | Microsoft 365 / Outlook connector |
 | `working-with-mcp-connectors` | MCP connector health and preflight (tool-agnostic) |
 | `working-with-playwright` | Playwright headless capture in uv venvs |
