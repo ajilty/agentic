@@ -1,6 +1,6 @@
 ---
 name: working-with-crowdstrike-mcp
-description: "CrowdStrike Falcon MCP (falcon_* tools: falcon_search_ngsiem, falcon_search_detections, falcon_aggregate_detections, falcon_get_detection_details, falcon_update_detections, falcon_search_applications, falcon_search_managed_assets, falcon_search_vulnerabilities, falcon_search_hosts, falcon_search_report_executions, falcon_init_rtr_session, falcon_run_rtr_read_only_command_and_wait). Use before writing CQL or FQL, when a result is empty, truncated, mis-counted, or spilled to tool-results/*.txt, before any 'version installed / still installed' claim, when falcon_search_vulnerabilities returns zero for a product, and on: job.processed_events 0, groupBy(limit) vs top(), job.parsed_query, repository param vs #repo tag, ProcessBlocked, AsepValueUpdate, FileVersion missing, severity_name absent on automated-lead rows, is_closed true with status new, cmdline wildcard, sum_other_doc_count 0 with a facet shortfall, pagination after cursor re-serving page 1, host.id vs device id, `invalid filter; operator in not allowed for property id`, `property host_info.hostname not allowed`, `session_id / Field required`, 40401 `Could not establish sensor comms`, rtr_state enabled, falcon_host_link, @journal.report.generator, senderHeader, SampleInterval, zia.web, ZSATunnel.exe."
+description: "CrowdStrike Falcon MCP (falcon_* tools: falcon_search_ngsiem, falcon_search_detections, falcon_aggregate_detections, falcon_get_detection_details, falcon_update_detections, falcon_search_applications, falcon_search_managed_assets, falcon_search_vulnerabilities, falcon_search_hosts, falcon_search_report_executions, falcon_init_rtr_session, falcon_run_rtr_read_only_command_and_wait). Use before writing CQL or FQL, when a result is empty, truncated, mis-counted, or spilled to tool-results/*.txt, before any 'version installed / still installed' claim, when falcon_search_vulnerabilities returns zero for a product, and on: job.processed_events 0, groupBy(limit) vs top(), job.parsed_query, repository param vs #repo tag, ProcessBlocked, AsepValueUpdate, FileVersion missing, severity_name absent on automated-lead rows, is_closed true with status new, cmdline wildcard, sum_other_doc_count 0 with a facet shortfall, pagination after cursor re-serving page 1, host.id vs device id, `invalid filter; operator in not allowed for property id`, `property host_info.hostname not allowed`, `session_id / Field required`, 40401 `Could not establish sensor comms`, rtr_state enabled, falcon_host_link, @journal.report.generator, senderHeader, zia.web, ZSATunnel.exe."
 ---
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
@@ -10,12 +10,8 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 
 ## falcon_search_ngsiem (CQL / LogScale)
 
-The tool runs CQL and offers no assist: a malformed query fails or returns nothing, and empty
-output is first a wrong field name or wrong `repository`, not "no data".
-
 - **Sample before you aggregate**: `<filter> | head(3)`, read the real field names, then
-  `top()`/`count()`. `top(missing_field)` returns empty with no error. Note `SampleInterval` on
-  sampled sources (e.g. `#Vendor=cloudflare` Magic Firewall) and scale rates by it.
+  `top()`/`count()`. `top(missing_field)` returns empty with no error.
 - **`repository`** scopes and speeds the search: `search-all` (default, slowest), `third-party`
   (connector feeds), `investigate_view` (endpoint), `falcon_for_it_view`, `forensics_view`. **It
   is a different namespace from the `#repo` tag**: `#repo=third-party` with
@@ -27,6 +23,7 @@ output is first a wrong field name or wrong `repository`, not "no data".
   `groupBy(user.name, limit=25) | sort(_count, order=desc)` silently drops the true maximum. Use
   `top(field, limit=N)` for "most"; use `groupBy(…limit…)` only with the limit above
   cardinality.
+- `OR` across two `regex()` calls is HTTP 400; write `field=/.../i or field=/.../i`.
 
 ### Reading results
 
@@ -48,33 +45,27 @@ output is first a wrong field name or wrong `repository`, not "no data".
   `falcon_search_applications` `name:'*Product*'` over a widely-installed product also spills.
   Calibration: `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16
   records and still spilled (100,500 chars); lowering `limit` will not save you, plan to parse
-  (`python3 json.load`).
+  (`python3 json.load`). For raw evidence, `… | select([@timestamp, @rawstring])`: a free-text
+  search plus `head(20)` on mail-gateway rows spilled at 74,725 chars; `select()` returned the
+  same at a fraction.
 
 ### Endpoint telemetry fields
 
 - **A blocked process lands under `#event_simpleName=ProcessBlocked`** (full `CommandLine`,
   `ImageFileName`, `ParentBaseFileName`), not `ProcessRollup2`: zero `ProcessRollup2` children of
   a parent is not "no telemetry" when the detection shows prevention.
-- `ProcessRollup2` does not reliably populate `FileVersion`;
-  `groupBy([ComputerName, FileVersion], …)` silently drops the empty column. Pin a build by
-  `SHA256HashData` mapped via
-  `falcon_search_applications` or RTR `filehash`.
-- `AsepValueUpdate` (`investigate_view`) has no `ImageFileName`; a `groupBy` including it silently
-  drops the column. The writer is `ContextProcessId`, which equals the detection's `process_id`
-  exactly: that is the alert-to-registry join.
-
-### CQL construction
-
-- `OR` across two `regex()` calls is HTTP 400; write `field=/.../i or field=/.../i`.
-- Keep `@rawstring` evidence inline with `… | select([@timestamp, @rawstring])`: a free-text
-  search plus `head(20)` on mail-gateway rows spilled at 74,725 chars; `select()` returns the same
-  evidence at a fraction.
+- `groupBy` silently drops a column whose field is absent on the rows. `ProcessRollup2` does not
+  reliably populate `FileVersion`: pin a build by `SHA256HashData` mapped via
+  `falcon_search_applications` or RTR `filehash` (read-only RTR has no PE-version command;
+  `reg query` is the other route, and a vendor key may hold no version value). `AsepValueUpdate`
+  (`investigate_view`) has no `ImageFileName`; its writer is `ContextProcessId`, which equals the
+  detection's `process_id` exactly: the alert-to-registry join.
 
 ## search_* / aggregate_* FQL tools (detections, hosts, incidents, cases, ...)
 
-- FQL, not CQL; guide per domain at `falcon://<domain>/.../fql-guide`. A well-formed no-match is
-  HTTP 200 and an empty array; a bad field or syntax is 400, so a clean-empty for a fresh CVE is
-  the answer, not a retry.
+- FQL, not CQL (`falcon://<domain>/.../fql-guide`). Unknown fields split: some are HTTP 400 (bare
+  `cve:'…'`, write `cve.id:'…'`; `host_info.hostname`), others return empty silently (`cmdline`),
+  so an empty set never proves the filter was evaluated.
 - **Neither a severity filter nor an open-items filter is a safe default on the endpoint
   detection queue**; each alone silently zeroes it. (1) A tenant emitting no `product: epp`
   alerts carries endpoint signal as `automated-lead` / `automated-lead-context` rows with a
@@ -94,7 +85,6 @@ output is first a wrong field name or wrong `repository`, not "no data".
   (positive control: 225 rows); multi-token returns unrelated rows. Prefer `sha256:`,
   `device.hostname:`, `pattern_id:`; validate any empty `q` against a positive control before
   reporting a negative.
-- CVE FQL is dotted, `cve.id:'…'`; bare `cve:'…'` is HTTP 400 across the vuln/intel tools.
 - **`falcon_search_report_executions` cannot say whether a report was read** (Falcon exposes no
   read/download state; the delivery notification only proves generation) and is a token trap:
   `status:'DONE'`, `limit: 15` spilled 153,800 chars / 1,207 lines of XDR correlation-rule
@@ -147,10 +137,6 @@ telemetry) for "where is X installed", within these limits.
 - **`rtr_state: enabled` is policy, not liveness**: init against a host not checked in returns
   HTTP 404, `errors[0].code` `40401`, `Could not establish sensor comms`. Compare `last_seen` to
   now before planning RTR; laptops are unreachable off-hours.
-- Read-only cannot read a PE version property (needs the `runscript` tier). Use `filehash` mapped
-  via the software inventory, or `reg query` an app's version value, and expect a vendor key to
-  hold none (`HKLM\SOFTWARE\Veeam\Veeam Backup and Replication` held only `TempPathDir` and
-  provider GUIDs).
 
 ## Console deep-links and writes
 
