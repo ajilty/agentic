@@ -1,6 +1,6 @@
 ---
 name: working-with-horizon3-mcp
-description: "Horizon3 / NodeZero MCP (pentest results): severity filter values are UPPERCASE and lowercase returns 0 with no error, the account-wide weakness_series_page / weakness_series_count / weakness_series_facets family (the Remediation Hub view) and the fields WeaknessSeries does NOT have, PageInput.page_num is 1-indexed (`[400] Minimum allowed page number is 1.`), Schedule exposes state/is_disabled not enabled and next_triggered_at lives on run_pentest_action, in-band introspection is broken but fetch_h3_graphql_docs works per-type (id:\"Query\" spills at ~133K chars) and the public GraphQL docs are WebFetch-able, the get_h3_terminology schema cheat-sheet, the action_logs_page per-host command log, remediation fields the API never exposes, two-field clean-run corroboration, ~24h token TTL, 5-day loot expiry. Use when reading NodeZero pentest results, querying the account-wide weakness series or Remediation Hub, reading pentest schedules, pulling the per-endpoint action log, or hitting \"Cannot query field\" GraphQL errors."
+description: "Horizon3 / NodeZero MCP (pentest results): severity filter values are UPPERCASE and lowercase returns 0 with no error; the account-wide weakness_series_page / weakness_series_count / weakness_series_facets family (the Remediation Hub view) and the fields WeaknessSeries lacks; PageInput.page_num is 1-indexed (\"[400] Minimum allowed page number is 1.\"); Schedule exposes state/is_disabled not enabled, and next_triggered_at lives on run_pentest_action; in-band __type introspection is broken but fetch_h3_graphql_docs works per-type (id:\"Query\" spills at ~133K chars) and the public GraphQL docs are WebFetch-able; the get_h3_terminology cheat-sheet; the action_logs_page per-host command log; remediation fields the API never exposes; two-field clean-run corroboration; ~24h token TTL; 5-day loot expiry. Use when reading NodeZero pentest results, querying the account-wide weakness series or Remediation Hub, reading schedules, pulling the per-endpoint action log, or hitting \"Cannot query field\" errors."
 ---
 
 # Working with the Horizon3 / NodeZero MCP — sharp edges
@@ -141,9 +141,9 @@ the Remediation Hub route here.
 - **`weakness_series_facets` has no severity facet** — use `weakness_series_count` with a filter
   instead (which is where the uppercase trap bites).
 - **`WeaknessSeries` field traps:** `Cannot query field 'context_score' on type
-  'WeaknessSeries'.` and `Cannot query field 'first_seen' on type 'WeaknessSeries'. Did you mean
-  'first_seen_at', 'first_seen_date', or 'is_open'?` — context_score is a per-op weakness
-  concept, not a series one.
+  'WeaknessSeries'.` — context_score is a per-op weakness concept, not a series one. There is
+  no `first_seen` either; the real names come back in the "Did you mean" hint (see
+  "Introspection is broken" below).
 - **`PageInput.page_num` is 1-indexed.** `page_num: 0` is rejected outright with
   `[400] Minimum allowed page number is 1.`
 
