@@ -20,6 +20,13 @@ assert_eq "$(last | jq -r .project)" "~/gits/x" "project recorded with home coll
 assert_contains "$(last | jq -r .error)" "Session is not logged in" "error text verbatim"
 assert_eq "$(last | jq -r .harness)" "claude-code" "harness stamped"
 [ -n "$(last | jq -r .fp)" ] && pass || fail "fingerprint present"
+fp1=$(last | jq -r .fp)
+run_hook "$J" "$(fail_payload mcp__splunk__run_query 'Request failed: Session is not logged in.')"
+assert_eq "$(last | jq -r .fp)" "$fp1" "same tool+error -> same fingerprint"
+run_hook "$J" "$(fail_payload mcp__splunk__run_query 'Request failed: Invalid earliest_time')"
+[ "$(last | jq -r .fp)" != "$fp1" ] && pass || fail "different error -> different fingerprint"
+run_hook "$J" "$(fail_payload mcp__splunk_other_server__run_query 'Request failed: Session is not logged in.')"
+[ "$(last | jq -r .fp)" != "$fp1" ] && pass || fail "fingerprint sees past a long tool-name prefix"
 
 # Redaction before the write: identifiers never reach disk in the clear.
 run_hook "$J" "$(fail_payload Bash "user alice@corp.example failed at https://tenant.example.com/api/v1 from 10.20.30.40 id 3f2a1b4c-1111-2222-3333-444455556666 acct 123456789012 in $HOME/secret")"
