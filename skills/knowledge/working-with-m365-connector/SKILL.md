@@ -1,6 +1,6 @@
 ---
 name: working-with-m365-connector
-description: "Microsoft 365 / Outlook connector limits (mail, calendar, Teams, SharePoint): no binary downloads, unreadable .docx and nested .msg attachments, the deep-link-plus-re-upload fallback, Type-3-font PDF mojibake, search results being a thinner projection than read_resource (no flag.flagStatus, no per-attendee responseStatus, hasAttachments wrong on inline parts), `order` silently scoping a search to the Inbox unless folderName is given, the all-folder sweep returning moreResults with no totalResultCount, chat_message_search hitting a tenant-wide Graph 429 (\"searched 0 of 47 chats before stopping due to Microsoft Graph rate limit\") and reporting chatsFailed with no warning banner, calendar events stamped timeZone UTC regardless of mailbox, read_resource returning no internetMessageHeaders (so no SCL / SPF / DKIM / gateway-verdict analysis), no Exchange admin or audit-log surface at all, calendar events carrying no onlineMeeting/joinUrl, and the two ErrorAccessDenied 403s that need Mail.Read.Shared and admin-consented People.Read. Use when reading M365 content, sweeping mail by date, searching Teams chats, checking who accepted a meeting, searching another mailbox, looking up a person, chasing a message header or mail-flow rule, or asked to open an attachment surfaced through the connector."
+description: "Microsoft 365 / Outlook connector limits (mail, calendar, Teams, SharePoint): search results are a THINNER projection than a read_resource — no flag.flagStatus, no per-attendee responseStatus, hasAttachments wrong on inline parts; no binary downloads, unreadable .docx / nested .msg attachments (deep-link plus re-upload fallback); Type-3-font PDF mojibake; `order` silently scoping a search to the Inbox unless folderName is given, and the all-folder sweep returning moreResults with no totalResultCount; chat_message_search hitting a tenant-wide Graph 429 and reporting chatsFailed with no warning banner; events stamped timeZone UTC and carrying no onlineMeeting/joinUrl; no internetMessageHeaders (no SCL / SPF / DKIM / gateway verdict); no Exchange admin or audit-log surface; two ErrorAccessDenied 403s needing Mail.Read.Shared and admin-consented People.Read. Use when reading M365 content, sweeping mail by date, searching Teams chats, checking who accepted a meeting, or opening an attachment."
 ---
 
 # Working with the Microsoft 365 connector — sharp edges
@@ -59,7 +59,10 @@ visually** instead of trusting the broken text layer.
     `outlook_calendar_search`, present on `read_resource` for the event, one entry per attendee
     with values like `accepted` / `none` (verified on three events). **This corrects an earlier
     note here that said accept/tentative status "is not a field": it is a field, just not a
-    search field.** `showAs` (busy vs tentative) is only a proxy — spend the extra read.
+    search field.** `showAs` (busy vs tentative) is only a proxy. **There is no cheap bulk
+    form** — one read per event, so for a whole-calendar RSVP sweep fall back to the
+    `Accepted:` / `Tentative:` / `Declined:` auto-receipts in Sent Items (see below) and label
+    them as the proxy they are.
   - **`hasAttachments`** — search reported `false` for a message a full read returned as `true`
     with a populated `attachments` array; the search flag appears to ignore parts marked
     `isInline: true`. Never conclude "no attachment" from a search row.
@@ -111,7 +114,15 @@ visually** instead of trusting the broken text layer.
   field carries just the online-meeting URL — a sweep that reads `location` misses the room.
 - **Event body text truncates mid-string with no ellipsis**, so a join URL can silently lose its
   query string (cut at `…/j/<id>?`, dropping the `pwd` parameter). Report the URL as null rather
-  than completing it from the pattern.
+  than completing it from the pattern. (Events carry no `onlineMeeting`/`joinUrl` field at all —
+  see "No headers, and no admin surface" below; every join link comes out of body or location
+  text, and this is how that parse fails.)
+- **Sent Items is ~a third RSVP auto-receipts, and they are noise and signal at once.** Of 80
+  sent messages over 7 days, roughly 20 were `Accepted:` / `Tentative:` / `Canceled:` /
+  `New Time Proposed:` receipts and ~6 were file-share/comment notifications, so a naive sent
+  count overstates real correspondence by about a third — filter them out of any "who did I
+  write to" measure. They are simultaneously **the only cheap bulk source of RSVP truth**, which
+  is what the per-event `responseStatus` read above does not scale to.
 
 ## No headers, and no admin surface at all
 
