@@ -19,9 +19,10 @@ discover them live.
   **Cut `maxResults`, not `fields` — the bloat is per-*node* overhead, not per-field.** Every
   user node (assignee, reporter, comment author) carries four `avatarUrls` plus a `self` URL, so
   a 20-issue page that includes `assignee` costs far more than 20 summaries, and dropping a
-  field or two barely moves it. Measured: 20-25 results with a narrow field list is safe; a
-  30-result `text ~ "<term>"` query overflowed *with* an explicit narrow field list and spilled
-  to a temp file.
+  field or two barely moves it. Measured: **~1.5K of avatar and self-URL overhead per issue**,
+  enough that a request for four narrow fields still overflows; 20-25 results with a narrow
+  field list is safe; a 30-result `text ~ "<term>"` query overflowed *with* an explicit narrow
+  field list and spilled to a temp file.
 - **`cloudId` accepts the bare site URL** (`<your-site>.atlassian.net`) on `getJiraIssue` and
   the Confluence read tools alike, so `getAccessibleAtlassianResources` is not a required first
   call. That saves a round trip, which matters when the transport is serialized against another
