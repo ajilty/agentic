@@ -1,6 +1,6 @@
 ---
 name: working-with-crowdstrike-mcp
-description: "CrowdStrike Falcon MCP (falcon_* tools): NG-SIEM CQL gotchas \u2014 head(3) schema discovery, groupBy limit truncates lexicographically (use top()), numbers as strings, token-overflow spill files, blocked processes logged under ProcessBlocked not ProcessRollup2 \u2014 plus FQL syntax, falcon_aggregate_detections silently dropping records that lack the faceted field (pass missing), the free-text q param being a fuzzy multi-token OR match, falcon_host_link paths differing by product (unified-detections vs activity-v2/detections vs automated-leads) and hosts/vulns exposing no console link at all, detection write-path traps, the falcon_search_applications (Discover) broken pagination cursor and ~52x product-name over-count, the Spotlight (falcon_search_vulnerabilities) no-product-filter limit, its rejection of host_info.hostname, and its zero-coverage blind spots for whole third-party product classes, and RTR read-only limits. Use before composing falcon_search_ngsiem queries, counting a detection queue, building a console deep-link, paging Discover applications, scoping Spotlight vulns, reading blocked-process telemetry, or running RTR \u2014 or when results come back empty, truncated, mis-counted, or spilled to tool-results files."
+description: "CrowdStrike Falcon MCP (falcon_* tools): NG-SIEM CQL gotchas \u2014 head(3) schema discovery, groupBy limit truncates lexicographically (use top()), numbers as strings, token-overflow spill files, blocked processes logged under ProcessBlocked not ProcessRollup2 \u2014 plus FQL syntax, falcon_aggregate_detections silently dropping records that lack the faceted field (pass missing), the free-text q param being a fuzzy multi-token OR match, falcon_host_link paths differing by product (unified-detections vs activity-v2/detections vs automated-leads) and hosts/vulns exposing no console link at all, detection write-path traps, the falcon_search_applications (Discover) broken pagination cursor and ~52x product-name over-count, the Spotlight (falcon_search_vulnerabilities) no-product-filter limit, its rejection of host_info.hostname, and its zero-coverage blind spots for whole third-party product classes, the endpoint detection queue that BOTH a severity filter and an is_closed:false filter silently zero (automated-lead rows carry score and no severity_name, and report status 'new' with is_closed true and seconds_to_resolved 0), zero rows with job.processed_events 0 not being a confirmed negative, rtr_state:enabled being a policy capability rather than liveness (40401 'Could not establish sensor comms'), and journaled-mail alerts reporting the SMTP envelope sender and a synthetic '...@journal.report.generator' message_id instead of the author's From and Message-ID, and RTR read-only limits. Use before composing falcon_search_ngsiem queries, counting or triaging a detection queue, building a console deep-link, reading a mail-gateway or journaled-mail alert, paging Discover applications, scoping Spotlight vulns, reading blocked-process telemetry, or running RTR \u2014 or when results come back empty, truncated, mis-counted, or spilled to tool-results files."
 ---
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
@@ -43,6 +43,12 @@ The `repository` param scopes the search and speeds it up: `search-all` (default
 estate routes into `third-party` — connector-fed audit logs there (e.g. GitHub enterprise) can
 give enterprise-wide visibility that per-API queries can't.
 
+**The `repository` parameter and the `#repo` tag are different namespaces, and mismatching them
+returns a clean zero.** `#repo=third-party` with `repository: 'third-party'` returned 0 rows and
+0 `processed_events`, while the same data resolved under `repository: 'search-all'` with the
+vendor's own `#repo=<vendor>` tag. Read the real `#repo` value off a `head(3)` sample before
+pinning either one.
+
 ### Time + timeout
 
 - `start` is **required**, ISO-8601 (`2026-05-25T00:00:00Z`). `end` defaults to now.
@@ -76,6 +82,21 @@ give enterprise-wide visibility that per-API queries can't.
 - A single-row `top()` when you expected a distribution is **signal, not failure**: the behavior
   is entity-specific (one host/user), which redirects the investigation.
 - Empty output ≠ no data — first suspect a wrong field name or wrong `repository`.
+- **Zero rows with `job.processed_events: 0` is NOT a confirmed negative** — nothing was
+  scanned. A real negative is zero rows with `processed_events` greater than zero. The tool
+  flags the ambiguous case itself, appending a hint plus the entire inline CQL guide to the
+  response, which is easy to skim past. Read `processed_events` before reporting "nothing
+  found", every time.
+- **A short free-text token is not a filter, and the event counters prove it.** A two-character
+  token piped into a `groupBy` scanned 215,686,423 events and returned the lexicographically
+  first groups with no relation to the token, while the same query with a distinctive phrase was
+  precise. **Compare `job.event_count` against `job.processed_events` before trusting any
+  free-text aggregation**; anchor to fields (`Vendor.actor.alternateId=/x/i`) rather than
+  matching the raw payload, which pulls in unrelated rows (192 groups returned where only 128
+  mentioned the token anywhere).
+- **`job.parsed_query` silently omits trailing `groupBy`/`sort` stages even when they
+  demonstrably ran**, so it cannot be used to confirm an aggregation was applied. Confirm from
+  the result shape instead.
 - **A raw record dump overflows the token cap and spills to a file.** `<filter> | head(N)` for
   more than a handful of wide records blows past the MCP's max-token guard; the tool writes the
   full result to a `tool-results/*.txt` path and hands you the path, not the data. Two
@@ -84,6 +105,16 @@ give enterprise-wide visibility that per-API queries can't.
   not uniformly one-JSON-object-per-line** — a `jq -s '.[].text | fromjson'` pass dies because
   some `.text` elements are bare fragment lines (`"@id": …`), not whole objects. Guard each
   parse (`try fromjson`, or a `try/except json.loads` loop).
+- **Calibration: 16 records can be enough to spill.** `falcon_search_detections` with
+  `product:'automated-lead'` and `limit: 50` returned only **16** records and still blew the cap
+  (100,500 characters, 2,156 lines). Automated-lead and automated-lead-context rows are very
+  wide; lowering `limit` will not save you, so plan to parse the spill (`python3 json.load`)
+  rather than to avoid it.
+
+**Registry-ASEP telemetry (`AsepValueUpdate`, `investigate_view`) has no `ImageFileName`
+field** — including it in a `groupBy` silently drops the column rather than erroring. The
+writing process is `ContextProcessId`, which matches the detection record's `process_id`
+exactly, so that is the reliable join from an alert to its registry telemetry.
 
 ### Blocked / prevented actions log under their own event, not the usual one
 
@@ -133,9 +164,26 @@ earlier one's output (e.g. `head(3)` to learn field names before `top()`).
 
 - These take **FQL**, not CQL — different syntax. Many have a companion FQL guide resource
   (`falcon://<domain>/.../fql-guide`); consult it before composing non-trivial filters.
-- FQL combines predicates with `+` (AND), e.g. `status:'new'+severity:>70`.
-- `sort` accepts both `field.desc` and `field|desc`; sort `severity.desc` to surface the worst
-  first.
+- FQL combines predicates with `+` (AND), e.g. `status:'new'+created_timestamp:>'<iso>'`.
+- `sort` accepts both `field.desc` and `field|desc`.
+- **Neither a severity filter nor an open-items filter is a safe default on the endpoint
+  detection queue — on some tenants either one silently returns zero.** Two independent causes,
+  each sufficient on its own:
+  - **`severity_name` may not exist on endpoint-native rows.** A tenant that emits no
+    `product: epp` alerts carries its endpoint signal as `automated-lead` /
+    `automated-lead-context` rows, and those carry a numeric **`score`** and **no
+    `severity_name` at all**. `severity:>70`, `severity_name:'high'` and a `severity.desc` sort
+    all drop the entire endpoint queue without an error.
+  - **`is_closed` can be a schema artifact, not a triage state.** In the same tenant every
+    automated lead reported the contradictory pair `status: 'new'` with `is_closed: true`, plus
+    `seconds_to_resolved: 0` and `show_in_ui: true` — 16 of 16 records, no exceptions. So an
+    `is_closed:false` "show me the open items" filter also returns zero, and `is_closed` carries
+    no information about whether anyone has worked the row.
+  Either filter alone therefore renders an untouched queue as a clean one. **Establish the
+  population before filtering it:** `falcon_aggregate_detections` faceted on **`product`** and
+  on **`source_vendors`** is the cheap call that shows the true split, and it is what tells you
+  whether `severity_name` exists on the rows you care about. Build saved searches and daily
+  triage on `product` + `created_timestamp`, not on severity or closure.
 - **A `cmdline:'*substring*'` wildcard filter on `falcon_search_detections` /
   `falcon_aggregate_detections` returns empty silently** — `cmdline` is not a supported
   filter/aggregation field on the alerts endpoint (empty ≠ no match). Pivot to an indexed field:
@@ -150,6 +198,16 @@ earlier one's output (e.g. `head(3)` to learn field names before `top()`).
   `triage_outcome` / `triage_recommendation` plus tags like `FC-Type-Penetration Testing`,
   `true_positive`, `FC-Action-No Remediation Required` often classify the alert (e.g. authorized
   pentest activity) before you dig; `falcon_get_detection_details` returns them.
+
+## Scheduled reports: there is no "was it read" signal
+
+- **`falcon_search_report_executions` does not answer "did anyone open this report."** Falcon
+  exposes no read or download state for a scheduled report at all; the delivery notification
+  (e.g. into a chat channel) is the only observable, and it only proves the report *generated*.
+- Worse, the tool is a token trap for that question: `status:'DONE'` with `limit: 15` returned
+  153,800 characters across 1,207 lines and spilled to a tool-results file, and the payload is
+  almost entirely **XDR correlation-rule execution metadata**, not the scheduled-report records
+  you were looking for. Filter by the report id, or don't call it.
 
 ## falcon_search_applications (Discover software inventory)
 
@@ -214,6 +272,12 @@ process telemetry) to answer "where is product X installed."
 - **`init` returns the full command schema** for the host (base command set + args), and reports
   `offline_queued: false` when the host is live; **delete the session**
   (`falcon_delete_rtr_session`) when done.
+- **`rtr_state: enabled` on a host record is a policy capability, not a liveness signal.**
+  `falcon_init_rtr_session` against a host that is not currently checked in returns HTTP 404
+  with `errors[0].code` `40401` and message `Could not establish sensor comms`, even though the
+  host record says RTR is enabled. **Compare `last_seen` against now before planning any RTR
+  step**, and expect laptops to be unreachable outside working hours — an RTR-dependent plan
+  written off `rtr_state` alone will fail at execution time, not at planning time.
 
 ## Write path and console deep-links
 
@@ -254,9 +318,41 @@ examples, and keep your own per-source field notes for the rest.
 - **Mail-flow count inflation is the norm; dedupe before reporting.** One logical message
   produces many rows: one Message Trace `Delivered` per recipient leg, a duplicate for any
   journaling/archiving compliance fork, a multi-stage gateway pipeline (receipt → spam → process
-  → delivery), plus one `MailItemsAccessed` per open. Dedupe on message-ID + recipient; the
-  inflation factor depends on your journaling and gateway config. `Status: Expanded` marks
-  distribution-list fan-out, not a delivery.
+  → delivery), plus one `MailItemsAccessed` per open. The inflation factor depends on your
+  journaling and gateway config. `Status: Expanded` marks distribution-list fan-out, not a
+  delivery.
+- **Message-ID is NOT a safe dedupe key across journal legs** (this corrects the earlier advice
+  here to dedupe on message-ID + recipient). Two journal forks of one message carry **different
+  synthetic Message-IDs and different `aggregateId`s**, so a Message-ID dedupe leaves both in
+  and undercounts nothing while over-counting the message. The journaling fork is identifiable
+  by **three co-occurring markers, not one**: a Message-ID ending `@journal.report.generator`,
+  a recipient at the archiver's own ingest domain, and a `senderEnvelope` that is the journaling
+  address rather than the author. The reliable dedupe key across legs is **sender header +
+  subject + attachment hash**.
+- **A journaled message's alert names the envelope, not the author.**
+  `falcon_get_detection_details` on a third-party mail alert returns `sender` = the SMTP
+  **envelope** sender and `message_id` = the journal report's **synthetic** id
+  (`…@journal.report.generator`) — never the original message's `From` or `Message-ID`. The
+  field that separates the real originator from the journaling envelope is **`senderHeader`**,
+  and it is **absent from the Falcon alert record entirely**; it lives in the NG-SIEM row's
+  `@rawstring`. Reading direction, sender or recipient off the Falcon alert alone gives the
+  wrong answer on any journaled message — which is how a reported inbound phish reads as an
+  outbound lure from your own user.
+- **Keep `@rawstring` evidence inline with `select()`.** Mail-gateway rows carry the whole
+  vendor record inside `@rawstring`, so a free-text search plus `head(20)` spilled at 74,725
+  characters; `… | select([@timestamp, @rawstring])` returns the same evidence at a fraction of
+  the size.
+- **A gateway hold emits a delivery row for the hold NOTICE, under the same `aggregateId`.** The
+  hold itself logs as an `emailsecurity.process` action `Hld`; the follow-on
+  `emailsecurity.delivery` row is the postmaster notification to the recipient, not the message.
+  Reading it as proof of delivery is wrong — check `Vendor.recipients` and `Vendor.subject` on
+  the delivery row (a hold notice shows a postmaster sender, a "suspicious files" subject,
+  `emailSize: 0` and `numberAttachments: 0`).
+- **A Message Trace dataset can cover only some of a tenant's accepted domains.**
+  `#event.dataset=messagetrace.event` returned zero rows for one accepted domain across ~80,000
+  events in 1.5 days — flagged by the API as a real negative, not an empty scan. Any
+  absence-of-evidence conclusion from Message Trace is valid **only for the domains actually
+  present**; `groupBy` the recipient domain first and say which ones you covered.
 - **Tenant boundary:** the SIEM sees only legs that touch your tenant — an external
   participant's intra-external hops are invisible. `MailItemsAccessed` proves *a client fetched
   it*, not *a human saw it*; `MailAccessType` `Bind` (explicit open) vs `Sync` (background pull)
