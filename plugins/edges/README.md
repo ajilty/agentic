@@ -41,6 +41,15 @@ Authoring rules (edge shape, size, redaction, validation, PR flow) live in
   covered, is it the shortest form) before the PR is marked ready.
   `/edges:harvest diet <tool>` runs a compression pass on a skill that has
   grown.
+- **Between sessions**: the plugin's hooks keep a **failure journal**. Every
+  tool error (and every MCP result flagged `isError`) is appended, redacted at
+  capture, to `~/.local/state/edges/journal.jsonl` (`XDG_STATE_HOME` or
+  `EDGES_JOURNAL` override) with pointers to the session, transcript, and
+  call. No model runs, nothing interrupts the session; the only surface is one
+  line at session start when unharvested rows exist. `/edges:harvest` reads
+  the journal alongside the live session, and rows age out after 30 days to
+  match transcript retention. Capture is mechanical; judgment stays with the
+  human.
 - **By hand**: every skill ends with a report link — wrong, stale, or missing
   edges: [file an edge report](https://github.com/ajilty/agentic/issues/new?template=edge-report.yml),
   or PR against `skills/knowledge/` per CONTRIBUTING.md (the plugin
