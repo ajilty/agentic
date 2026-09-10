@@ -22,13 +22,25 @@ incantation over a description of it.
 
 - One skill per tool surface, named `working-with-<tool>` (kebab-case), one
   `SKILL.md`, nothing else.
-- Body is terse bullets grouped by operation area (auth, search, writes, ...),
-  60-90 lines total for a mature skill. A new skill can start with 2-3 edges;
-  a single contribution to an existing skill is often one bullet.
-- **The description is the API.** These skills are auto-invoked: the
-  description must carry "use when" triggers with the concrete error strings,
-  command names, and jargon the model will actually see in-session. A great
-  edge with a vague description never fires.
+- Body is terse bullets grouped by operation area (auth, search, writes, ...).
+  A new skill can start with 2-3 edges; a single contribution to an existing
+  skill is often one bullet, or a measurement folded into an existing one.
+- **The description is the API, and it is the part every session pays for.**
+  Skill descriptions load into context on every turn whether or not the skill
+  fires, so they are budgeted hard: **600 characters**, triggers only. Name the
+  error strings, tool names, parameters, and jargon a model will actually see
+  in-session; never summarize the body. A great edge with a vague description
+  never fires; a description that restates the body taxes every unrelated
+  session.
+- **The body is budgeted by review, not by count.** A body loads only when the
+  skill fires, so a long skill is not wrong if every bullet earns its lines.
+  The test is *minimum viable edge*: the shortest text that keeps the
+  incantation, the verbatim string, and any correction. The
+  `edges:harvest-review` subagent applies it to every contribution and may
+  return `compress` with a shorter proposal. Two smells it looks for: framing
+  repeated across bullets ("silently, with no error") and a new bullet where a
+  measurement in an existing one would do. There is no line cap; a skill that
+  keeps growing gets a `diet` pass (`/edges:harvest diet <tool>`) instead.
 - Every skill ends with the report-link footer:
 
   ```
