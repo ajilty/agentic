@@ -14,16 +14,23 @@ someone else confirmed. You have no view of the session they came from; the
 argument is everything you know. Work in scratch space, never in a checkout
 the user may be sitting in.
 
-## Setup, every mode
+## Setup (candidates, revise, diet)
 
 1. Clone `https://github.com/ajilty/agentic` into a fresh scratch directory
-   and `git config core.hooksPath scripts/githooks` (leak guard).
+   and `git config core.hooksPath scripts/githooks` (leak guard). For
+   `revise` and `diet` on an existing branch, check that branch out.
 2. Read `plugins/edges/CONTRIBUTING.md` and follow it; it is the authority on
    edge shape, budgets, redaction, wiring, and commit style.
-3. **Collision check.** `gh pr list --state open --json number,headRefName,files`
-   and note every open PR touching the target skill. If one exists, branch
-   from its head instead of `main` and say so in the PR body; two PRs editing
-   the same skill against the same base is the failure this step prevents.
+3. **Collision check (candidates and diet only).**
+   `gh pr list --state open --json number,headRefName,files` and note every
+   open PR touching the target skill. If one exists, branch from its head
+   instead of `main` and say so in the PR body; two PRs editing the same skill
+   against the same base is the failure this step prevents.
+
+`ship` needs none of this; see below.
+
+Every mode returns the same shape: branch name, PR URL, and one line per edge
+(or per prune) saying where it landed and why.
 
 ## Mode: candidates (default)
 
@@ -44,20 +51,20 @@ For each candidate, read the whole target skill before adding a line:
 Then `bash scripts/validate-plugins.sh`, commit with an
 `edges(<tool>): <edge>` subject, push, and open the PR **as a draft**
 (`gh pr create --draft`) with a body listing each edge and its redaction
-statement. Return: branch name, PR URL, and per edge one line on where it
-landed and why there.
+statement. Return the standard shape.
 
 ## Mode: revise <branch> + verdict
 
 Check out the branch, apply the verdict literally: use the reviewer's
 `compress` text, drop `redundant` and `not-an-edge` items (say so in the
 commit), and if a drop empties the PR, close it and return that. Re-validate,
-push, return a one-paragraph summary.
+push, return the standard shape.
 
 ## Mode: ship <branch>
 
-`gh pr ready <number>` so CI's review fires (it only runs on the draft-to-ready
-transition). Return the PR URL.
+No clone. `gh pr ready "$(gh pr view <branch> --json number -q .number)"` so
+CI's review fires (it only runs on the draft-to-ready transition). Return the
+PR URL.
 
 ## Mode: diet <skill>
 
@@ -78,4 +85,5 @@ option.
 Open as a draft PR titled `edges(<tool>): diet` whose body has two lists:
 what was merged, and what was pruned with one line of reason each. The prune
 list is for a human to confirm before merge, so a diet PR is never marked
-ready by `ship`; return the URL and the prune list to the caller instead.
+ready by `ship`; return the standard shape with the prune list as the
+per-line part.

@@ -2,7 +2,7 @@
 name: harvest
 description: Harvest this session's tool-call learnings into the edges library. Extracts candidates here, confirms them with you, then hands authoring and review to forked subagents so this session keeps its context.
 disable-model-invocation: true
-argument-hint: "[tool] [: observation or direction, e.g. 'new skill' / 'fold into existing' / 'diet']"
+argument-hint: "[tool] [: observation or direction, e.g. 'new skill' / 'fold into existing'] | diet <tool>"
 ---
 
 # Harvest
@@ -41,15 +41,22 @@ Nothing is written before the answer.
 
 Invoke `edges:harvest-author` with the confirmed candidates as its argument:
 one block per candidate carrying observation, target skill, and any user
-direction. It runs as a forked subagent and returns a branch name and a
-one-paragraph summary when done. Do not clone, edit, or open PRs from this
-session.
+direction. For a diet, skip steps 1 and 2 and invoke it with `diet <skill>`.
+Do not clone, edit, or open PRs from this session.
+
+Both forked skills run in the **background**: the invocation returns at once
+and the result arrives later as a task notification. Give the user a
+three-line status and stop; continue the chain from the notification, not by
+waiting. Every mode of the author returns the branch name, the PR URL, and a
+per-edge (or per-prune) line; the reviewer returns a verdict.
 
 ## 4. Review, then ship
 
-When the author returns, invoke `edges:harvest-review` with the branch name.
-It returns a verdict per edge: `accept`, `compress` (with the shorter text),
-`redundant` (with what already covers it), or `not-an-edge`.
+When the author's notification arrives, invoke `edges:harvest-review` with
+the branch name (for a diet, say so: `diet <branch>`). It returns a verdict
+per edge: `accept`, `compress` (with the shorter text), `redundant` (with what
+already covers it), or `not-an-edge`; on a diet, a verdict per prune plus its
+own check that nothing operational was lost.
 
 - All `accept`: invoke `edges:harvest-author` once more with `ship <branch>`
   so it marks the draft PR ready for review. **Except a diet:** a diet PR

@@ -4,7 +4,7 @@ description: Adversarial fresh-context review of an edges-library branch before 
 user-invocable: false
 context: fork
 agent: general-purpose
-argument-hint: "<branch>"
+argument-hint: "<branch> | diet <branch>"
 ---
 
 # Harvest review
@@ -40,6 +40,17 @@ Also check: redaction (any org, person, tenant, hostname, dated incident), a
 correction that left the old claim standing anywhere in the file, and a
 generic pattern written only in the vendor skill.
 
+## Diet branches
+
+A diet adds nothing, so the four questions apply to what was *removed*, not
+added. Run the author's proof yourself rather than trusting the PR body:
+extract the backtick-quoted tokens and every number from `origin/main`'s copy
+and the branch's, diff them, and check each missing item against the prune
+list. Anything missing and unlisted is a defect. Then judge each listed prune
+with question 1: a pruned incantation, verbatim error string, or correction
+of a live claim is `restore`; a pruned docs restatement is `accept`. Check
+the description landed under 600 characters and still names the triggers.
+
 ## Verdict
 
 **Report everything you see the first time.** The author gets two revision
@@ -48,5 +59,6 @@ that the fixes introduced nothing new. A finding you could have raised in
 round one and raise in round three costs the human a decision.
 
 One line per edge: `accept`, `compress: <your text>`, `redundant: <covering
-bullet>`, or `not-an-edge: <why>`; then any file-level findings. Be specific
+bullet>`, or `not-an-edge: <why>`; on a diet, one line per prune: `accept` or
+`restore: <why>`. Then any file-level findings. Be specific
 enough that the author can apply it without judgment. Do not edit the branch.
