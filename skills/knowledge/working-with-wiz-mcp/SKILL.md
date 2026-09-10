@@ -1,6 +1,6 @@
 ---
 name: working-with-wiz-mcp
-description: "Wiz MCP hunting gotchas: SBOM substring lookalikes and control queries, isAccessibleFromInternet null is not false, executionControllers underreporting, subscription UUID not cloud account ID, non-disjoint pagination, Issues lag. Use for cloud/K8s blast-radius or package-presence hunts via list_* / graph_search tools."
+description: "Wiz MCP hunting gotchas: the deliberately-wrong-parameter schema probe (\"additionalProperties zzz_probe not allowed\") as the cheap way to test a tool exists and learn its required properties — and the corollary that a parameter which does NOT error is genuinely applied; graph_search taking a free-text STRING not an object (\"expected string, but got object\", \"Failed to convert free text to graph query\"); list_cloud_resources being richer than graph_search for one named resource (assumeRolePolicy as its own entity with an updatedAt that proves a trust policy did not change); Issue records pointing at SYNTHETIC entities that resolve nowhere; hasAccessToSensitiveData / hasHighPrivileges untrustworthy; list_issues paging 10 with no page param; list_subscriptions capped at 20; SBOM lookalikes; isAccessibleFromInternet null is not false; subscription UUID not cloud account ID; Issues lag. Use for cloud/K8s blast-radius or package hunts, IAM trust-policy questions, or pivoting from an Issue to the real resource."
 ---
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
@@ -9,7 +9,29 @@ How to drive the Wiz MCP tools for security hunts. If tools are deferred, load s
 (e.g. ToolSearch `select:mcp__wiz__list_sbom`). **Multi-tenant orgs:** separate MCP server
 entries for each Wiz tenant share the same URL (`https://mcp.app.wiz.io`) — tenant selection is
 scoped to the OAuth session, so one tenant never answers for another; run every hunt against
-each tenant.
+each tenant. **Two tenants can also answer each other's labelling questions:** a principal one
+tenant calls "outside our cloud organizations" may be fully inventoried in the sibling tenant,
+so querying the sibling for the same account id is the fastest way to tell an unknown third
+party from an unregistered affiliate. Wiz cannot make that correlation itself.
+
+## Probe the schema before you guess it
+
+- **A deliberately-wrong parameter is the cheapest tool-existence and schema probe, and it works
+  on every tool** — no `discover` call needed. `{"zzz_probe": 1}` returns
+  `invalid input: error validating input: error validating document with schema
+  [{"errors":[{},{"keywordLocation":"/additionalProperties","error":"additionalProperties
+  'zzz_probe' not allowed"}]}]` if the tool exists, and the same error often names the
+  **required** properties too (`graph_search` answered `missing properties: 'query'` alongside
+  the rejection).
+- The corollary matters more than the probe: **because unknown parameters are rejected rather
+  than ignored, a parameter that does NOT error is genuinely being applied.** That is a real
+  guarantee, and it is unusual — most APIs silently drop what they don't know. Confirmed valid
+  on `list_issues`: `severity`, `created_after`, `created_before`.
+- **`graph_search` takes a free-text STRING, not a graph-query object.** Passing
+  `{"query": {...}}` returns `expected string, but got object`, and an over-complex sentence
+  returns `Failed to convert free text to graph query` with code `INTERNAL`. Short noun-phrase
+  queries work ("AWS IAM roles with name starting with `<prefix>`"); a multi-clause sentence
+  asking for trust policies and account ids at once does not.
 
 ## Package / SBOM presence (the "are we affected" question)
 
@@ -30,7 +52,9 @@ each tenant.
 - `list_secret_findings` (exposed creds an executed payload could harvest),
   `list_network_exposure` (internet-facing?), and identity/entitlement tools for blast radius.
 - **The issue API returns no portal deep links** — render items as "link not captured"; never
-  construct an `app.wiz.io` console URL by pattern.
+  construct an `app.wiz.io` console URL by pattern. The full Issue field set observed is
+  `createdAt`, `dueAt`, `entitySnapshot`, `id`, `resolvedAt`, `severity`, `sourceRules`,
+  `status`, `statusChangedAt`, `type`: there is nothing URL-shaped to render.
 - Treat specific findings as **transactional** — re-pull at query time rather than caching them
   as durable facts.
 
@@ -73,6 +97,29 @@ finer details.)*
 - **Wiz "Issues" lag — don't read "0 Issues" as low risk.** Fresh Vulnerability Findings may not
   yet have rolled up into Issues; a `0 Issues` count on a new CVE is a lag artifact, not an
   all-clear.
+
+## Issues, resources, and entitlement flags
+
+- **`list_cloud_resources` is far richer than `graph_search` for one named resource.** It takes
+  a `search` param and returns the cloud object, its **`assumeRolePolicy` as a separate
+  `RAW_ACCESS_POLICY` entity with its own `updatedAt`**, the attached customer-managed policies,
+  and the IaC declarations with repo, branch and path. That `updatedAt` is **the cheapest way to
+  prove a trust policy did NOT change inside a window**.
+- **Issue records point at SYNTHETIC entities that resolve nowhere.** An issue titled for a
+  finding class carries an entity id that is **not** the underlying resource's, and resolves
+  through neither `list_cloud_resources` nor `graph_search`; searching the synthetic name
+  returns `totalCount: 0`. **There is no API path from an Issue to the specific resource** when
+  several share a name — pivot on name plus account, or say the issue could not be pinned.
+- **`hasAccessToSensitiveData` / `hasHighPrivileges` are not trustworthy where reach is
+  indirect.** A role able to read a database private key and dozens of counterparty transfer
+  secrets reported **false** in one tenant while the other end of the same pipeline reported
+  **true** in another: reach via secrets-manager *contents* or a tag-gated resource wildcard is
+  invisible to these booleans. **Read the attached policy documents; never rank on the flags.**
+- **`list_issues` pages 10 with a `totalCount` and no pagination parameter.** Slice with
+  `created_after` / `created_before`; records sharing a timestamp cannot be separated, so
+  exhaustive enumeration is not always reachable — report the shortfall.
+- **`list_subscriptions` accepts no parameters at all** and returns only the first 20 of its own
+  `totalCount`. The cloud-account inventory cannot be exhaustively enumerated from this tool.
 
 ## What this skill does not cover
 
