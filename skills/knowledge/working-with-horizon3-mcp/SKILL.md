@@ -1,6 +1,6 @@
 ---
 name: working-with-horizon3-mcp
-description: "Horizon3 / NodeZero MCP (pentest results): in-band introspection is broken but the public GraphQL docs are WebFetch-able, the get_h3_terminology schema cheat-sheet, the action_logs_page per-host command log (filter_by_inputs, page_size-100 cap, attempted-vs-proven), remediation fields the API never exposes, two-field clean-run corroboration, ~24h token TTL, 5-day loot expiry. Use when reading NodeZero pentest results, pulling the per-endpoint action log, or hitting \"Cannot query field\" GraphQL errors."
+description: "Horizon3 / NodeZero MCP (pentest results): severity filter values are UPPERCASE and lowercase returns 0 with no error; the account-wide weakness_series_page / weakness_series_count / weakness_series_facets family (the Remediation Hub view) and the fields WeaknessSeries lacks; PageInput.page_num is 1-indexed (\"[400] Minimum allowed page number is 1.\"); Schedule exposes state/is_disabled not enabled, and next_triggered_at lives on run_pentest_action; in-band __type introspection is broken but fetch_h3_graphql_docs works per-type (id:\"Query\" spills at ~133K chars) and the public GraphQL docs are WebFetch-able; the get_h3_terminology cheat-sheet; the action_logs_page per-host command log; remediation fields the API never exposes; two-field clean-run corroboration; ~24h token TTL; 5-day loot expiry. Use when reading NodeZero pentest results, querying the account-wide weakness series or Remediation Hub, reading schedules, pulling the per-endpoint action log, or hitting \"Cannot query field\" errors."
 ---
 
 # Working with the Horizon3 / NodeZero MCP — sharp edges
@@ -108,16 +108,51 @@ cross-reference the action log (above) before reporting a host as unexposed.
 - **Discover fields the MCP-native way first.** `get_h3_terminology` (the cheat-sheet — call it
   every session) plus the known-good field lists above plus incremental trial against the live
   query engine, which returns `Cannot query field 'X' on type 'Y'` and *sometimes* a `Did you
-  mean 'Z'?` hint on scalar fields (not on every miss). In-band `__type` introspection and
-  `fetch_h3_graphql_docs` both error server-side ("An unexpected error occurred. We are
-  investigating."), so you build the query up from terminology + trial, not from live
-  introspection.
+  mean 'Z'?` hint on scalar fields (not on every miss). **The "Did you mean" list is the fastest
+  field-discovery path available** — e.g. `Cannot query field 'first_seen' on type
+  'WeaknessSeries'. Did you mean 'first_seen_at', 'first_seen_date', or 'is_open'?` names three
+  real fields in one failed call.
+- **`fetch_h3_graphql_docs` DOES work — fetch a specific type, never `Query`.** (This corrects
+  an earlier note here that said it errors server-side alongside `__type`.) `id: "Query"`
+  returns roughly 133,000 characters and spills to a tool-results file; naming the type you
+  actually need (`Schedule`, `PageInput`, `FilterByInput`, `WeaknessSeriesFacets`) returns
+  inline and small. In-band `__type` introspection does still error ("An unexpected error
+  occurred. We are investigating.").
 - **When trial-and-error stalls, WebFetch the public docs: <https://docs.horizon3.ai/api/graphql/>.**
   They are fetchable and authoritative. Reach for them the moment probing isn't converging — a
   nested *input* shape crashes with a generic "unexpected error" and no field hint (e.g. the
   `filter_by_inputs` shape), which trial-and-error cannot recover on its own; the docs settle it
   in one shot. "Introspection is broken" is not "the schema is undiscoverable" — the HTML portal
   is the escape hatch.
+
+## Weakness series — the account-wide view (the "Remediation Hub")
+
+A single pentest's `weaknesses_page` is one op. The deduplicated, account-wide view used for
+remediation, regression and trend tracking is a **different query family**, and requests naming
+the Remediation Hub route here.
+
+- **Root fields:** `weakness_series_page`, `weakness_series_count`, `weakness_series_facets` —
+  alongside `pentests_page` and `schedules_page`. Note `pentests` is **not** a field.
+- **Severity filter values are UPPERCASE, and the lowercase form returns 0 with NO error.**
+  `filter_by_inputs: [{field_name: "severity", values: ["critical"]}]` returned **0**;
+  `["CRITICAL"]` returned **269**. A silent-empty that reads exactly like a clean result.
+  **Always read the real enum values off a `weakness_series_page` row before trusting any
+  filtered count.**
+- **`weakness_series_facets` has no severity facet** — use `weakness_series_count` with a filter
+  instead (which is where the uppercase trap bites).
+- **`WeaknessSeries` field traps:** `Cannot query field 'context_score' on type
+  'WeaknessSeries'.` — context_score is a per-op weakness concept, not a series one. There is
+  no `first_seen` either; the real names come back in the "Did you mean" hint (see
+  "Introspection is broken" below).
+- **`PageInput.page_num` is 1-indexed.** `page_num: 0` is rejected outright with
+  `[400] Minimum allowed page number is 1.`
+
+## Schedules
+
+- **`Schedule` exposes `state` (`ENABLED` / `DISABLED`) and `is_disabled`, not `enabled`** —
+  `Cannot query field 'enabled' on type 'Schedule'.`
+- **`next_triggered_at` is NOT on `Schedule`.** It lives on `Schedule.run_pentest_action` (type
+  `ScheduledAction`). "When does this run next" needs the nested object.
 
 ## Credentials + data
 
