@@ -24,9 +24,9 @@ Search and read mechanics for the Slack MCP tools (`slack_search_*`, `slack_read
   operator's `<@U0XXXXXXX>` token were absent from all five pages of a `to:me` sweep and
   returned by a bare `<@U0XXXXXXX> on:<day>` search. **Always run both forms per day and union
   them** — the second query is what catches a decision you are cited as backing.
-- **Don't stop a `to:me` sweep at three pages** on the assumption it caps there; it paged
-  cleanly to five and reported genuine end-of-results. Page until the oldest `ts` crosses the
-  window floor.
+- **Don't stop a `to:me` sweep early on a guessed page cap.** One sweep paged cleanly to five
+  and reported genuine end-of-results; a run that had stopped at three would have looked
+  complete. Page until the oldest `ts` crosses the window floor.
 - **`include_context=false` is mandatory on sweeps.** The default `true` attaches surrounding
   messages and blows past the 25K-token response cap on busy days, and the context is rarely
   useful.
@@ -66,7 +66,7 @@ Search and read mechanics for the Slack MCP tools (`slack_search_*`, `slack_read
 - **Don't eagerly call `slack_read_thread` to fetch parents** — roughly 10s per call and it
   rarely changes a summary. Record the `thread_ts` pointer; fetch on demand.
 - **`slack_read_thread` takes `message_ts` (the parent's ts), not `thread_ts`.** Passing
-  `thread_ts` fails with `initialization_failed: Missing value for parameter \`message_ts\``.
+  `thread_ts` fails with ``initialization_failed: Missing value for parameter `message_ts` ``.
 - **A no-floor detailed channel read beats a windowed one.** `slack_read_channel` with
   `limit` 10-25 and **no `oldest`** returns in-window top-level posts *and* a
   `Thread: N replies (latest: <ts>)` annotation on older parents, in one call — which is how a
