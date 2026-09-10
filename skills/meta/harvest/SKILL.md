@@ -29,13 +29,26 @@ compression pass (step 4, diet mode).
 Redact as you collect: no user, company, tenant, or dated incident specifics;
 keep error strings otherwise verbatim.
 
+**Also read the failure journal.** The plugin's hooks append every tool
+failure, already redacted, to
+`${EDGES_JOURNAL:-${XDG_STATE_HOME:-$HOME/.local/state}/edges/journal.jsonl}`.
+Rows newer than the timestamp in the sibling `journal.cursor` file are
+unharvested; group them by `tool` and `fp`, so a failure that hit five times
+shows as one candidate with a count. Each row carries `transcript_path` and
+`tool_use_id`: when a candidate needs the retries and the variant that worked,
+`grep` the id in that transcript rather than asking the user to remember. The
+journal captures what errored; the silent incomplete answers that make up
+most edges still come from your own read of this session.
+
 ## 2. Confirm
 
 Present the candidates in one message: for each, the observation (one or two
 lines), the likely target skill, and whether it reads as vendor-specific or as
 a generic connector pattern (those belong in `working-with-mcp-connectors`,
 with at most a one-line pointer in the vendor skill). Ask which to submit.
-Nothing is written before the answer.
+Nothing is written before the answer, except the cursor: once the candidates
+are on screen, write the current UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)
+to `journal.cursor` so dismissed rows do not resurface next session.
 
 ## 3. Hand off
 
