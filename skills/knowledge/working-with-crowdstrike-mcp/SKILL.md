@@ -44,7 +44,7 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 - **Spills**: a wide `head(N)` spills to `tool-results/*.txt`; aggregate in-query.
   `falcon_search_applications` `name:'*Product*'` over a widely-installed product also spills.
   Calibration: `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16
-  records and still spilled (100,500 chars); lowering `limit` will not save you, plan to parse
+  records and still spilled (100,500 chars, 2,156 lines); lowering `limit` will not save you, plan to parse
   (`python3 json.load`). For raw evidence, `… | select([@timestamp, @rawstring])`: a free-text
   search plus `head(20)` on mail-gateway rows spilled at 74,725 chars; `select()` returned the
   same at a fraction.
@@ -137,6 +137,8 @@ telemetry) for "where is X installed", within these limits.
 - **`rtr_state: enabled` is policy, not liveness**: init against a host not checked in returns
   HTTP 404, `errors[0].code` `40401`, `Could not establish sensor comms`. Compare `last_seen` to
   now before planning RTR; laptops are unreachable off-hours.
+- The read-only tier has no PE-version command: `filehash` then map via inventory, or `reg query`
+  (see the endpoint telemetry bullet under NG-SIEM for the `FileVersion` route and its gaps).
 
 ## Console deep-links and writes
 
