@@ -67,14 +67,17 @@ activity lookups.
 
   ```sh
   gh api graphql -f query='query{viewer{pullRequests(states:OPEN,first:100){totalCount
-    nodes{number url repository{nameWithOwner} reviewRequests(first:20){totalCount}
-    reviews(first:50){totalCount}
-    commits(last:1){nodes{commit{statusCheckRollup{state}}}} reviewDecision isDraft}}}}'
+    nodes{number url repository{nameWithOwner} isDraft reviewDecision
+    reviewRequests(first:20){totalCount nodes{requestedReviewer{
+      ... on User{login} ... on Team{slug}}}}
+    reviews(first:50){totalCount nodes{author{login} state}}
+    commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}'
   ```
 
-  It also yields reviewers, review states, CI rollup and `reviewDecision` in the same response.
-  (`viewer` is self-only; for another user, diff `gh search prs --author=` against a
-  repo-by-repo `gh pr list`.)
+  As written it returns `reviewDecision`, the CI rollup, and — via the `nodes{}` selections —
+  requested reviewers (user *and* team) and per-review author + state. Drop those two `nodes{}`
+  blocks if you only need counts. (`viewer` is self-only; for another user, diff
+  `gh search prs --author=` against a repo-by-repo `gh pr list`.)
 - **Issue search can be stale per-repo** — a dated `gh search issues` query can return empty for
   an issue that plainly matches. The verification path is plain
   `gh issue list --repo <r> --state all` + client-side filter; treat search emptiness as
