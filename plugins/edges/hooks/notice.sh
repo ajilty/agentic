@@ -7,9 +7,10 @@
 # "Looked at" is a cursor file beside the journal holding an ISO timestamp; harvest
 # writes it after presenting candidates. Rows newer than the cursor are pending.
 #
-# Contract: exit 0 always; on pending rows emit hookSpecificOutput.additionalContext with
-# the count (and how many are from this project). Silent otherwise. Fail-open on missing
-# jq. This is the entire user-facing surface of the journal: never mid-session, never
+# Contract: exit 0 always; on pending rows emit one JSON object carrying the same line as
+# systemMessage (shown to the user) and additionalContext (seen by the model). Silent
+# otherwise. Fail-open on missing jq. This is the entire user-facing surface of the
+# journal: never mid-session, never
 # more than one line.
 
 set -u
@@ -37,5 +38,7 @@ read -r total mine oldest < <(jq -rs --arg cursor "$cursor" --arg here "$here" '
 msg="edges journal: ${total} tool failure(s) captured since your last harvest"
 [ "${mine:-0}" -gt 0 ] && msg="${msg} (${mine} from this project)"
 msg="${msg}, oldest ${oldest%%T*}. /edges:harvest reads them; nothing else will mention this."
-jq -cn --arg m "$msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$m}}'
+# systemMessage is what the user sees; additionalContext is what the model sees. The model's
+# copy adds the instruction not to bring it up, so the user's one line stays the only line.
+jq -cn --arg m "$msg" '{systemMessage:$m, hookSpecificOutput:{hookEventName:"SessionStart", additionalContext:($m + " Do not mention the journal unless the user asks or invokes harvest.")}}'
 exit 0
