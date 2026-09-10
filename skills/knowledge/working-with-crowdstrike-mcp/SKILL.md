@@ -16,24 +16,22 @@ output is first a wrong field name or wrong `repository`, not "no data".
 - **Sample before you aggregate**: `<filter> | head(3)`, read the real field names, then
   `top()`/`count()`. `top(missing_field)` returns empty with no error. Note `SampleInterval` on
   sampled sources (e.g. `#Vendor=cloudflare` Magic Firewall) and scale rates by it.
-- **`repository` param** scopes and speeds the search: `search-all` (default, slowest),
-  `third-party` (connector feeds: proxy, SaaS, cloud audit; e.g. GitHub enterprise audit there
-  gives estate-wide visibility per-API queries cannot), `investigate_view` (endpoint),
-  `falcon_for_it_view`, `forensics_view`. **It is a different namespace from the `#repo` tag**:
-  `#repo=third-party` with `repository: 'third-party'` returned 0 rows and 0 `processed_events`;
-  the data resolved under `repository: 'search-all'` with the vendor's own `#repo=<vendor>`. Read
-  `#repo` off `head(3)` before pinning either.
-- `timechart(span=1h, series=field)`: `_bucket` is epoch-ms.
+- **`repository`** scopes and speeds the search: `search-all` (default, slowest), `third-party`
+  (connector feeds), `investigate_view` (endpoint), `falcon_for_it_view`, `forensics_view`. **It
+  is a different namespace from the `#repo` tag**: `#repo=third-party` with
+  `repository: 'third-party'` returned 0 rows and 0 `processed_events`; the data resolved under
+  `repository: 'search-all'` with the vendor's own `#repo=<vendor>`. Read `#repo` off `head(3)`
+  before pinning either.
 - **`groupBy(field, limit=N)` keeps the lexicographically-first N groups, not the top N by
   count**, and a trailing `sort()` ranks only that subset:
   `groupBy(user.name, limit=25) | sort(_count, order=desc)` silently drops the true maximum. Use
-  `top(field, limit=N)` for "most"; use `groupBy(…limit…)` only with the limit above cardinality.
+  `top(field, limit=N)` for "most"; use `groupBy(…limit…)` only with the limit above
+  cardinality.
 
 ### Reading results
 
 - Numbers are strings (`"_count": "2773932"`): cast before math. Spilled results carry no
-  `total`; re-run with an in-query `count()` if it matters. A single-row `top()` is signal
-  (entity-specific behavior), not failure.
+  `total`; re-run with an in-query `count()` if it matters.
 - **Zero rows with `job.processed_events: 0` is not a negative**: nothing was scanned; a real
   negative has `processed_events > 0`. The tool flags this by appending a hint plus the whole
   inline CQL guide, which is easy to skim past. Read `processed_events` before reporting
@@ -46,9 +44,10 @@ output is first a wrong field name or wrong `repository`, not "no data".
   `#event.module`, `#event.kind`.
 - **`job.parsed_query` omits trailing `groupBy`/`sort` stages that demonstrably ran**; confirm
   aggregation from the result shape.
-- **Spills**: a wide `head(N)` spills to `tool-results/*.txt`; aggregate in-query. Calibration:
-  `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16 records and
-  still spilled (100,500 chars); lowering `limit` will not save you, plan to parse
+- **Spills**: a wide `head(N)` spills to `tool-results/*.txt`; aggregate in-query.
+  `falcon_search_applications` `name:'*Product*'` over a widely-installed product also spills.
+  Calibration: `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16
+  records and still spilled (100,500 chars); lowering `limit` will not save you, plan to parse
   (`python3 json.load`).
 
 ### Endpoint telemetry fields
@@ -56,8 +55,9 @@ output is first a wrong field name or wrong `repository`, not "no data".
 - **A blocked process lands under `#event_simpleName=ProcessBlocked`** (full `CommandLine`,
   `ImageFileName`, `ParentBaseFileName`), not `ProcessRollup2`: zero `ProcessRollup2` children of
   a parent is not "no telemetry" when the detection shows prevention.
-- `ProcessRollup2` does not reliably populate `FileVersion`; `groupBy([ComputerName, FileVersion], …)`
-  silently drops the empty column. Pin a build by `SHA256HashData` mapped via
+- `ProcessRollup2` does not reliably populate `FileVersion`;
+  `groupBy([ComputerName, FileVersion], …)` silently drops the empty column. Pin a build by
+  `SHA256HashData` mapped via
   `falcon_search_applications` or RTR `filehash`.
 - `AsepValueUpdate` (`investigate_view`) has no `ImageFileName`; a `groupBy` including it silently
   drops the column. The writer is `ContextProcessId`, which equals the detection's `process_id`
@@ -66,10 +66,6 @@ output is first a wrong field name or wrong `repository`, not "no data".
 ### CQL construction
 
 - `OR` across two `regex()` calls is HTTP 400; write `field=/.../i or field=/.../i`.
-- Anchor regexes where a substring collides: `useragent=/iOS/i` matches `axios/1.15.2`; use
-  `/^iOS\//` or an exact value.
-- Render times with `formatTime(@timestamp, timezone="<your tz>")` and sort on `@timestamp`, not
-  the formatted string (delegates DST).
 - Keep `@rawstring` evidence inline with `… | select([@timestamp, @rawstring])`: a free-text
   search plus `head(20)` on mail-gateway rows spilled at 74,725 chars; `select()` returns the same
   evidence at a fraction.
@@ -109,11 +105,10 @@ output is first a wrong field name or wrong `repository`, not "no data".
 Discover is the authoritative *ever-installed* inventory: use it (not Spotlight, not process
 telemetry) for "where is X installed", within these limits.
 
-- **The `after` cursor re-serves page 1** (passing `pagination.next` back as `after`), so a paging loop caps at one page and looks complete.
+- **The `after` cursor re-serves page 1** (passing `pagination.next` back as `after`), so a
+  paging loop caps at one page and looks complete.
   Union two opposite sorts (`name.asc` then `name.desc`, or on `last_updated_timestamp`) and
   dedupe on `id`; that covers up to 2x page size, and `pagination.total` is still true.
-- `name:'*Product*'` over a widely-installed product spills; parse the `results` key with
-  `python3 json.load`.
 - **Component roll-up over-counts ~52x**: every Veeam component (Agent, console, Mount Service,
   Transport) reports `name: "Veeam Backup & Replication"`; 263 distinct hosts where 5 ran the
   server role. Filter `host.product_type_desc`, read component-level names, and diff Discover
@@ -128,8 +123,9 @@ telemetry) for "where is X installed", within these limits.
 
 - An application row's `host.id` is an opaque asset id, not the 32-hex device id; handing it to
   a host-scoped call returns empty silently. Join via `id:'<cid>_<assetid>'`.
-- `id` rejects list syntax (`id:[...]`) with a hard error, `invalid filter; operator in not allowed for property id`;
-  use comma-OR equality, `id:'<a>',id:'<b>'`, several per call.
+- `id` rejects list syntax (`id:[...]`) with a hard error,
+  `invalid filter; operator in not allowed for property id`; use comma-OR equality,
+  `id:'<a>',id:'<b>'`, several per call.
 
 ## falcon_search_vulnerabilities (Spotlight)
 
@@ -177,33 +173,15 @@ telemetry) for "where is X installed", within these limits.
 Worked examples; they apply only where your estate ingests the same sources.
 
 - **M365 / Exchange audit**: Defender-passthrough detections carry no target mailbox or
-  operation, so the NG-SIEM pivot into M365 audit rows is mandatory. Admin actor UPNs use
-  `<tenant>.onmicrosoft.com` (a primary-domain filter misses them).
-- **Mail-flow rows inflate; dedupe before counting.** One message yields a Message Trace
-  `Delivered` per recipient leg, a journaling/archiving fork, each gateway stage (receipt, spam,
-  process, delivery), and a `MailItemsAccessed` per open; `Status: Expanded` is DL fan-out, not
-  delivery. **Message-ID is not a safe dedupe key**: journal forks carry different synthetic
-  Message-IDs and `aggregateId`s. The journal fork shows three co-occurring markers: a Message-ID
-  ending `@journal.report.generator`, a recipient at the archiver's ingest domain, and
-  `senderEnvelope` equal to the journaling address. Dedupe on sender header + subject +
-  attachment hash.
+  operation; the NG-SIEM pivot into M365 audit rows is mandatory.
 - **A journaled message's alert names the envelope, not the author**: `falcon_get_detection_details`
   gives `sender` = the SMTP envelope and `message_id` = the synthetic `…@journal.report.generator`
   id. The discriminating field, `senderHeader`, is absent from the alert and lives only in the
   NG-SIEM row's `@rawstring`; reading direction off the alert alone turns an inbound phish into
   an outbound lure from your own user.
-- **A gateway hold emits a delivery row for the hold notice** under the same `aggregateId`: an
-  `emailsecurity.process` action `Hld`, then an `emailsecurity.delivery` row that is the
-  postmaster notification (postmaster sender, "suspicious files" subject, `emailSize: 0`,
-  `numberAttachments: 0`; check `Vendor.recipients` / `Vendor.subject`), not proof of delivery.
-- **Message Trace may cover only some accepted domains**: `#event.dataset=messagetrace.event`
-  returned zero for one domain across ~80,000 events in 1.5 days (a true negative per the
-  counters). `groupBy` the recipient domain first and state which domains an absence claim covers.
 - **Zscaler ZIA to sensor**: `zia.web` `source.Id` / `client.Id` *is* the Falcon `aid` (exact
   join). On tunnel-client hosts, endpoint DNS/NetworkConnect attributes egress to `ZSATunnel.exe`,
-  not the browser; naming the originating process definitively needs live RTR. A decrypting proxy
-  double-logs: a CONNECT to `host:443` with the tunnel UA, then the decrypted request with
-  `useragent="Unknown"`; filter the CONNECT leg (`url=/:443$/`) for one row per session.
+  not the browser; naming the originating process needs live RTR.
 
 ---
 Wrong, stale, or missing edge? File it: https://github.com/ajilty/agentic/issues/new?template=edge-report.yml
