@@ -1,6 +1,6 @@
 ---
 name: working-with-horizon3-mcp
-description: "Horizon3 / NodeZero MCP (pentest results): severity filter values are UPPERCASE and lowercase returns 0 with no error; the account-wide weakness_series_page / weakness_series_count / weakness_series_facets family (the Remediation Hub view) and the fields WeaknessSeries lacks; PageInput.page_num is 1-indexed (\"[400] Minimum allowed page number is 1.\"); Schedule exposes state/is_disabled not enabled, and next_triggered_at lives on run_pentest_action; in-band __type introspection is broken but fetch_h3_graphql_docs works per-type (id:\"Query\" spills at ~133K chars) and the public GraphQL docs are WebFetch-able; the get_h3_terminology cheat-sheet; the action_logs_page per-host command log; remediation fields the API never exposes; two-field clean-run corroboration; ~24h token TTL; 5-day loot expiry. Use when reading NodeZero pentest results, querying the account-wide weakness series or Remediation Hub, reading schedules, pulling the per-endpoint action log, or hitting \"Cannot query field\" errors."
+description: "Horizon3 / NodeZero MCP (pentest results): an expired token registers ZERO tools instead of erroring (confirm with an unauthenticated HTTP 401 probe against the MCP URL); loot and proof artifacts do NOT expire in ~5 days, only the presigned link does; severity filter values are UPPERCASE and lowercase returns 0 with no error; the account-wide weakness_series_page / weakness_series_count / weakness_series_facets family (the Remediation Hub view) and the fields WeaknessSeries lacks; PageInput.page_num is 1-indexed (\"[400] Minimum allowed page number is 1.\"); Schedule exposes state/is_disabled not enabled, and next_triggered_at lives on run_pentest_action; in-band __type introspection is broken but fetch_h3_graphql_docs works per-type (id:\"Query\" spills at ~133K chars) and the public GraphQL docs are WebFetch-able; the get_h3_terminology cheat-sheet; the action_logs_page per-host command log; remediation fields the API never exposes; two-field clean-run corroboration; ~24h token TTL. Use when reading NodeZero pentest results, when no mcp__horizon3__* tool appears at all, when querying the account-wide weakness series or Remediation Hub, when pulling proofs long after a pentest completed, when judging remediation urgency, when reading schedules, when pulling the per-endpoint action log, or on \"Cannot query field\" errors."
 ---
 
 # Working with the Horizon3 / NodeZero MCP — sharp edges
@@ -8,13 +8,27 @@ description: "Horizon3 / NodeZero MCP (pentest results): severity filter values 
 How to drive the Horizon3 MCP for reading autonomous-pentest results. The server is an HTTP MCP
 at `mcp.horizon3ai.com`. If tools are deferred, load schemas first (e.g. ToolSearch
 `select:mcp__horizon3__run_h3_graphql_query`). **`run_h3_graphql_request` is deprecated and
-no-ops — use `run_h3_graphql_query` for every read.** If the tools aren't present, call
-`mcp__horizon3__authenticate` for an OAuth URL — but **`authenticate` itself may not be exposed
-in a given session**, in which case re-auth requires reconnecting the connector interactively.
-**Token TTL is ~24h in practice** — while a pentest's loot clock is live, expect re-auth to be a
-near-daily task, and preflight this connector every run. Treat a dead Horizon3 connector as
-**time-boxed loss**, not a cosmetic gap: pentest loot files expire ~5 days after completion.
-Read-only: never call `run_pentest` or any mutation.
+no-ops — use `run_h3_graphql_query` for every read.** Read-only: never call `run_pentest` or any
+mutation.
+
+## An expired token registers ZERO tools — it never surfaces as a tool error
+
+**Token TTL is ~24h in practice**, and when it lapses the server contributes **nothing to the
+tool list**: no `mcp__horizon3__*` tool is registered, loaded or deferred, and nothing errors
+because no call is ever possible. It reads as *this connector was never configured*, not as *this
+connector is broken*, and can sit unnoticed for days — long enough to publish a report whose
+Horizon3 section is silently empty.
+
+- **Confirm with a bare unauthenticated request to the MCP URL.** It returns `HTTP 401` while the
+  endpoint is otherwise healthy, which separates *expired credential* from *server down* in one
+  call, with no tool registered and nothing to call in-band.
+- **`authenticate` may or may not be exposed in a given session.** Where it is absent, re-auth
+  cannot be self-served at all: it needs the operator's interactive OAuth against the connector,
+  so say that plainly instead of retrying. Where it is present, it returns an OAuth URL that
+  still needs the operator to complete it in a browser.
+- **Preflight by tool presence, every run** — a missing Horizon3 answer is far more often zero
+  tools than zero findings. The tool-agnostic form of this failure is in
+  `working-with-mcp-connectors`; the `HTTP 401` probe above is the Horizon3-specific confirmation.
 
 ## Terminology gate (mandatory, and it's also your schema cheat-sheet)
 
@@ -42,6 +56,26 @@ Read-only: never call `run_pentest` or any mutation.
 - **No API field returns a NodeZero console/portal URL** (`pentests_page` and
   `get_pentest_details` expose no link field). Hand a pentest to the user by `op_id` with "open
   it in the NodeZero Portal" — never a guessed console URL.
+
+## Loot and proof artifacts do NOT expire in ~5 days
+
+**This corrects a claim this skill used to carry**, and which is widely repeated elsewhere. It is
+wrong, and acting on it produces a false urgency claim to the operator.
+
+Measured against a live account: a complete `CommandOutputProofResource` — the command string plus
+its full stdout — came back **intact 25 days after the pentest completed**, with every report
+still listed.
+
+- **No API field states any expiry.** There is no TTL, expires-at, or purge-at on a pentest,
+  weakness, or proof object. The five-day number is not sourced from the API at all.
+- **What is actually short-lived is the presigned download link, not the artifact.** Re-request the
+  link and the artifact is still there. Never cache a presigned URL and read *its* expiry as the
+  data's expiry.
+- **An empty `proofs: []` array tracks weakness type, not age.** Some weakness classes simply carry
+  no proof resource; absence of proof is not evidence that proof aged out.
+- **Derive urgency from `next_triggered_at` on enabled schedules** — when the next run overwrites
+  the picture — rather than from an imagined artifact TTL. "Pull this before it expires" is not a
+  supportable statement about loot.
 
 ## The action log — the per-host command record
 
