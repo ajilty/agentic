@@ -33,7 +33,8 @@ hides in the parts that did not change.
    real zero") is the usual excess.
 4. **Does the description carry triggers, not content?** Flag any description
    sentence that summarizes the body instead of naming a string, tool, or
-   parameter a model would see in-session.
+   parameter a model would see in-session. Over 1,536 characters is a defect
+   (the listing truncates there, silently); over 600 is a `compress`.
 
 Also check: redaction (any org, person, tenant, hostname, dated incident), a
 correction that left the old claim standing anywhere in the file, and a

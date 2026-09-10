@@ -52,7 +52,9 @@ It returns a verdict per edge: `accept`, `compress` (with the shorter text),
 `redundant` (with what already covers it), or `not-an-edge`.
 
 - All `accept`: invoke `edges:harvest-author` once more with `ship <branch>`
-  so it marks the draft PR ready for review.
+  so it marks the draft PR ready for review. **Except a diet:** a diet PR
+  stays draft, and you hand the user its URL with the prune list so they
+  confirm the removals before marking it ready themselves.
 - Anything else: invoke `edges:harvest-author` with `revise <branch>` and the
   verdict, then review again. Two rounds is the budget; if the third review
   still objects, surface the disagreement to the user instead of looping.

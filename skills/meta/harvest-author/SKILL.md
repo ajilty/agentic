@@ -61,10 +61,21 @@ transition). Return the PR URL.
 
 ## Mode: diet <skill>
 
-No new content. Read the skill and rewrite it to its minimum viable form
-without losing an incantation, a verbatim error string, or a correction:
+No new content. Read the skill and rewrite it to its minimum viable form:
 merge bullets that share a cause, cut repeated framing ("silently, with no
 error" once per section, not per bullet), and reduce the description to
-triggers. Open as a draft PR titled `edges(<tool>): diet` whose body lists
-what was merged and confirms nothing operational was dropped. Return as in
-candidates mode.
+triggers (target 600 characters, never above 1,536). A diet may also **prune**
+a bullet that fails the edge test: documented behavior, or tradecraft with no
+failure behind it. Never prune an incantation, a verbatim error string, or a
+correction of a live claim; a "this corrects" note may go only when the claim
+it corrected is gone too.
+
+Before committing, prove it mechanically: extract the set of backtick-quoted
+tokens and every number from the old and new files and diff them. Anything
+missing is either restored or named in the prune list; there is no third
+option.
+
+Open as a draft PR titled `edges(<tool>): diet` whose body has two lists:
+what was merged, and what was pruned with one line of reason each. The prune
+list is for a human to confirm before merge, so a diet PR is never marked
+ready by `ship`; return the URL and the prune list to the caller instead.
