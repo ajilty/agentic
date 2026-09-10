@@ -40,7 +40,6 @@ not this skill's.
   `?focusedCommentId=`. Don't call `getConfluencePageFooterComments` /
   `getConfluencePageInlineComments` per page for *enumeration* — only when threads, full bodies,
   or answered/unanswered state are needed. When they are, see below: it takes three calls.
-
 - **Create vs edit, cheaply:** the CQL result doesn't say which. If `author.displayName` matches
   the target user and `lastModified` is in-window, mark `created`; else `edited`. Version-level
   detail needs a per-page `getConfluencePage` — do that only on explicit request.
