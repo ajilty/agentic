@@ -165,6 +165,11 @@ Worked examples; they apply only where your estate ingests the same sources.
   id. The discriminating field, `senderHeader`, is absent from the alert and lives only in the
   NG-SIEM row's `@rawstring`; reading direction off the alert alone turns an inbound phish into
   an outbound lure from your own user.
+- **Message-ID is not a dedupe key across journal legs**: two journal forks of one message carry
+  different synthetic Message-IDs and `aggregateId`s, so a Message-ID dedupe over-counts. The
+  journal fork shows three markers together (Message-ID ending `@journal.report.generator`, a
+  recipient at the archiver's ingest domain, `senderEnvelope` equal to the journaling address);
+  dedupe on sender header + subject + attachment hash.
 - **Zscaler ZIA to sensor**: `zia.web` `source.Id` / `client.Id` *is* the Falcon `aid` (exact
   join). On tunnel-client hosts, endpoint DNS/NetworkConnect attributes egress to `ZSATunnel.exe`,
   not the browser; naming the originating process needs live RTR.
