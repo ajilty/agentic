@@ -21,9 +21,9 @@ run_out "$N" "$(jq -cn --arg c "$HOME/gits/x" '{hook_event_name:"SessionStart",s
 assert_eq "$RC" 0 "pending -> 0"
 assert_eq "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.hookEventName)" "SessionStart" "hookSpecificOutput shape"
 ctx=$(printf '%s' "$OUT" | jq -r .systemMessage)
-assert_contains "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)" "3 tool failure(s)" "model copy carries the count"
+assert_contains "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)" "3 potential tool failures" "model copy carries the count"
 assert_contains "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)" "Do not mention" "model copy says stay quiet"
-assert_contains "$ctx" "3 tool failure(s)" "total counted"
+assert_contains "$ctx" "3 potential tool failures" "total counted"
 assert_contains "$ctx" "(2 from this project)" "this-project count"
 assert_contains "$ctx" "/edges:harvest" "points at the harvest skill"
 assert_eq "$(printf '%s\n' "$ctx" | wc -l | tr -d ' ')" 1 "exactly one line"
@@ -38,7 +38,7 @@ old=$(date -u -v-40d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '-40 days' +%
 { row "$old" "/w"; echo 'garbage line'; row "$now" "/w"; } > "$EDGES_JOURNAL"
 run_out "$N" "$(start_payload /w)"
 assert_eq "$(wc -l < "$EDGES_JOURNAL" | tr -d ' ')" 1 "old and malformed rows pruned"
-assert_contains "$(printf '%s' "$OUT" | jq -r .systemMessage)" "1 tool failure(s)" "survivor counted"
+assert_contains "$(printf '%s' "$OUT" | jq -r .systemMessage)" "1 potential tool failure to" "survivor counted"
 
 # Never errors on garbage stdin.
 run_out "$N" 'nope'; assert_eq "$RC" 0 "bad stdin -> 0"

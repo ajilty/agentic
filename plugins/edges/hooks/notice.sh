@@ -35,9 +35,10 @@ read -r total mine oldest < <(jq -rs --arg cursor "$cursor" --arg here "$here" '
   | "\(length) \(map(select(.project == $here)) | length) \((map(.ts) | min) // "")"' "$journal" 2>/dev/null) || exit 0
 [ "${total:-0}" -gt 0 ] 2>/dev/null || exit 0
 
-msg="edges journal: ${total} tool failure(s) captured since your last harvest"
-[ "${mine:-0}" -gt 0 ] && msg="${msg} (${mine} from this project)"
-msg="${msg}, oldest ${oldest%%T*}. /edges:harvest reads them; nothing else will mention this."
+plural="failures"; [ "$total" -eq 1 ] && plural="failure"
+msg="⚠️ Edges plug-in has ${total} potential tool ${plural} to harvest"
+[ "${mine:-0}" -gt 0 ] && [ "$mine" -ne "$total" ] && msg="${msg} (${mine} from this project)"
+msg="${msg}. Run \`/edges:harvest\` to learn from them."
 # systemMessage is what the user sees; additionalContext is what the model sees. The model's
 # copy adds the instruction not to bring it up, so the user's one line stays the only line.
 jq -cn --arg m "$msg" '{systemMessage:$m, hookSpecificOutput:{hookEventName:"SessionStart", additionalContext:($m + " Do not mention the journal unless the user asks or invokes harvest.")}}'
