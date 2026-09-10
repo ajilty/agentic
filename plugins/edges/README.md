@@ -33,9 +33,14 @@ not here.
 Authoring rules (edge shape, size, redaction, validation, PR flow) live in
 [CONTRIBUTING.md](CONTRIBUTING.md) — the single source both lanes follow:
 
-- **In-session**: the user-invoked `/harvest` skill (also `/edges:harvest`) (ships with this plugin)
-  harvests the current session's tool-call learnings, confirms candidates, and
-  submits the PR itself.
+- **In-session**: `/edges:harvest` (ships with this plugin) extracts the
+  current session's tool-call learnings and confirms candidates with you, then
+  hands off to two forked subagents so your session keeps its context:
+  `harvest-author` clones, writes, validates, and opens a draft PR;
+  `harvest-review` judges each edge fresh (is it an edge, is it already
+  covered, is it the shortest form) before the PR is marked ready.
+  `/edges:harvest diet <tool>` runs a compression pass on a skill that has
+  grown.
 - **By hand**: every skill ends with a report link — wrong, stale, or missing
   edges: [file an edge report](https://github.com/ajilty/agentic/issues/new?template=edge-report.yml),
   or PR against `skills/knowledge/` per CONTRIBUTING.md (the plugin

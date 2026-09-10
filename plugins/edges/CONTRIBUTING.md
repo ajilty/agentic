@@ -21,14 +21,36 @@ incantation over a description of it.
 ## Shape and size
 
 - One skill per tool surface, named `working-with-<tool>` (kebab-case), one
-  `SKILL.md`, nothing else.
-- Body is terse bullets grouped by operation area (auth, search, writes, ...),
-  60-90 lines total for a mature skill. A new skill can start with 2-3 edges;
-  a single contribution to an existing skill is often one bullet.
-- **The description is the API.** These skills are auto-invoked: the
-  description must carry "use when" triggers with the concrete error strings,
-  command names, and jargon the model will actually see in-session. A great
-  edge with a vague description never fires.
+  `SKILL.md`, nothing else. **A section beats a new skill**: a new skill adds a
+  description every session pays for on every turn, while a section in a body
+  costs nothing until the skill fires. Split only when the triggers genuinely
+  differ, never to make a long skill look shorter.
+- Body is terse bullets grouped by operation area (auth, search, writes, ...).
+  A new skill can start with 2-3 edges; a single contribution to an existing
+  skill is often one bullet, or a measurement folded into an existing one.
+- **The description is the API, and it is the part every session pays for.**
+  Skill descriptions load into context on every turn whether or not the skill
+  fires, and the harness **silently truncates the listing at 1,536 characters**
+  (documented in the Claude Code skills reference), so anything past that is
+  never seen. Budget: **target 600 characters, never above 1,536**, triggers
+  only, key use case first. Name the error strings, tool names, parameters,
+  and jargon a model will actually see in-session; never summarize the body. A
+  great edge with a vague description never fires; a description that restates
+  the body taxes every unrelated session.
+- **The body is budgeted by review, not by count.** A body loads only when the
+  skill fires, so a long skill is not wrong if every bullet earns its lines.
+  The test is *minimum viable edge*: the shortest text that keeps the
+  incantation, the verbatim string, and any correction. The
+  `edges:harvest-review` subagent applies it to every contribution and may
+  return `compress` with a shorter proposal. Two smells it looks for: framing
+  repeated across bullets ("silently, with no error") and a new bullet where a
+  measurement in an existing one would do. There is no line cap; a skill that
+  keeps growing gets a `diet` pass (`/edges:harvest diet <tool>`) instead. A
+  diet compresses, and may also **prune** bullets that fail the edge test
+  (documented behavior, tradecraft without a failure behind it); every prune
+  is listed in the PR body and a human confirms the list before merge. The
+  author proves nothing operational was lost by diffing the set of
+  backtick-quoted tokens and every number between old and new.
 - Every skill ends with the report-link footer:
 
   ```
