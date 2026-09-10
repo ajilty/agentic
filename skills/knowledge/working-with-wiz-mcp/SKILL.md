@@ -1,6 +1,6 @@
 ---
 name: working-with-wiz-mcp
-description: "Wiz MCP hunting gotchas: the deliberately-wrong-parameter schema probe (\"additionalProperties zzz_probe not allowed\") as the cheap way to test a tool exists and learn its required properties — and the corollary that a parameter which does NOT error is genuinely applied; graph_search taking a free-text STRING not an object (\"expected string, but got object\", \"Failed to convert free text to graph query\"); list_cloud_resources being richer than graph_search for one named resource (assumeRolePolicy as its own entity with an updatedAt that proves a trust policy did not change); Issue records pointing at SYNTHETIC entities that resolve nowhere; hasAccessToSensitiveData / hasHighPrivileges untrustworthy; list_issues paging 10 with no page param; list_subscriptions capped at 20; SBOM lookalikes; isAccessibleFromInternet null is not false; subscription UUID not cloud account ID; Issues lag. Use for cloud/K8s blast-radius or package hunts, IAM trust-policy questions, or pivoting from an Issue to the real resource."
+description: "Wiz MCP hunting gotchas: NO console deep link on any posture issue, finding, resource or catalog record in any tenant (findings are id-only); tenant separation cannot be proved by comparing scoped queries, since two servers returned byte-identical {\"issues\":{\"nodes\":[],\"totalCount\":0}}, so use an unfiltered control probe; the deliberately-wrong-parameter schema probe (\"additionalProperties zzz_probe not allowed\") as the cheap way to test a tool exists and learn its required properties, and the corollary that a parameter which does NOT error is genuinely applied; graph_search taking a free-text STRING not an object (\"expected string, but got object\", \"Failed to convert free text to graph query\"); list_cloud_resources being richer than graph_search for one named resource (assumeRolePolicy as its own entity with an updatedAt that proves a trust policy did not change); Issue records pointing at SYNTHETIC entities that resolve nowhere; hasAccessToSensitiveData / hasHighPrivileges untrustworthy; list_issues paging 10 with no page param; list_subscriptions capped at 20; SBOM lookalikes; isAccessibleFromInternet null is not false; subscription UUID not cloud account ID; Issues lag. Use for cloud/K8s blast-radius or package hunts, IAM trust-policy questions, pivoting from an Issue to the real resource, when a deliverable needs clickable finding links, when a query returns totalCount 0, or when confirming which tenant a multi-tenant server is actually answering for."
 ---
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
@@ -8,30 +8,12 @@ description: "Wiz MCP hunting gotchas: the deliberately-wrong-parameter schema p
 How to drive the Wiz MCP tools for security hunts. If tools are deferred, load schemas first
 (e.g. ToolSearch `select:mcp__wiz__list_sbom`). **Multi-tenant orgs:** separate MCP server
 entries for each Wiz tenant share the same URL (`https://mcp.app.wiz.io`) — tenant selection is
-scoped to the OAuth session, so one tenant never answers for another; run every hunt against
-each tenant. **Two tenants can also answer each other's labelling questions:** a principal one
-tenant calls "outside our cloud organizations" may be fully inventoried in the sibling tenant,
+scoped to the OAuth session. Run every hunt against each tenant, and read the control-probe
+section below before asserting that the two are in fact separated. **Two tenants can also answer
+each other's labelling questions:** a principal one tenant calls "outside our cloud
+organizations" may be fully inventoried in the sibling tenant,
 so querying the sibling for the same account id is the fastest way to tell an unknown third
 party from an unregistered affiliate. Wiz cannot make that correlation itself.
-
-## Probe the schema before you guess it
-
-- **A deliberately-wrong parameter is the cheapest tool-existence and schema probe, and it works
-  on every tool** — no `discover` call needed. `{"zzz_probe": 1}` returns
-  `invalid input: error validating input: error validating document with schema
-  [{"errors":[{},{"keywordLocation":"/additionalProperties","error":"additionalProperties
-  'zzz_probe' not allowed"}]}]` if the tool exists, and the same error often names the
-  **required** properties too (`graph_search` answered `missing properties: 'query'` alongside
-  the rejection).
-- The corollary matters more than the probe: **because unknown parameters are rejected rather
-  than ignored, a parameter that does NOT error is genuinely being applied.** That is a real
-  guarantee, and it is unusual — most APIs silently drop what they don't know. Confirmed valid
-  on `list_issues`: `severity`, `created_after`, `created_before`.
-- **`graph_search` takes a free-text STRING, not a graph-query object.** Passing
-  `{"query": {...}}` returns `expected string, but got object`, and an over-complex sentence
-  returns `Failed to convert free text to graph query` with code `INTERNAL`. Short noun-phrase
-  queries work ("AWS IAM roles with name starting with `<prefix>`"); a multi-clause sentence
-  asking for trust policies and account ids at once does not.
 
 ## Package / SBOM presence (the "are we affected" question)
 
@@ -51,10 +33,14 @@ party from an unregistered affiliate. Wiz cannot make that correlation itself.
 
 - `list_secret_findings` (exposed creds an executed payload could harvest),
   `list_network_exposure` (internet-facing?), and identity/entitlement tools for blast radius.
-- **The issue API returns no portal deep links** — render items as "link not captured"; never
-  construct an `app.wiz.io` console URL by pattern. The full Issue field set observed is
-  `createdAt`, `dueAt`, `entitySnapshot`, `id`, `resolvedAt`, `severity`, `sourceRules`,
-  `status`, `statusChangedAt`, `type`: there is nothing URL-shaped to render.
+- **There is no console deep link anywhere in the MCP surface** — not on a posture issue, a
+  finding, a resource, or a catalog record, in any tenant. A finding can be identified by **id
+  only**: the full Issue field set observed is `createdAt`, `dueAt`, `entitySnapshot`, `id`,
+  `resolvedAt`, `severity`, `sourceRules`, `status`, `statusChangedAt`, `type`, so there is
+  nothing URL-shaped to render. Render items as "link not captured", and never construct an
+  `app.wiz.io` console URL by pattern. Any workflow that needs a clickable link has to build one
+  out of band from the id, or do without: settle that when you design the deliverable, not when
+  you render it.
 - Treat specific findings as **transactional** — re-pull at query time rather than caching them
   as durable facts.
 
@@ -120,6 +106,25 @@ finer details.)*
   exhaustive enumeration is not always reachable — report the shortfall.
 - **`list_subscriptions` accepts no parameters at all** and returns only the first 20 of its own
   `totalCount`. The cloud-account inventory cannot be exhaustively enumerated from this tool.
+
+## Tenant separation cannot be verified by comparing scoped queries
+
+**Two differently-configured servers returning the same empty body proves nothing in either
+direction.** Observed: byte-identical `{"issues":{"nodes":[],"totalCount":0}}` from both. That
+result is equally consistent with two properly isolated tenants that both happen to have no
+matching issue, with one tenant answering twice, and with a filter that matches nothing anywhere.
+Matching emptiness is not evidence; it is the absence of evidence, and reporting it as
+confirmation of separation is a wrong operator-facing claim.
+
+- **Probe unfiltered, per server.** List issues with **no filters**, ordered by creation. Only a
+  server that returns rows is demonstrably answering for *some* tenant — a scoped query cannot
+  establish that much.
+- **Then check the two result sets are disjoint** — issue ids, resources, and totals should not
+  coincide. Overlap is the positive evidence of crossing; identical zeros are not the positive
+  evidence of isolation.
+- **Control-test the severity filter separately before believing any zero.** An unsupported or
+  mis-cased filter value returns an empty set rather than an error, so "no critical issues" is
+  only reportable alongside a filter known to return rows in that same tenant.
 
 ## What this skill does not cover
 
