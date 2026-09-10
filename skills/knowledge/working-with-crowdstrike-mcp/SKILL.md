@@ -1,11 +1,12 @@
 ---
 name: working-with-crowdstrike-mcp
-description: "CrowdStrike Falcon MCP (falcon_* tools: falcon_search_ngsiem, falcon_search_detections, falcon_aggregate_detections, falcon_get_detection_details, falcon_update_detections, falcon_search_applications, falcon_search_managed_assets, falcon_search_vulnerabilities, falcon_search_hosts, falcon_search_report_executions, falcon_init_rtr_session, falcon_run_rtr_read_only_command_and_wait). Use before writing CQL or FQL, when a result is empty, truncated, mis-counted, or spilled to tool-results/*.txt, and on: job.processed_events 0, groupBy(limit) vs top(), job.parsed_query, repository param vs #repo tag, ProcessBlocked, AsepValueUpdate, FileVersion missing, severity_name absent on automated-lead rows, is_closed true with status new, cmdline wildcard, sum_other_doc_count 0 with a facet shortfall, pagination after cursor re-serving page 1, host.id vs device id, `invalid filter; operator in not allowed for property id`, `property host_info.hostname not allowed`, `session_id / Field required`, 40401 `Could not establish sensor comms`, rtr_state enabled, falcon_host_link, @journal.report.generator, senderHeader, SampleInterval, zia.web, ZSATunnel.exe."
+description: "CrowdStrike Falcon MCP (falcon_* tools: falcon_search_ngsiem, falcon_search_detections, falcon_aggregate_detections, falcon_get_detection_details, falcon_update_detections, falcon_search_applications, falcon_search_managed_assets, falcon_search_vulnerabilities, falcon_search_hosts, falcon_search_report_executions, falcon_init_rtr_session, falcon_run_rtr_read_only_command_and_wait). Use before writing CQL or FQL, when a result is empty, truncated, mis-counted, or spilled to tool-results/*.txt, before any 'version installed / still installed' claim, when falcon_search_vulnerabilities returns zero for a product, and on: job.processed_events 0, groupBy(limit) vs top(), job.parsed_query, repository param vs #repo tag, ProcessBlocked, AsepValueUpdate, FileVersion missing, severity_name absent on automated-lead rows, is_closed true with status new, cmdline wildcard, sum_other_doc_count 0 with a facet shortfall, pagination after cursor re-serving page 1, host.id vs device id, `invalid filter; operator in not allowed for property id`, `property host_info.hostname not allowed`, `session_id / Field required`, 40401 `Could not establish sensor comms`, rtr_state enabled, falcon_host_link, @journal.report.generator, senderHeader, SampleInterval, zia.web, ZSATunnel.exe."
 ---
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
 
-Operating the tool, not what a vendor's fields mean (keep those in your own per-source notes).
+Operating the tool. Vendor field meanings appear only where a correlation edge turns on them
+(last section); keep the rest in your own per-source notes.
 
 ## falcon_search_ngsiem (CQL / LogScale)
 
@@ -15,8 +16,6 @@ output is first a wrong field name or wrong `repository`, not "no data".
 - **Sample before you aggregate**: `<filter> | head(3)`, read the real field names, then
   `top()`/`count()`. `top(missing_field)` returns empty with no error. Note `SampleInterval` on
   sampled sources (e.g. `#Vendor=cloudflare` Magic Firewall) and scale rates by it.
-- **Filter on indexed tags**, not raw text: `#repo=<repo> #event.dataset=<ds> event.action=blocked`.
-  Tags: `#repo`, `#Vendor`, `#type`, `#event.dataset`, `#event.module`, `#event.kind`.
 - **`repository` param** scopes and speeds the search: `search-all` (default, slowest),
   `third-party` (connector feeds: proxy, SaaS, cloud audit; e.g. GitHub enterprise audit there
   gives estate-wide visibility per-API queries cannot), `investigate_view` (endpoint),
@@ -24,19 +23,11 @@ output is first a wrong field name or wrong `repository`, not "no data".
   `#repo=third-party` with `repository: 'third-party'` returned 0 rows and 0 `processed_events`;
   the data resolved under `repository: 'search-all'` with the vendor's own `#repo=<vendor>`. Read
   `#repo` off `head(3)` before pinning either.
-- `start` is required, ISO-8601 (`2026-05-25T00:00:00Z`); `end` defaults to now. Timeout is
-  `FALCON_MCP_NGSIEM_TIMEOUT` (default 300s): narrow and filter before widening; no 30-day
-  `search-all` as a first move.
-- **Idioms**: `top(field, limit=N)` (ranked, auto `_count`); `groupBy([f1, f2], function=count())`
-  cross-tab; `timechart(span=1h, series=field)` (`_bucket` is epoch-ms; a flat overnight floor is
-  automation, a step-and-hold cliff is a config change, a ragged taper is a human: the transition
-  shape is evidence); `sum(field, as=name)`. Cap exploration with `head()`; aggregate, don't dump.
+- `timechart(span=1h, series=field)`: `_bucket` is epoch-ms.
 - **`groupBy(field, limit=N)` keeps the lexicographically-first N groups, not the top N by
   count**, and a trailing `sort()` ranks only that subset:
   `groupBy(user.name, limit=25) | sort(_count, order=desc)` silently drops the true maximum. Use
   `top(field, limit=N)` for "most"; use `groupBy(…limit…)` only with the limit above cardinality.
-- Independent breakdowns have no dependency: issue them as multiple tool calls in one message;
-  serialize only when one needs another's output (`head(3)` before `top()`).
 
 ### Reading results
 
@@ -51,15 +42,13 @@ output is first a wrong field name or wrong `repository`, not "no data".
   215,686,423 events and returned lexicographically-first groups unrelated to the token (192
   groups where 128 mentioned it); a distinctive phrase was precise. Compare `job.event_count`
   against `job.processed_events` before trusting any free-text aggregation, and anchor to fields
-  (`Vendor.actor.alternateId=/x/i`).
+  (`Vendor.actor.alternateId=/x/i`) or tags: `#repo`, `#Vendor`, `#type`, `#event.dataset`,
+  `#event.module`, `#event.kind`.
 - **`job.parsed_query` omits trailing `groupBy`/`sort` stages that demonstrably ran**; confirm
   aggregation from the result shape.
-- **Spills**: a wide `head(N)` overflows the token cap and the tool returns a `tool-results/*.txt`
-  path instead of data. Aggregate in-query. When parsing a spill, elements are not
-  one-JSON-object-per-line: `jq -s '.[].text | fromjson'` dies on bare fragment lines
-  (`"@id": …`), so guard each parse (`try fromjson`, or `try/except json.loads`). Calibration:
-  `falcon_search_detections` with `product:'automated-lead'`, `limit: 50` returned 16 records and
-  still spilled (100,500 chars, 2,156 lines); lowering `limit` will not save you, plan to parse
+- **Spills**: a wide `head(N)` spills to `tool-results/*.txt`; aggregate in-query. Calibration:
+  `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16 records and
+  still spilled (100,500 chars); lowering `limit` will not save you, plan to parse
   (`python3 json.load`).
 
 ### Endpoint telemetry fields
@@ -87,10 +76,9 @@ output is first a wrong field name or wrong `repository`, not "no data".
 
 ## search_* / aggregate_* FQL tools (detections, hosts, incidents, cases, ...)
 
-- FQL, not CQL; each domain has a `falcon://<domain>/.../fql-guide` resource. `+` is AND
-  (`status:'new'+created_timestamp:>'<iso>'`); `sort` takes `field.desc` or `field|desc`. A
-  well-formed query with no matches is HTTP 200 and an empty array; a bad field or syntax is
-  400. So a clean-empty for a fresh CVE is the correct answer, not a retry.
+- FQL, not CQL; guide per domain at `falcon://<domain>/.../fql-guide`. A well-formed no-match is
+  HTTP 200 and an empty array; a bad field or syntax is 400, so a clean-empty for a fresh CVE is
+  the answer, not a retry.
 - **Neither a severity filter nor an open-items filter is a safe default on the endpoint
   detection queue**; each alone silently zeroes it. (1) A tenant emitting no `product: epp`
   alerts carries endpoint signal as `automated-lead` / `automated-lead-context` rows with a
@@ -106,14 +94,11 @@ output is first a wrong field name or wrong `repository`, not "no data".
 - `cmdline:'*substring*'` on `falcon_search_detections` / `falcon_aggregate_detections` returns
   empty silently (unsupported field). Pivot to `pattern_id:`, `technique_id:`, `tags:`, or a
   time-boxed `created_timestamp:`.
-- **`falcon_search_detections` `q` is a fuzzy multi-token OR match** (this corrects an earlier
-  note that it resolves to a null filter). Single-token `q` is usable (positive control: 225
-  rows); multi-token returns unrelated rows. Prefer `sha256:`, `device.hostname:`, `pattern_id:`;
-  validate any empty `q` against a positive control before reporting a negative.
+- **`falcon_search_detections` `q` is a fuzzy multi-token OR match.** Single-token `q` is usable
+  (positive control: 225 rows); multi-token returns unrelated rows. Prefer `sha256:`,
+  `device.hostname:`, `pattern_id:`; validate any empty `q` against a positive control before
+  reporting a negative.
 - CVE FQL is dotted, `cve.id:'…'`; bare `cve:'…'` is HTTP 400 across the vuln/intel tools.
-- `falcon_get_detection_details` returns the `automated_triage` block (`triage_outcome`,
-  `triage_recommendation`, tags like `FC-Type-Penetration Testing`, `true_positive`,
-  `FC-Action-No Remediation Required`): a fast first-pass classifier.
 - **`falcon_search_report_executions` cannot say whether a report was read** (Falcon exposes no
   read/download state; the delivery notification only proves generation) and is a token trap:
   `status:'DONE'`, `limit: 15` spilled 153,800 chars / 1,207 lines of XDR correlation-rule
@@ -149,17 +134,13 @@ telemetry) for "where is X installed", within these limits.
 ## falcon_search_vulnerabilities (Spotlight)
 
 - No product/vendor/app filter field; reach a product only by enumerating CVEs:
-  `cve.id:'CVE-…',cve.id:'CVE-…'` (guide: `falcon://spotlight/vulnerabilities/fql-guide`;
-  unsupported fields return empty).
-- **Coverage gaps are per-product and can be total**: one product on 1 of ~50 hosts that Discover
-  and process telemetry show running it; another had zero findings tenant-wide, including on the
-  server running 16 of its services, while that host returned 96 findings for two other vendors.
-  Never scope a software estate with Spotlight, and never accept "no Spotlight CVE" as evidence
-  for a non-Microsoft product, including as a ticket acceptance criterion.
+  `cve.id:'CVE-…',cve.id:'CVE-…'` (guide: `falcon://spotlight/vulnerabilities/fql-guide`).
+- **Coverage is per-product and can be total**: one product reported on 1 of ~50 hosts running
+  it; another had zero findings tenant-wide including on a server running 16 of its services that
+  returned 96 findings for other vendors. Never scope an estate with Spotlight or accept "no
+  Spotlight CVE" as evidence for a non-Microsoft product.
 - `host_info.hostname` is rejected, HTTP 400 `property "host_info.hostname" not allowed`; scope
   by `aid` (resolve via `falcon_search_hosts`).
-- `status:'reopen'` is a remediated finding re-detected (regressed or incomplete patch):
-  root-cause it. Facet `['cve','host_info']` for scoring plus asset context in one call.
 
 ## Real Time Response (read-only tier)
 
@@ -197,16 +178,15 @@ Worked examples; they apply only where your estate ingests the same sources.
 
 - **M365 / Exchange audit**: Defender-passthrough detections carry no target mailbox or
   operation, so the NG-SIEM pivot into M365 audit rows is mandatory. Admin actor UPNs use
-  `<tenant>.onmicrosoft.com` (a primary-domain filter misses them). Subjects nest at
-  `Vendor.Folders[N].FolderItems[M].Subject`.
+  `<tenant>.onmicrosoft.com` (a primary-domain filter misses them).
 - **Mail-flow rows inflate; dedupe before counting.** One message yields a Message Trace
   `Delivered` per recipient leg, a journaling/archiving fork, each gateway stage (receipt, spam,
   process, delivery), and a `MailItemsAccessed` per open; `Status: Expanded` is DL fan-out, not
-  delivery. **Message-ID is not a safe dedupe key** (this corrects earlier advice to dedupe on
-  Message-ID + recipient): journal forks carry different synthetic Message-IDs and
-  `aggregateId`s. The journal fork shows three co-occurring markers: a Message-ID ending
-  `@journal.report.generator`, a recipient at the archiver's ingest domain, and `senderEnvelope`
-  equal to the journaling address. Dedupe on sender header + subject + attachment hash.
+  delivery. **Message-ID is not a safe dedupe key**: journal forks carry different synthetic
+  Message-IDs and `aggregateId`s. The journal fork shows three co-occurring markers: a Message-ID
+  ending `@journal.report.generator`, a recipient at the archiver's ingest domain, and
+  `senderEnvelope` equal to the journaling address. Dedupe on sender header + subject +
+  attachment hash.
 - **A journaled message's alert names the envelope, not the author**: `falcon_get_detection_details`
   gives `sender` = the SMTP envelope and `message_id` = the synthetic `…@journal.report.generator`
   id. The discriminating field, `senderHeader`, is absent from the alert and lives only in the
@@ -219,9 +199,6 @@ Worked examples; they apply only where your estate ingests the same sources.
 - **Message Trace may cover only some accepted domains**: `#event.dataset=messagetrace.event`
   returned zero for one domain across ~80,000 events in 1.5 days (a true negative per the
   counters). `groupBy` the recipient domain first and state which domains an absence claim covers.
-- Tenant boundary: only legs touching your tenant are visible. `MailItemsAccessed` proves a
-  client fetched, not a human read; `MailAccessType` `Bind` (explicit open) vs `Sync`
-  (background) disambiguates.
 - **Zscaler ZIA to sensor**: `zia.web` `source.Id` / `client.Id` *is* the Falcon `aid` (exact
   join). On tunnel-client hosts, endpoint DNS/NetworkConnect attributes egress to `ZSATunnel.exe`,
   not the browser; naming the originating process definitively needs live RTR. A decrypting proxy
