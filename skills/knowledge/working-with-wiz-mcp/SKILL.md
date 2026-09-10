@@ -1,6 +1,6 @@
 ---
 name: working-with-wiz-mcp
-description: "Wiz MCP hunting gotchas: the deliberately-wrong-parameter schema probe (`additionalProperties 'zzz_probe' not allowed`) as the cheap way to test a tool exists and learn its required properties, graph_search taking a free-text STRING not an object (`expected string, but got object`, `Failed to convert free text to graph query`), list_cloud_resources being far richer than graph_search for one named resource (assumeRolePolicy as its own RAW_ACCESS_POLICY entity with an updatedAt that proves a trust policy did not change), Issue records pointing at SYNTHETIC entities that resolve nowhere, hasAccessToSensitiveData / hasHighPrivileges being untrustworthy, list_issues paging only 10 with no page param, list_subscriptions capped at 20 of totalCount, SBOM substring lookalikes and control queries, isAccessibleFromInternet null is not false, executionControllers underreporting, subscription UUID not cloud account ID, non-disjoint pagination, Issues lag. Use for cloud/K8s blast-radius or package-presence hunts, IAM trust-policy or privilege questions, or pivoting from a Wiz Issue to the real resource, via list_* / graph_search tools."
+description: "Wiz MCP hunting gotchas: the deliberately-wrong-parameter schema probe (\"additionalProperties zzz_probe not allowed\") as the cheap way to test a tool exists and learn its required properties — and the corollary that a parameter which does NOT error is genuinely applied; graph_search taking a free-text STRING not an object (\"expected string, but got object\", \"Failed to convert free text to graph query\"); list_cloud_resources being richer than graph_search for one named resource (assumeRolePolicy as its own entity with an updatedAt that proves a trust policy did not change); Issue records pointing at SYNTHETIC entities that resolve nowhere; hasAccessToSensitiveData / hasHighPrivileges untrustworthy; list_issues paging 10 with no page param; list_subscriptions capped at 20; SBOM lookalikes; isAccessibleFromInternet null is not false; subscription UUID not cloud account ID; Issues lag. Use for cloud/K8s blast-radius or package hunts, IAM trust-policy questions, or pivoting from an Issue to the real resource."
 ---
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
@@ -52,7 +52,9 @@ party from an unregistered affiliate. Wiz cannot make that correlation itself.
 - `list_secret_findings` (exposed creds an executed payload could harvest),
   `list_network_exposure` (internet-facing?), and identity/entitlement tools for blast radius.
 - **The issue API returns no portal deep links** — render items as "link not captured"; never
-  construct an `app.wiz.io` console URL by pattern.
+  construct an `app.wiz.io` console URL by pattern. The full Issue field set observed is
+  `createdAt`, `dueAt`, `entitySnapshot`, `id`, `resolvedAt`, `severity`, `sourceRules`,
+  `status`, `statusChangedAt`, `type`: there is nothing URL-shaped to render.
 - Treat specific findings as **transactional** — re-pull at query time rather than caching them
   as durable facts.
 
@@ -88,35 +90,6 @@ finer details.)*
   overlaps). For exhaustive enumeration use the **grouped endpoints** with
   `group_by=["VULNERABLE_ASSET"]` and accept multiple ordering passes rather than trusting one
   page.
-- **`list_cloud_resources` is far richer than `graph_search` for one named resource.** It takes
-  a `search` param and returns the cloud object, its **`assumeRolePolicy` as a separate
-  `RAW_ACCESS_POLICY` entity with its own `updatedAt`**, the attached customer-managed policies,
-  and the IaC declarations with repo, branch and path. That `updatedAt` on the policy entity is
-  **the cheapest way to prove a trust policy did NOT change inside a window** — reach for this
-  tool, not `graph_search`, whenever you have the resource's name.
-- **Issue records point at SYNTHETIC entities that resolve nowhere.** An issue titled for a
-  finding class (e.g. "excessive access for role X") carries an entity id that is **not** the
-  underlying resource's entity id and does **not** resolve through `list_cloud_resources` or
-  `graph_search`; searching the synthetic name returns `totalCount: 0`. **There is no API path
-  from an Issue to the specific resource** when several resources share a name — pivot on the
-  name plus account and accept the ambiguity, or say the issue could not be tied to one
-  resource.
-- **`hasAccessToSensitiveData` / `hasHighPrivileges` are not trustworthy for roles whose reach
-  is indirect.** A role able to read a database private key and dozens of counterparty transfer
-  secrets reported **false** in one tenant, while the other end of the same pipeline reported
-  **true** in another. Reach that comes from secrets-manager *contents* or from a tag-gated
-  resource wildcard is invisible to these booleans. **Read the attached policy documents; never
-  rank on the flags.**
-- **`list_issues` returns a default page of 10 nodes with a `totalCount` for the full match, and
-  exposes no pagination parameter.** To reach past the first 10, slice the window with
-  `created_after` / `created_before`. Records created at an identical timestamp cannot be
-  separated this way, so exhaustive enumeration is not always reachable — report the shortfall.
-- **`list_subscriptions` accepts no parameters at all** (it rejects any additional property) and
-  returns only the **first 20** of its own `totalCount`, with no pagination. The cloud-account
-  inventory cannot be exhaustively enumerated from this tool.
-- **Issue records carry no console deep link.** The full field set observed is `createdAt`,
-  `dueAt`, `entitySnapshot`, `id`, `resolvedAt`, `severity`, `sourceRules`, `status`,
-  `statusChangedAt`, `type` — there is nothing URL-shaped to render.
 - **Param naming is inconsistent across sibling tools** — fetch the exact schema first before
   composing a call; don't reuse a sibling's param name.
 - **`list_issues` returns no assignee fields** — "unassigned" cannot be verified from a list
@@ -124,6 +97,29 @@ finer details.)*
 - **Wiz "Issues" lag — don't read "0 Issues" as low risk.** Fresh Vulnerability Findings may not
   yet have rolled up into Issues; a `0 Issues` count on a new CVE is a lag artifact, not an
   all-clear.
+
+## Issues, resources, and entitlement flags
+
+- **`list_cloud_resources` is far richer than `graph_search` for one named resource.** It takes
+  a `search` param and returns the cloud object, its **`assumeRolePolicy` as a separate
+  `RAW_ACCESS_POLICY` entity with its own `updatedAt`**, the attached customer-managed policies,
+  and the IaC declarations with repo, branch and path. That `updatedAt` is **the cheapest way to
+  prove a trust policy did NOT change inside a window**.
+- **Issue records point at SYNTHETIC entities that resolve nowhere.** An issue titled for a
+  finding class carries an entity id that is **not** the underlying resource's, and resolves
+  through neither `list_cloud_resources` nor `graph_search`; searching the synthetic name
+  returns `totalCount: 0`. **There is no API path from an Issue to the specific resource** when
+  several share a name — pivot on name plus account, or say the issue could not be pinned.
+- **`hasAccessToSensitiveData` / `hasHighPrivileges` are not trustworthy where reach is
+  indirect.** A role able to read a database private key and dozens of counterparty transfer
+  secrets reported **false** in one tenant while the other end of the same pipeline reported
+  **true** in another: reach via secrets-manager *contents* or a tag-gated resource wildcard is
+  invisible to these booleans. **Read the attached policy documents; never rank on the flags.**
+- **`list_issues` pages 10 with a `totalCount` and no pagination parameter.** Slice with
+  `created_after` / `created_before`; records sharing a timestamp cannot be separated, so
+  exhaustive enumeration is not always reachable — report the shortfall.
+- **`list_subscriptions` accepts no parameters at all** and returns only the first 20 of its own
+  `totalCount`. The cloud-account inventory cannot be exhaustively enumerated from this tool.
 
 ## What this skill does not cover
 
