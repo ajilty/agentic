@@ -42,6 +42,11 @@ generic pattern written only in the vendor skill.
 
 ## Verdict
 
+**Report everything you see the first time.** The author gets two revision
+rounds; a later round only checks that the earlier verdict was applied and
+that the fixes introduced nothing new. A finding you could have raised in
+round one and raise in round three costs the human a decision.
+
 One line per edge: `accept`, `compress: <your text>`, `redundant: <covering
 bullet>`, or `not-an-edge: <why>`; then any file-level findings. Be specific
 enough that the author can apply it without judgment. Do not edit the branch.
