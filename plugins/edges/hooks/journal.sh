@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# PostToolUseFailure (any tool) and PostToolUse (mcp__.*): append one redacted row per
+# PostToolUseFailure (any tool) and PostToolUse (mcp__.*): append one scrubbed row per
 # tool failure to the local edges journal, so a later `/edges:harvest` can read what this
 # session hit without anyone having to remember it.
 #
 # Input: hook payload JSON on STDIN. PostToolUseFailure carries the error in `.error`;
 # an MCP tool that failed inside a successful call carries `isError: true` (or
 # `is_error`) on `.tool_response`, with the text in its content. Anything else is
-# ignored. Capture only, no judgment: the row is a pointer plus a redacted string.
+# ignored. Capture only, no judgment: the row is a pointer plus a scrubbed string.
 #
 # Journal: ${EDGES_JOURNAL:-${XDG_STATE_HOME:-$HOME/.local/state}/edges/journal.jsonl},
 # append-only JSONL. Never inside a repo (it is work observation, not code), user-level
@@ -14,8 +14,11 @@
 # lets harvest filter). Rows carry session_id, transcript_path and tool_use_id so the
 # exact call, and the retries after it, are one grep away while the transcript lives.
 #
-# Redaction happens before the write: emails, URLs, IPv4, UUIDs, long digit runs, and
-# home paths become placeholders. Error text is otherwise verbatim, capped at 400 chars.
+# The write applies a mechanical scrub only: emails, URLs, IPv4, UUIDs, long digit runs,
+# and home paths become placeholders. Rows still carry identities: people's names, org
+# names, ticket keys, product names — and error text is otherwise verbatim, capped at 400
+# chars. Redaction of identities is the harvester's job at contribution time; this journal
+# is a local raw store, not a redacted one.
 #
 # Contract: always exit 0, never print. This runs async and a broken journal must never
 # cost the session anything. Fail-open on missing jq.
