@@ -1,6 +1,6 @@
 ---
 name: working-with-playwright
-description: "Playwright headless-capture gotchas in a uv-managed Python venv: the Chromium binary is not installed by the package. Use when a Playwright render fails with \"Executable doesn't exist\" or before the first screenshot step in a uv venv."
+description: "Playwright headless capture in a uv-managed Python venv. Load before the first screenshot or render step in a uv venv; covers browser binary installation and the render failure it causes."
 ---
 
 # Working with Playwright — sharp edges

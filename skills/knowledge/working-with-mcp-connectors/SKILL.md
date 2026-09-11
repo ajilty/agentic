@@ -1,6 +1,6 @@
 ---
 name: working-with-mcp-connectors
-description: "MCP connector health and answer-shape, tool-agnostic: the dominant failure is not an error but a confident, well-formed, INCOMPLETE answer — ask the question a second way and compare counts before reporting anything as complete or absent. A dead-token server can expose ZERO tools instead of failing, never appears in the failed-server list, and reports no error. A vendor server responding does not mean the vendor data is reachable; a sibling server can be down. Strict serialization shows up as \"Transport is already connected\" with only the first concurrent call landing. A filter parameter may be evaluated or silently ignored — pin a known row and probe both polarities against a bogus value. A credential CLI reporting signed out is not evidence the servers are down, in either direction. Spill files (tool-results/*.txt) are not one JSON object per line, so guard every parse; numbers arrive as strings. Use when a connector returns nothing, a sweep comes back implausibly clean, a count looks too round, a run needs a preflight, or you are about to report an absence or coverage claim as a finding."
+description: "Any MCP connector (mcp__* tools), tool-agnostic health and answer-shape rules. Load before the first connector call in a session and before reporting any absence, zero, or coverage claim as a finding; covers confident-but-incomplete answers, dead-token servers, serialization, silently ignored filters, spill-file parsing."
 ---
 
 # Working with MCP connectors — health and preflight

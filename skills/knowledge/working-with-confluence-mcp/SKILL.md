@@ -1,6 +1,6 @@
 ---
 name: working-with-confluence-mcp
-description: "Atlassian MCP Confluence gotchas, read and write: CQL contributor queries return folders-only without type in (page, blogpost, comment), \"did anyone answer this\" needs THREE comment calls per page (inline/open, inline/resolved, footer) because getConfluencePageInlineComments defaults to resolutionStatus open and footer comments are invisible to both, CQL lastmodified is day-granular only, a bad space key in space in (...) returns a silent zero, serial-only transport, 25K-token spill files, title vs body escaping asymmetry, numeric spaceId requirement, ADF-legal HTML. Use when calling createConfluencePage / updateConfluencePage / getConfluencePage, checking whether a comment or question was ever answered, or querying activity via CQL."
+description: "Atlassian MCP Confluence (getConfluencePage*, createConfluencePage, updateConfluencePage, searchConfluenceUsingCql). Load before the first Confluence call in a session and before writing CQL; covers comment visibility, silent-zero queries, page writes and escaping. Also when asked whether a question or comment was ever answered."
 ---
 
 # Working with the Confluence side of the Atlassian MCP — sharp edges

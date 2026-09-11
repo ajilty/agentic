@@ -1,6 +1,6 @@
 ---
 name: working-with-knowbe4-phisher
-description: "KnowBe4 PhishER MCP (get_phisher_message*): only subject:, status: and id: are real filters — from: and reportedBy: return {\"result\":[]} for values verbatim present in the corpus, silently; rows carry no status field so open-vs-resolved needs the query run twice in both polarities; subject: matches word STEMS not exact tokens; paging and subject-filtering return DISJOINT sets so \"not on any page\" is not \"not in the corpus\"; parallel calls fail with `Transport is already connected` and only the first lands; a reported KnowBe4 simulation is identifiable by the KB4:KMSAT_HEADERS tag. Use when querying the PhishER reported-phish queue, scoping a query by reporter or sender, deciding whether an empty result is a real zero, or separating a reported simulation from a reported live phish."
+description: "KnowBe4 PhishER MCP (get_phisher_message* tools). Load before the first PhishER call in a session; covers which filters are real, paging versus filtering, status polarity, simulation tagging. Also when asked whether an empty reported-phish result is a real zero or to separate a simulation from a live phish."
 ---
 
 # Working with the KnowBe4 PhishER MCP — sharp edges

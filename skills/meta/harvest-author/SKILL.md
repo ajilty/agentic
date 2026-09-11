@@ -45,8 +45,10 @@ For each candidate, read the whole target skill before adding a line:
   works, verbatim error string, runnable incantation. Terse.
 - Correcting a live claim: rewrite in place and say "this corrects" in the
   bullet; never leave the old and new side by side.
-- Description: add only the trigger strings a model would actually see
-  (error text, tool or parameter names). No summaries of the body.
+- Description: touch it only if the tool surface changed (a new tool family
+  or a new user-utterance cue). It follows the CONTRIBUTING template: surface,
+  "Load before the first call", operation areas, user cues; 400 characters
+  hard cap. Error strings, field names and response shapes never go in it.
 
 Then `bash scripts/validate-plugins.sh`, commit with an
 `edges(<tool>): <edge>` subject, push, and open the PR **as a draft**
@@ -70,8 +72,10 @@ PR URL.
 
 No new content. Read the skill and rewrite it to its minimum viable form:
 merge bullets that share a cause, cut repeated framing ("silently, with no
-error" once per section, not per bullet), and reduce the description to
-triggers (target 600 characters, never above 1,536). A diet may also **prune**
+error" once per section, not per bullet), and rewrite the description to
+the CONTRIBUTING template (surface, load-before-first-call, areas, user cues;
+400 characters hard cap), moving any error string or field name it carried
+into the body if the body lacks it. A diet may also **prune**
 a bullet that fails the edge test: documented behavior, or tradecraft with no
 failure behind it. Never prune an incantation, a verbatim error string, or a
 correction of a live claim; a "this corrects" note may go only when the claim

@@ -1,6 +1,6 @@
 ---
 name: working-with-slack-mcp
-description: "Slack MCP search gotchas: sort_dir=\"asc\" silently truncates and still reports \"End of results - No more pages available.\" (19 results vs 40+ on the same query, so union both directions), search has NO boolean OR (an alternation ANDs every token including the literal word OR and returns zero), the to:me mention recipe is neither complete nor self-limiting (it under-returns channel @-mentions, so union it with a bare <@USER_ID> on:<day> search, and it can hard-stop ~13h short of a day cutoff), channel NAMES are not unique so resolve by channel ID, slack_search_channels returns public channels only, read tools return no permalinks, slack_read_thread wants message_ts not thread_ts (`initialization_failed: Missing value for parameter message_ts`), from:<@U…> angle-bracket form (bare IDs return zero), include_context=false or blow the 25K cap, the real page cap is 20 not 100, invisible channels omitted silently, is:unread degrades to a keyword match, write tools can vanish while reads work. Use when searching Slack messages, sweeping a day or a mention backlog, resolving a channel by name, or when search results look implausibly thin."
+description: "Slack MCP (slack_search_*, slack_read_channel, slack_read_thread, write tools). Load before the first Slack call in a session and before composing a search; covers sort truncation, no boolean OR, mention sweeps, channel resolution, paging caps. Also when asked to sweep a day or a mention backlog."
 ---
 
 # Working with the Slack MCP — sharp edges

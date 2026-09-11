@@ -1,6 +1,6 @@
 ---
 name: working-with-m365-connector
-description: "Microsoft 365 / Outlook connector limits (mail, calendar, Teams, SharePoint): search results are a THINNER projection than a read_resource — no flag.flagStatus, no per-attendee responseStatus, hasAttachments wrong on inline parts; no binary downloads, unreadable .docx / nested .msg attachments (deep-link plus re-upload fallback); Type-3-font PDF mojibake; `order` silently scoping a search to the Inbox unless folderName is given, and the all-folder sweep returning moreResults with no totalResultCount; chat_message_search hitting a tenant-wide Graph 429 and reporting chatsFailed with no warning banner; events stamped timeZone UTC and carrying no onlineMeeting/joinUrl; no internetMessageHeaders (no SCL / SPF / DKIM / gateway verdict); no Exchange admin or audit-log surface; two ErrorAccessDenied 403s needing Mail.Read.Shared and admin-consented People.Read. Use when reading M365 content, sweeping mail by date, searching Teams chats, checking who accepted a meeting, or opening an attachment."
+description: "Microsoft 365 connector (Outlook mail and calendar, Teams chat, SharePoint, search and read_resource). Load before the first M365 call in a session; covers search-versus-read projections, attachments, folder scoping, Teams throttling, missing mail headers. Also when asked who accepted a meeting or to open an attachment."
 ---
 
 # Working with the Microsoft 365 connector — sharp edges

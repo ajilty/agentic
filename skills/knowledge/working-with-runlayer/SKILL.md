@@ -1,6 +1,6 @@
 ---
 name: working-with-runlayer
-description: "Runlayer MCP governance denies: the AI Watch mcp_enforce hook, three deny shapes and their fix classes, audit-log decoding, Enforcement flag vs monitoring-only posture. Use when a call is denied with \"Only Runlayer-managed MCP servers are allowed\", a 403 policy_with_conditions appears, or connectors go dark after a policy rollout."
+description: "Runlayer MCP governance (AI Watch enforcement, policy denies, audit logs). Load when a tool call is denied by policy or connectors go dark after a policy rollout; covers deny shapes and their fixes, audit-log decoding, enforcement versus monitoring-only posture."
 ---
 
 # Working with Runlayer — sharp edges (MCP governance layer)

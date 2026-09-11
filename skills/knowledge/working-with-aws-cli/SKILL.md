@@ -1,6 +1,6 @@
 ---
 name: working-with-aws-cli
-description: "aws CLI investigation gotchas: profile names lie (sts get-caller-identity first), ForbiddenException often means expired SSO, SSM RunCommand inline-parameters quoting failure and the params-file pattern, one-attribute CloudTrail lookups, the LB to target-group ProtocolVersion exposure join, IAM description fields rejecting em dashes (Latin-1 only). Use for read-only AWS hunts, SSM live-host sweeps, or credential-use checks."
+description: "aws CLI (any aws command: SSO profiles, SSM, CloudTrail, IAM, load balancers). Load before the first aws call in a session; covers identity and expired-SSO traps, SSM RunCommand quoting, CloudTrail lookups, load-balancer exposure joins. Also when asked which account or role a command really runs as."
 ---
 
 # Working with the AWS CLI — sharp edges (read-only investigation)

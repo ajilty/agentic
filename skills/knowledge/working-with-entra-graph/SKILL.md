@@ -1,6 +1,6 @@
 ---
 name: working-with-entra-graph
-description: "Microsoft Graph via az rest for Entra ID audits: app permissions are app roles on the resource SP (never infer the resource from the permission name), appRoleAssignedTo pagination, appRoles null guard, ConsistencyLevel=eventual for $search/$filter. Use when enumerating who holds an application permission or when Graph queries 400/403 unexpectedly."
+description: "Microsoft Graph via az rest for Entra ID (app registrations, service principals, app roles, permissions). Load before the first Graph call in a session; covers permission-to-app-role mapping, pagination, null guards, ConsistencyLevel headers. Also when asked who holds an application permission."
 ---
 
 # Working with Entra / Microsoft Graph via `az` — sharp edges
