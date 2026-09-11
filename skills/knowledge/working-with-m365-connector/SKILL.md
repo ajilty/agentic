@@ -84,19 +84,26 @@ visually** instead of trusting the broken text layer.
   window, because a mail rule had filed it elsewhere. Any "sorted by date" sweep is therefore an
   Inbox sweep by default. Pass `folderName` explicitly, or run unscoped and sort client-side.
 
-## Teams chat search shares the tenant's Graph quota
+## The tenant's Graph quota is shared across every surface
 
+- **`chat_message_search` covers group and 1:1 chats ONLY, never channel messages**, and says
+  nothing about the gap — its coverage counters are chats-scanned over chats-listed, so a run can
+  report thorough coverage of entirely the wrong corpus. Use `teams_list_channel_messages` per
+  channel, and never report "nothing in Teams" from a chat search alone.
 - **`chat_message_search` can 429 on the first Teams call of a run**, before this session has
   made any other Graph call — verbatim: `Note: searched 0 of 47 chats before stopping due to
   Microsoft Graph rate limit (429). Results may be incomplete.` The quota is the tenant's, not
   the session's, so "run Teams first while the quota is fresh" is not a working strategy.
+  `outlook_email_search` draws on the same quota and fails differently: `RATE_LIMITED: Graph API
+  Error: Too many requests`, with `graphErrorCode: TooManyRequests`.
 - **Recovery is slower than a minute and not monotonic.** Measured in one run: a 90s backoff
   still returned 0 of 47; 150s produced the only clean pass (37 of 47); a 100s backoff after
   that re-throttled to 0 of 47. Back off longer than feels necessary and re-check coverage.
 - **No warning banner does not mean full coverage.** The clean pass returned a bare
   `searchInfo` with no banner and no `stoppedBy` field while still reporting `chatsFailed: 10`.
-  `coverage.chatsScanned` against `coverage.chatsListed` is the only honest measure — read the
-  ratio every time and report it rather than the absence of a warning.
+  `coverage.chatsScanned` against `coverage.chatsListed` is the only honest measure **of the
+  chat corpus** — read the ratio every time and report it rather than the absence of a warning.
+  It says nothing about channels, which the tool does not search at all (first bullet).
 
 ## Calendar reading
 
