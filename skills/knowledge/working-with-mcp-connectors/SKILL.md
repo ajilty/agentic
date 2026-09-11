@@ -29,6 +29,11 @@ blind to this class:
 
 - **Count the tools.** A configured server contributing zero tools is dark until proven
   otherwise — the count itself is the health signal.
+- **Separate "expired credential" from "server down" with one unauthenticated request to the
+  MCP URL**: `curl -s -o /dev/null -w '%{http_code}' <mcp-url>`. An `HTTP 401` proves the
+  endpoint is alive and the token is the problem — the one distinction you cannot draw in-band
+  when no tool is registered to call. Any other code settles neither: a bare GET to a
+  streamable-HTTP endpoint often returns `405` or `404` before auth is checked at all.
 - **Make one live read-only call per credential-backed server** and require a row back. A
   connectivity ping that returns `{"connected": true}` without touching data is weaker than a
   one-record read.
@@ -139,6 +144,12 @@ the three you ruled out. Where the tool exposes a scanned-work counter (events p
 scanned vs listed, records examined), **read it** — zero rows over zero work scanned is not a
 negative, it is an unasked question. A negative is only as strong as the evidence that
 something was asked.
+
+**But a non-zero counter does not validate a zero from an AGGREGATING query.** Three grouped
+searches returned no rows with billions of bytes and millions of events scanned: the counter
+measures work done, not rows matched, so it passes while the aggregation itself is what is
+broken (an unparsed field, a group key that does not exist). Validate the negative on the plain
+filter first, then aggregate.
 
 ---
 Wrong, stale, or missing edge? File it: https://github.com/ajilty/agentic/issues/new?template=edge-report.yml

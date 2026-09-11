@@ -19,16 +19,15 @@ because no call is ever possible. It reads as *this connector was never configur
 connector is broken*, and can sit unnoticed for days — long enough to publish a report whose
 Horizon3 section is silently empty.
 
-- **Confirm with a bare unauthenticated request to the MCP URL.** It returns `HTTP 401` while the
-  endpoint is otherwise healthy, which separates *expired credential* from *server down* in one
-  call, with no tool registered and nothing to call in-band.
+- **Confirm with the unauthenticated probe against `https://mcp.horizon3ai.com`** — an
+  `HTTP 401` proves the endpoint is healthy and the token is the problem (generic form and
+  incantation in `working-with-mcp-connectors`).
 - **`authenticate` may or may not be exposed in a given session.** Where it is absent, re-auth
   cannot be self-served at all: it needs the operator's interactive OAuth against the connector,
   so say that plainly instead of retrying. Where it is present, it returns an OAuth URL that
   still needs the operator to complete it in a browser.
 - **Preflight by tool presence, every run** — a missing Horizon3 answer is far more often zero
-  tools than zero findings. The tool-agnostic form of this failure is in
-  `working-with-mcp-connectors`; the `HTTP 401` probe above is the Horizon3-specific confirmation.
+  tools than zero findings.
 
 ## Terminology gate (mandatory, and it's also your schema cheat-sheet)
 
@@ -53,9 +52,12 @@ Horizon3 section is silently empty.
   `impacts_page` and NO `fix_actions_page`** — the `Query` type has neither (the "Did you mean"
   error confirms it). Read impacts via the pentest's `impacts_count` plus the attack-path
   objects, not a standalone page.
-- **No API field returns a NodeZero console/portal URL** (`pentests_page` and
-  `get_pentest_details` expose no link field). Hand a pentest to the user by `op_id` with "open
-  it in the NodeZero Portal" — never a guessed console URL.
+- **A pentest has no console URL, but `Weakness.portal_url` is real and populated** — this
+  corrects an earlier note here that no API field returns a portal link: true of `pentests_page`
+  / `get_pentest_details`, false of the weakness record. Select it on `weaknesses_page` and every
+  finding in a deliverable can be clickable; hand a *pentest* over by `op_id` with "open it in
+  the NodeZero Portal", never a guessed console URL. No field says whether a human ever opened a
+  pentest.
 
 ## Loot and proof artifacts do NOT expire in ~5 days
 
@@ -113,6 +115,10 @@ It's not in the terminology cheat-sheet; get its exact shape from the public doc
 - **Do NOT trust `get_vulnerability_details(include_remediation=true)`** — it reports remediation
   as "not available in current GraphQL schema," which mislabels the gap. The description *is*
   available via `weaknesses_page`; the helper just doesn't fetch it. Go to raw GraphQL.
+- **`Vuln.mitigations` IS exposed and populated** — three concrete mitigations on one critical
+  finding. `fix_action*` is portal-only; `mitigations` is not. Select
+  `vuln { description mitigations }` before telling anyone the API carries no remediation
+  guidance.
 
 ## "Clean run" needs two corroborating fields, not one
 
@@ -133,7 +139,8 @@ cross-reference the action log (above) before reporting a host as unexposed.
 - **`OpInput` (the `weaknesses_page` input) has `op_id` but no `severities` filter** — filter
   severity client-side after pulling.
 - **Weakness fields that work:** `uuid`, `vuln_name`, `severity`, `score`, `ip`, `host_name`,
-  `proofs`, and nested `vuln { id name description }`. Field-name traps: it's `host_name` not
+  `proofs`, `portal_url`, and nested `vuln { id name description mitigations }`. Field-name
+  traps: it's `host_name` not
   `hostname`, and `proofs` not `proof` (both miss with a "Did you mean" hint). `Vuln` has
   `description`, NOT `remediation`. `PageInfo` has no `total_count` — count client-side.
 
@@ -167,13 +174,23 @@ the Remediation Hub route here.
 
 - **Root fields:** `weakness_series_page`, `weakness_series_count`, `weakness_series_facets` —
   alongside `pentests_page` and `schedules_page`. Note `pentests` is **not** a field.
-- **Severity filter values are UPPERCASE, and the lowercase form returns 0 with NO error.**
-  `filter_by_inputs: [{field_name: "severity", values: ["critical"]}]` returned **0**;
-  `["CRITICAL"]` returned **269**. A silent-empty that reads exactly like a clean result.
-  **Always read the real enum values off a `weakness_series_page` row before trusting any
+- **Every enum filter value is UPPERCASE (`severity` and `status` alike), and the lowercase form
+  returns 0 with NO error.** `filter_by_inputs: [{field_name: "severity", values: ["critical"]}]`
+  returned **0**; `["CRITICAL"]` returned **269**. A silent-empty that reads exactly like a clean
+  result. **Always read the real enum values off a `weakness_series_page` row before trusting any
   filtered count.**
+- **Unresolved is `OPEN` plus `REGRESSED`; counting only `OPEN` reports a false improvement.** A
+  series that was fixed and came back sits in `REGRESSED`: one account's high count read 22 on
+  `OPEN` alone against 23 counting both, and the missing row was a regressed
+  remote-code-execution exposure.
+- **`OPEN` can also mean never re-tested.** `last_pentested_op_id` is the only field that says
+  when the series was last actually exercised; where that points at an old op, the age is time
+  since last evidence, not time since last confirmation. Read it before turning days-open into
+  an urgency claim.
 - **`weakness_series_facets` has no severity facet** — use `weakness_series_count` with a filter
   instead (which is where the uppercase trap bites).
+- **A `WeaknessSeries` name can embed an address that CONTRADICTS the record's own `ip`.** Two
+  rows in one account did. **Remediate from `ip`, never from the name.**
 - **`WeaknessSeries` field traps:** `Cannot query field 'context_score' on type
   'WeaknessSeries'.` — context_score is a per-op weakness concept, not a series one. There is
   no `first_seen` either; the real names come back in the "Did you mean" hint (see
@@ -187,6 +204,12 @@ the Remediation Hub route here.
   `Cannot query field 'enabled' on type 'Schedule'.`
 - **`next_triggered_at` is NOT on `Schedule`.** It lives on `Schedule.run_pentest_action` (type
   `ScheduledAction`). "When does this run next" needs the nested object.
+- **A DISABLED schedule still publishes a `next_triggered_at`, identical in shape to a live
+  one.** Gate on `state` / `is_disabled` before reporting a next run.
+- **Every Datetime comes back with no offset and no `Z`** — `2026-01-15T14:00:00` — so it reads
+  as local time and is silently hours off. The shape proves the ambiguity, not the zone:
+  corroborate UTC once against a timestamp whose wall clock you witnessed, then convert
+  explicitly before quoting a scheduled run.
 
 ## Credentials + data
 

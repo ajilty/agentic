@@ -11,13 +11,20 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 ## falcon_search_ngsiem (CQL / LogScale)
 
 - **Sample before you aggregate**: `<filter> | head(3)`, read the real field names, then
-  `top()`/`count()`. `top(missing_field)` returns empty with no error.
+  `top()`/`count()`. `top(missing_field)` returns empty with no error — and so does a field that
+  is real but lives inside `@rawstring` on an unparsed dataset: `groupBy` on one returned 0 rows
+  against 136 with the grouping removed, and the tool's hint called the negative genuine.
 - **`repository`** scopes and speeds the search: `search-all` (default, slowest), `third-party`
   (connector feeds), `investigate_view` (endpoint), `falcon_for_it_view`, `forensics_view`. **It
   is a different namespace from the `#repo` tag**: `#repo=third-party` with
   `repository: 'third-party'` returned 0 rows and 0 `processed_events`; the data resolved under
   `repository: 'search-all'` with the vendor's own `#repo=<vendor>`. Read `#repo` off `head(3)`
   before pinning either.
+- **A `#repo` can be missing an ENTIRE source organisation while carrying others, and reports a
+  clean zero.** A week-scoped query over one `#repo` scanned 279,375 events and matched none for
+  a principal the authoritative source held 86 events for in the same window; the same `#repo`
+  carried that principal's events from a *different* organisation of the same vendor. Confirm the
+  org is onboarded before reporting the zero: `#repo=<repo> | top(<org field>)`.
 - **`groupBy(field, limit=N)` keeps the lexicographically-first N groups, not the top N by
   count**, and a trailing `sort()` ranks only that subset:
   `groupBy(user.name, limit=25) | sort(_count, order=desc)` silently drops the true maximum. Use
@@ -32,7 +39,9 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 - **Zero rows with `job.processed_events: 0` is not a negative**: nothing was scanned; a real
   negative has `processed_events > 0`. The tool flags this by appending a hint plus the whole
   inline CQL guide, which is easy to skim past. Read `processed_events` before reporting
-  "nothing found".
+  "nothing found" — **and the guard stops holding once the query ends in `top()` or
+  `groupBy()`**: three such queries returned zero rows with it passing. Validate the negative on
+  the filter alone (`<filter> | head(3)` or `| count()`), then aggregate.
 - **A short free-text token is not a filter.** A two-character token into `groupBy` scanned
   215,686,423 events and returned lexicographically-first groups unrelated to the token (192
   groups where 128 mentioned it); a distinctive phrase was precise. Compare `job.event_count`
@@ -61,7 +70,7 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   (`investigate_view`) has no `ImageFileName`; its writer is `ContextProcessId`, which equals the
   detection's `process_id` exactly: the alert-to-registry join.
 
-## search_* / aggregate_* FQL tools (detections, hosts, incidents, cases, ...)
+## search_* / aggregate_* FQL tools, and other filtered reads (detections, hosts, cases, ...)
 
 - FQL, not CQL (`falcon://<domain>/.../fql-guide`). Unknown fields split: some are HTTP 400 (bare
   `cve:'…'`, write `cve.id:'…'`; `host_info.hostname`), others return empty silently (`cmdline`),
@@ -89,6 +98,13 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   read/download state; the delivery notification only proves generation) and is a token trap:
   `status:'DONE'`, `limit: 15` spilled 153,800 chars / 1,207 lines of XDR correlation-rule
   execution metadata. Filter by report id or skip it.
+- **`falcon_idp_investigate_entity` can be scope-denied on a token where every other tool
+  works**, verbatim: `access denied, scope not permitted Required scopes: Identity Protection
+  Entities:read` — a separately licensed module, so an entitlement answer, not a connectivity
+  one. Its `entity_names` also takes a STRING, not a list, and the rejection reads as a bad
+  entity rather than a bad call shape: `1 validation error for investigate_entityArguments |
+  entity_names | Input should be a valid string [type=string_type, input_value=['<name>'],
+  input_type=list]`.
 
 ## falcon_search_applications (Discover)
 
