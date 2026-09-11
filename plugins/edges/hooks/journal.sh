@@ -15,7 +15,7 @@
 # exact call, and the retries after it, are one grep away while the transcript lives.
 #
 # The write applies a mechanical scrub only: emails, URLs, IPv4, UUIDs, long digit runs,
-# and home paths become placeholders. Rows still carry identities — people's names, org
+# and home paths become placeholders. Rows still carry identities: people's names, org
 # names, ticket keys, product names — and error text is otherwise verbatim, capped at 400
 # chars. Redaction of identities is the harvester's job at contribution time; this journal
 # is a local raw store, not a redacted one.
