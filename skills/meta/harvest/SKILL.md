@@ -30,8 +30,15 @@ Redact as you collect: no user, company, tenant, or dated incident specifics;
 keep error strings otherwise verbatim.
 
 **Also read the failure journal.** The plugin's hooks append every tool
-failure, already redacted, to
+failure to
 `${EDGES_JOURNAL:-${XDG_STATE_HOME:-$HOME/.local/state}/edges/journal.jsonl}`.
+The journal is a raw local store: rows are scrubbed of emails, URLs, IPv4,
+UUIDs, digit runs, and home paths at capture, but nothing more — they still
+carry names, orgs, tickets, and products. The "Redact as you collect" rule
+above is what actually keeps identities out of a contribution; apply it to
+journal rows the same as to anything else you pull from this session, since
+you are the harvester and identity redaction happens here, before anything
+leaves the machine.
 Rows newer than the timestamp in the sibling `journal.cursor` file are
 unharvested; group them by `tool` and `fp`, so a failure that hit five times
 shows as one candidate with a count. Each row carries `transcript_path` and
