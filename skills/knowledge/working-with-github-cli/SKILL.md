@@ -1,6 +1,6 @@
 ---
 name: working-with-github-cli
-description: "gh CLI across a SAML-protected GitHub enterprise: the search API's 422/silent-omission asymmetry (a repo that 422s when named is dropped from a broad `gh search prs` with exit 0 and a shorter array — measured 17% undercount), the GraphQL cross-check that does not use the search index, a 403 that prints the SAML and the admin:org diagnoses at once so neither is settled, team membership via GraphQL on a read:org token, merged PRs keeping pending reviewRequests, `gh api notifications?all=true&since=` beating search for a time-window lens, proving a workflow has never succeeded from status-filtered total_count, endpoint-to-scope table, code-search limits (default branches only), contents-API idioms, contributionsCollection lying for non-self. Use when hunting across org repos, runners, packages, or audit logs, when building a review or PR inbox, when checking whether a workflow ever passed, or when a user's activity numbers look implausibly low."
+description: "gh CLI (gh search, gh api, gh pr, GraphQL) across a SAML-protected GitHub enterprise. Load before the first gh call in a session; covers search-index undercounts, scope and SAML 403s, review-inbox and workflow-history queries. Also when a user's activity numbers look implausibly low."
 ---
 
 # Working with the GitHub CLI — sharp edges (enterprise hunting)

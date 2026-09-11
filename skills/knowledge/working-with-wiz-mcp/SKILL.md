@@ -1,6 +1,6 @@
 ---
 name: working-with-wiz-mcp
-description: "Wiz MCP hunting gotchas: NO console deep link on any posture issue, finding, resource or catalog record in any tenant (findings are id-only); tenant separation cannot be proved by comparing scoped queries, since two servers returned byte-identical {\"issues\":{\"nodes\":[],\"totalCount\":0}}, so use an unfiltered control probe; the deliberately-wrong-parameter schema probe (\"additionalProperties zzz_probe not allowed\") as the cheap way to test a tool exists and learn its required properties, and the corollary that a parameter which does NOT error is genuinely applied; graph_search taking a free-text STRING not an object (\"expected string, but got object\", \"Failed to convert free text to graph query\"); list_cloud_resources being richer than graph_search for one named resource (assumeRolePolicy as its own entity with an updatedAt that proves a trust policy did not change); Issue records pointing at SYNTHETIC entities that resolve nowhere; hasAccessToSensitiveData / hasHighPrivileges untrustworthy; list_issues paging 10 with no page param; list_subscriptions capped at 20; SBOM lookalikes; isAccessibleFromInternet null is not false; subscription UUID not cloud account ID; Issues lag. Use for cloud/K8s blast-radius or package hunts, IAM trust-policy questions, pivoting from an Issue to the real resource, when a deliverable needs clickable finding links, when a query returns totalCount 0, or when confirming which tenant a multi-tenant server is actually answering for."
+description: "Wiz MCP (list_issues, graph_search, list_cloud_resources, multi-tenant servers). Load before the first Wiz call in a session; covers tenant control probes, schema probes, query shapes, synthetic entities, paging caps, missing console links. Also for blast-radius or package hunts, IAM trust-policy questions, or clickable finding links."
 ---
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
@@ -86,6 +86,12 @@ finer details.)*
 
 ## Issues, resources, and entitlement flags
 
+- **Schema probe: pass a deliberately wrong parameter.** `additionalProperties zzz_probe not allowed`
+  proves the tool exists and the error lists its required properties; the corollary is that a
+  parameter which does NOT error is genuinely applied.
+- **`graph_search` takes a free-text STRING, not an object.** An object fails with
+  `expected string, but got object`; a string it cannot parse fails with
+  `Failed to convert free text to graph query`.
 - **`list_cloud_resources` is far richer than `graph_search` for one named resource.** It takes
   a `search` param and returns the cloud object, its **`assumeRolePolicy` as a separate
   `RAW_ACCESS_POLICY` entity with its own `updatedAt`**, the attached customer-managed policies,

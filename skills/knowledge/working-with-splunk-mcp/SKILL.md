@@ -1,6 +1,6 @@
 ---
 name: working-with-splunk-mcp
-description: "Splunk MCP gotchas: \"Request failed: Session is not logged in.\" is session expiry not a bad query (known splunklib bug) and only one splunk_run_query lands per re-prime, so never batch them; the saia_* assistant tools can return \"Session terminated\" and stay dead; a broken automatic CIM lookup (\"Could not load lookup=LOOKUP-<name>\") aborts a raw search and any CIM-aliased field reference regardless of app context, with tstats and rex on _raw as the fallbacks and what each costs; a JSON sourcetype extracted twice makes every field a 2-value multivalue so stats count inflates; an absolute earliest_time in Splunk own %m/%d/%Y:%H:%M:%S form is rejected as \"Invalid earliest_time\"; multivalue fields drop silently from table; _time renders in the search head timezone; splunk_get_indexes size/count fields are stubs; numbers come back as strings. Use when a splunk_run_query fails mid-session, a search aborts on a lookup error, a count looks doubled, picking an index, or before firing multiple searches at once."
+description: "Splunk MCP (splunk_run_query, saia_* assistants, index tools). Load before the first Splunk call in a session and before firing more than one search; covers session expiry, lookup aborts and fallbacks, doubled counts, time formats, multivalue fields. Also when asked to pick an index."
 ---
 
 # Working with the Splunk MCP — sharp edges

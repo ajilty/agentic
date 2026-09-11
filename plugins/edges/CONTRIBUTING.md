@@ -30,13 +30,24 @@ incantation over a description of it.
   skill is often one bullet, or a measurement folded into an existing one.
 - **The description is the API, and it is the part every session pays for.**
   Skill descriptions load into context on every turn whether or not the skill
-  fires, and the harness **silently truncates the listing at 1,536 characters**
-  (documented in the Claude Code skills reference), so anything past that is
-  never seen. Budget: **target 600 characters, never above 1,536**, triggers
-  only, key use case first. Name the error strings, tool names, parameters,
-  and jargon a model will actually see in-session; never summarize the body. A
-  great edge with a vague description never fires; a description that restates
-  the body taxes every unrelated session.
+  fires, and the harness silently truncates the listing at 1,536 characters
+  (documented in the Claude Code skills reference). The description has one
+  job: fire whenever the model is about to touch the tool surface. It follows
+  this template, and `tests/test_descriptions.sh` enforces the cap:
+
+  > `<Vendor> <surface> (<tool family or the main tool names>). Load before the
+  > first <X> call in a session[ and before writing <query language>]; covers
+  > <three to five operation areas>. Also when <user-utterance cues>.`
+
+  Budget **400 characters, hard cap**. Three things are allowed in: the tool
+  surface (so the model matches it against the tools it is about to call), the
+  load-before-first-call sentence, and cues that arrive in the *user's* words
+  before any call ("is X still installed", "did anyone answer this"). Nothing
+  that only appears *after* a call belongs there: no error strings, field
+  names, response shapes, or measurements. Those are body content; if the
+  skill fired on the first call they are already loaded, and if it did not, a
+  list of error strings is the weakest match path there is. The reference
+  case is `working-with-crowdstrike-mcp`.
 - **The body is budgeted by review, not by count.** A body loads only when the
   skill fires, so a long skill is not wrong if every bullet earns its lines.
   The test is *minimum viable edge*: the shortest text that keeps the

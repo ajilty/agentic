@@ -31,10 +31,10 @@ hides in the parts that did not change.
    shorter, the verdict is `compress` and your text is the proposal. Repeated
    framing across bullets ("no error, no warning, indistinguishable from a
    real zero") is the usual excess.
-4. **Does the description carry triggers, not content?** Flag any description
-   sentence that summarizes the body instead of naming a string, tool, or
-   parameter a model would see in-session. Over 1,536 characters is a defect
-   (the listing truncates there, silently); over 600 is a `compress`.
+4. **Does the description follow the template?** Surface, "Load before the
+   first call", operation areas, user-utterance cues, 400 characters hard cap
+   (CONTRIBUTING). Any error string, field name, or response shape in it is a
+   `compress` into the body; over 400 characters is a defect.
 
 Also check: redaction (any org, person, tenant, hostname, dated incident), a
 correction that left the old claim standing anywhere in the file, and a
@@ -49,7 +49,8 @@ and the branch's, diff them, and check each missing item against the prune
 list. Anything missing and unlisted is a defect. Then judge each listed prune
 with question 1: a pruned incantation, verbatim error string, or correction
 of a live claim is `restore`; a pruned docs restatement is `accept`. Check
-the description landed under 600 characters and still names the triggers.
+the description follows the template and stays under 400 characters, and that
+every string it dropped exists in the body.
 
 ## Verdict
 

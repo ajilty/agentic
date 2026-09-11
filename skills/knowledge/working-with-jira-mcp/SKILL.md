@@ -1,6 +1,6 @@
 ---
 name: working-with-jira-mcp
-description: "Atlassian MCP Jira gotchas: response bloat past the 25K-token cap despite narrow fields (per-user-node avatar overhead, so cut maxResults not fields), JQL's missing commentBy/changedBy and missing mention field (text ~ \"Display Name\" is the only proxy and it matches stale text anywhere), creation events absent from changelog, multi-accountId identities, ORDER BY lastmodified ASC hangs, ~3-call concurrency limit, cloudId accepting the bare site URL. Use before composing non-trivial JQL or bulk reads, when sweeping for @-mentions of a person, or when a Jira call returns nothing, too much, or overflows."
+description: "Atlassian MCP Jira (searchJiraIssuesUsingJql, getJiraIssue, edit and transition tools). Load before the first Jira call in a session and before composing JQL; covers response-size caps, identity and mention lookups, changelog gaps, concurrency. Also when asked to sweep for @-mentions of a person."
 ---
 
 # Working with the Jira side of the Atlassian MCP — sharp edges
