@@ -14,8 +14,9 @@ discover them live.
 - **`searchJiraIssuesUsingJql` bloats past the 25K-token cap even with narrow `fields`** — every
   node embeds avatar URLs (4 sizes × user/reporter/assignee), project metadata, and self-links
   regardless. Keep `maxResults` small (50 → 25 → 10), resume via `nextPageToken`. On overflow
-  the tool saves the JSON to a temp file and returns the path — either re-run smaller or `jq`
-  the file (`.issues.nodes[] | {key, summary: .fields.summary, status: .fields.status.name}`).
+  the tool saves the JSON to a temp file and returns the path (three overflows in one session,
+  88-185K characters): **reading the spill beats a narrower re-query** — `jq` it
+  (`.issues.nodes[] | {key, summary: .fields.summary, status: .fields.status.name}`).
   **Cut `maxResults`, not `fields` — the bloat is per-*node* overhead, not per-field.** Every
   user node (assignee, reporter, comment author) carries four `avatarUrls` plus a `self` URL, so
   a 20-issue page that includes `assignee` costs far more than 20 summaries, and dropping a
@@ -87,6 +88,9 @@ discover them live.
   literal input, `local@<domain>` for each known tenant domain, and the displayName — union the
   results, run the activity pipeline for **every** accountId, and merge timelines. Don't prefer
   the email-having duplicate; the active account is often the email-less one.
+- **`currentUser()` resolves to exactly ONE of them, silently**, so `assignee = currentUser()`
+  returns a clean, plausible, partial answer. Write every accountId into the clause:
+  `assignee IN ("<id1>", "<id2>")`.
 - **Deactivated accounts drop out of user search, not out of data.** Resolve via a known issue's
   assignee/reporter field, or email-literal JQL (`assignee = 'user@domain'`) — both still work.
 
