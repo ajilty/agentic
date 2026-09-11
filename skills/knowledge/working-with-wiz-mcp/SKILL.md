@@ -15,6 +15,23 @@ organizations" may be fully inventoried in the sibling tenant,
 so querying the sibling for the same account id is the fastest way to tell an unknown third
 party from an unregistered affiliate. Wiz cannot make that correlation itself.
 
+## Reading the schema before you hunt
+
+- **`discover` itself overflows the response cap on a domain drill-down** (116,026 and 82,937
+  characters on two domains), and a tool listing cannot be aggregated in-query the way the
+  generic spill advice prescribes. Grep the spill, and do it before the hunt rather than
+  mid-query.
+- **A deliberately wrong input is a free schema read.** A wrong *parameter* returns
+  `additionalProperties zzz_probe not allowed`, which proves the tool exists and lists its
+  required properties; a wrong *value* returns the legal enum verbatim, e.g. `value must be one
+  of "NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"`; a wrong *shape* names it (`expected array, but
+  got string`). That enum read is the cheapest guard against the uppercase-value trap. A
+  parameter that does NOT error is in the schema; whether it is *applied* still needs the
+  both-polarities probe in `working-with-mcp-connectors`.
+- **`graph_search` takes a free-text STRING, not an object.** Passing a query object returns
+  `expected string, but got object`, and a string it cannot parse returns `Failed to convert free
+  text to graph query`.
+
 ## Package / SBOM presence (the "are we affected" question)
 
 - `list_sbom` with a name filter, `list_package_dependencies` for exact names, and
@@ -86,12 +103,6 @@ finer details.)*
 
 ## Issues, resources, and entitlement flags
 
-- **Schema probe: pass a deliberately wrong parameter.** `additionalProperties zzz_probe not allowed`
-  proves the tool exists and the error lists its required properties; the corollary is that a
-  parameter which does NOT error is genuinely applied.
-- **`graph_search` takes a free-text STRING, not an object.** An object fails with
-  `expected string, but got object`; a string it cannot parse fails with
-  `Failed to convert free text to graph query`.
 - **`list_cloud_resources` is far richer than `graph_search` for one named resource.** It takes
   a `search` param and returns the cloud object, its **`assumeRolePolicy` as a separate
   `RAW_ACCESS_POLICY` entity with its own `updatedAt`**, the attached customer-managed policies,
@@ -107,11 +118,33 @@ finer details.)*
   secrets reported **false** in one tenant while the other end of the same pipeline reported
   **true** in another: reach via secrets-manager *contents* or a tag-gated resource wildcard is
   invisible to these booleans. **Read the attached policy documents; never rank on the flags.**
+- **`list_issues` returns OPEN issues only when no status argument is passed**, and says nothing
+  about the filter it applied: unfiltered returned 7 where the same query with a resolved status
+  returned 38, so any backlog count built on the default is wrong by the size of the resolved
+  set. **Pass the status explicitly, in both polarities, before characterising a backlog.**
 - **`list_issues` pages 10 with a `totalCount` and no pagination parameter.** Slice with
   `created_after` / `created_before`; records sharing a timestamp cannot be separated, so
   exhaustive enumeration is not always reachable — report the shortfall.
+- **`externalOwners` is a technology IDENTIFIER, not a count, and `EQUALS "0"` means
+  UNATTRIBUTED.** A rule written to fire on "zero external owners" therefore fires on every
+  principal Wiz has not classified, including your own accounts sitting unclassified in the
+  discovered-resources queue. The proof is in the same tenant: a role owned by a recognised
+  vendor carried that vendor's technology id in the field. **Read the raw value on a known row
+  before treating the field as a count.**
 - **`list_subscriptions` accepts no parameters at all** and returns only the first 20 of its own
   `totalCount`. The cloud-account inventory cannot be exhaustively enumerated from this tool.
+
+## Automation rules, and whether an alert was ever delivered
+
+- **`list_automation_rules` takes `first`, defaulting to 15.** Without it the response looks
+  like a complete census and is a page: `first: 200` returned 183 of 183 where the default had
+  returned a fraction. **Never publish a rule-coverage number from an unpaged call.**
+- **Automation rules carry NO lifetime run counter.** The exposed fields are last-three-days
+  shaped (`lastThreeDaysFailedRuns`, `lastThreeDaysTotalRuns`); nothing returns runs since
+  creation, so no "failures since it was built" figure can come from here.
+- **The audit log is closed to a read-scoped token**, verbatim: `access denied, at least one of
+  the following is required: [admin:all admin:audit], your permissions: [read:all]`. So "nobody
+  looked at this issue" cannot be evidenced from Wiz on a hunting token.
 
 ## Tenant separation cannot be verified by comparing scoped queries
 
