@@ -21,8 +21,10 @@ activity lookups.
   the browser/device step).
 - **SAML wall:** orgs return `403 "protected by organization SAML enforcement"` even with the
   right scope until the PAT is **SSO-authorized per org** (GitHub → Developer settings → PAT →
-  Configure SSO → Authorize, per org). Some orgs also 403 simply because the caller is not an
-  admin there. Record which orgs were queryable vs blocked.
+  Configure SSO → Authorize, per org). Authorizing is what flips it: on one account, team
+  listings stopped 403ing and membership resolved for **21 of 23 orgs** with no change but
+  per-org SSO authorization. Some orgs also 403 simply because the caller is not an admin there.
+  Record which orgs were queryable vs blocked.
 - **That 403 is genuinely ambiguous, because `gh` prints BOTH diagnoses at once.** A single
   `gh api orgs/<org>/teams` call emits the SAML message
   (`Resource protected by organization SAML enforcement. You must grant your OAuth token access
@@ -60,8 +62,24 @@ activity lookups.
 
   `gh` surfaces that as `gh: Validation Failed (HTTP 422)`. But in a broad
   `gh search prs --author=<user>` the same repo is dropped with **exit code 0, nothing on
-  stderr, and a shorter array**. Measured on one token: **30 returned against 36 real, a 17%
-  undercount**, hiding a PR that had sat for 493 days.
+  stderr, and a shorter array**. Measured once at **30 returned against 36 real**, hiding a PR
+  that had sat for 493 days.
+- **The SIZE of that gap is a per-token SSO-authorization artifact, not a standing property of
+  the search API, and it has reversed on the same account** (search later answered for eight
+  orgs it had not seen, with no change but per-org SSO authorization in between). The mechanism
+  is permanent; the number is a property of your token today, so measure it at the start of a
+  run instead of quoting a remembered figure. **The CROSS-CHECK side must come from outside the
+  search index** — a GraphQL `search(type:ISSUE)` `issueCount` is the same index and measures it
+  against itself. Compare like with like, one author and one state on both sides:
+
+  ```sh
+  gh search prs --author=<user> --state=open --limit 1000 --json id --jq 'length'
+  ```
+
+  against the `viewer{pullRequests(states:OPEN)}` call below, or a repo-by-repo `gh pr list`,
+  then diff the id lists. The `--limit` default is 30, so it is not optional, and the search API
+  hard-stops at 1,000 results, so an org-wide count saturates rather than counts.
+  `--limit 100 | wc -l` is not a substitute either: it caps at 100 and counts table rows.
 - **Cross-check with GraphQL, which does not use the search index.** One call replaces both the
   search and the per-PR fan-out, and diffing the two id lists is the proof:
 
