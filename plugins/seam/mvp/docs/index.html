@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seam — Documentation</title>
+
+<style id="shared">/* Seam MVP — shared design tokens, graduated from board prototype v7. */
+:root{
+  --paper:#F4F7F6; --ink:#1B2431; --ink-soft:#4A5563; --stitch:#A7B0BC;
+  --card:#FFFFFF; --line:#DCE2E6; --chip:#EDF1F0;
+  --indigo:#4C5FD5; --moss:#4E7A52; --ochre:#B07A2E; --alert:#B3402F;
+  --link:#3A4DC4; --warn-bg:#FBF3E4; --warn-ink:#8A5A16;
+  --ledger-bg:#141F2A; --ledger-txt:#C4D2DE; --ledger-key:#8FB7E8;
+  --radius:6px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:700;letter-spacing:-.01em;margin:0}
+code,kbd,.mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+a{color:var(--link)}
+.seam-rule{border:0;border-top:1px dashed var(--stitch);margin:0}
+.wordmark{font-family:'Archivo',sans-serif;font-weight:700;letter-spacing:-.02em}
+.wordmark::after{content:"";display:inline-block;width:26px;border-top:2px dashed var(--stitch);
+  margin-left:8px;vertical-align:6px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:var(--chip);border:1px solid var(--line);
+  border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--ink-soft);white-space:nowrap}
+.chip.warn{background:var(--warn-bg);border-color:#E8D6AE;color:var(--warn-ink)}
+.chip.bad{background:#FBEDEB;border-color:#E7C4BD;color:var(--alert)}
+.btn{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:var(--radius);padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--stitch)}
+.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+.deep{color:var(--link);text-decoration:none;border-bottom:1px dotted currentColor}
+.deep::after{content:" ↗";font-size:.85em}
+</style>
+<style>
+.doc{display:grid;grid-template-columns:216px minmax(0,720px);gap:38px;padding:28px 24px;max-width:1030px;margin:0 auto}
+nav{position:sticky;top:20px;align-self:start;font-size:13.5px}
+nav .wordmark{font-size:19px;display:block;margin-bottom:16px}
+nav a{display:block;padding:4px 0;color:var(--ink-soft);text-decoration:none;border:0}
+nav a:hover{color:var(--ink)}
+nav .grp{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--stitch);
+  margin:14px 0 5px;font-weight:600}
+h1{font-size:29px;margin-bottom:6px}
+h2{font-size:19px;margin:30px 0 9px;padding-top:14px;border-top:1px dashed var(--stitch)}
+h3{font-size:15px;margin:19px 0 6px}
+p,li{font-size:14.5px}
+p{margin:9px 0}
+ul,ol{padding-left:20px;margin:9px 0}
+li{margin:4px 0}
+.lede{font-size:16.5px;color:var(--ink-soft);margin-bottom:4px}
+pre{background:var(--ledger-bg);color:var(--ledger-txt);padding:13px 15px;border-radius:var(--radius);
+  overflow:auto;font-size:12.5px;line-height:1.55}
+pre .k{color:var(--ledger-key)}
+code{background:var(--chip);border:1px solid var(--line);border-radius:3px;padding:1px 5px;font-size:12.5px}
+pre code{background:none;border:0;padding:0;font-size:inherit;color:inherit}
+table{border-collapse:collapse;width:100%;font-size:13.5px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--chip);font-weight:600;font-size:12.5px}
+.callout{border:1px solid var(--line);border-left:3px solid var(--indigo);background:var(--card);
+  border-radius:var(--radius);padding:12px 15px;margin:14px 0}
+.callout.warn{border-left-color:var(--ochre);background:var(--warn-bg);border-color:#E8D6AE}
+.callout.stop{border-left-color:var(--alert);background:#FBEDEB;border-color:#E7C4BD}
+.callout h4{font-size:13px;margin-bottom:4px}
+.callout p{margin:4px 0;font-size:13.5px}
+kbd{background:var(--card);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+  padding:1px 6px;font-size:12px}
+.status{display:inline-block;font-size:11px;font-family:'IBM Plex Mono',monospace;border-radius:3px;
+  padding:1px 6px;border:1px solid var(--line);background:var(--chip);color:var(--ink-soft)}
+.status.on{background:#EDF3ED;border-color:#C6DAC8;color:var(--moss)}
+.status.off{background:#F0F2F2;color:var(--stitch)}
+@media(max-width:860px){.doc{grid-template-columns:1fr;gap:16px}nav{position:static}}
+</style>
+</head>
+<body>
+<div class="doc">
+<nav>
+  <span class="wordmark">Seam</span>
+  <div class="grp">Start</div>
+  <a href="#what">What Seam is</a>
+  <a href="#not">What it is not</a>
+  <a href="#install">Install &amp; first run</a>
+  <div class="grp">Daily use</div>
+  <a href="#board">Reading the board</a>
+  <a href="#tiers">Tiers &amp; provisional</a>
+  <a href="#claims">Claims &amp; provenance</a>
+  <a href="#cold">Cold start</a>
+  <div class="grp">Trust</div>
+  <a href="#safety">Safety model</a>
+  <a href="#leaves">What leaves your machine</a>
+  <a href="#ledger">The ledger</a>
+  <a href="#freshness">Freshness &amp; dark sources</a>
+  <div class="grp">Reference</div>
+  <a href="#profiles">Profiles</a>
+  <a href="#limits">MVP limits</a>
+</nav>
+
+<main>
+<h1>Seam</h1>
+<p class="lede">An overlay that reads your mail and calendar, works out what is actually asking something of
+you, and puts it on one page — where every claim links to its source and nothing acts in the world
+without your approval.</p>
+
+<h2 id="what">What Seam is</h2>
+<p>Your work lives in threads that cross surfaces. No single inbox can see the through-line, so you
+hold it in your head and things fall through the seams: an ask you made that never got answered, a
+decision buried in a chain, a deadline someone mentioned in passing.</p>
+<p>Seam syncs those surfaces into a local store, infers the structure — messages to threads, threads
+to workstreams — and compiles a board of what needs you now. It holds only the <em>delta</em> between
+what is happening in your communications and what your formal systems already know. In perfect sync
+it holds nothing.</p>
+
+<h2 id="not">What it is not</h2>
+<ul>
+  <li><strong>Not a system of record.</strong> It never replaces your tracker or your wiki. It points at them.</li>
+  <li><strong>Not an autonomous actor.</strong> You approve every write. This build has zero write
+    access at all; when drafting and private calendar holds arrive, they will stage for your
+    confirmation and never send, post, or notify anyone else. Narrow self-scoped rules (a mail filter
+    affecting only you) may be earned later, per-item confirmed.</li>
+  <li><strong>Not a team product.</strong> One user, one machine at a time. Nothing is shared,
+    nothing is uploaded to a vendor.</li>
+  <li><strong>Not an assistant that acts on your behalf.</strong> Every card ends at a link into the
+    native app, where you do the thing.</li>
+</ul>
+
+<h2 id="install">Install &amp; first run</h2>
+<p>Seam is a Claude Code plugin. It runs where your MCP connections already live, so it needs no new
+credentials of its own.</p>
+<pre><code>export SEAM_PROFILE=personal
+node bin/seam.mjs setup       <span class="k"># the 10-minute seeding conversation — this is first run</span>
+node bin/seam.mjs sync        <span class="k"># first pass, seeded</span></code></pre>
+<p><strong>Setup is a conversation, not a config file.</strong> It asks you to name three to five
+workstreams, point at their channels, and list the people you cannot keep waiting — then writes the
+profile for you. Day one arrives confident and pre-sorted rather than empty and apologetic. (The
+underlying YAML at <code>~/.seam/profiles/</code> is editable directly as the advanced path.)</p>
+<p>Then open <code>&lt;store_root&gt;/board/index.html</code>. Sync regenerates it; the page is static.</p>
+
+<div class="callout">
+<h4>Where your data sits</h4>
+<p>Everything Seam derives lives in plain files under <code>store_root</code>, a folder you choose.
+Raw messages as JSONL, workstreams and facts as markdown, state changes as an append-only ledger.
+No database, no service, no vendor. You can read all of it in a text editor and delete it with
+<code>rm -rf</code>.</p>
+</div>
+
+<h2 id="board">Reading the board</h2>
+<p>Three modes share one spine. <strong>Operate</strong> is what needs you now, and is the whole of this
+build. <strong>Reflect</strong> (rollups over a window) and <strong>Know</strong> (durable facts held
+while your wiki lags) are designed but not yet built — they appear in the limits table below as
+<span class="status off">later</span>.</p>
+<p>Each card is a compiled story, not a forwarded message:</p>
+<table>
+  <tr><th>Element</th><th>What it tells you</th></tr>
+  <tr><td>Type badge</td><td>The shape of the next step — REPLY, REVIEW, NUDGE, APPROVE.</td></tr>
+  <tr><td>Title</td><td>The recommended next action, phrased for outcome. ≤ 12 words.</td></tr>
+  <tr><td>WHY NOW</td><td>The urgency, with its evidence. ≤ 14 words.</td></tr>
+  <tr><td>CONTEXT</td><td>The situation in one line. ≤ 18 words.</td></tr>
+  <tr><td>Signal chips</td><td>Extracted evidence: dates, silence duration, corroboration, external origin.</td></tr>
+  <tr><td>N messages</td><td>The underlying thread, each message deep-linked to its source.</td></tr>
+</table>
+<p>Those word budgets are enforced by a linter, not a guideline. A card that cannot say why it matters
+in fourteen words is a card that does not know why it matters.</p>
+
+<h2 id="tiers">Tiers &amp; provisional state</h2>
+<p>Three urgency tiers: <strong>Critical Now</strong>, <strong>Opportunity Now</strong>,
+<strong>Over the Horizon</strong>. Action <em>type</em> — reply, nudge, review, approve — is a lens you
+filter by, not a tier. "Waiting on someone" is one such action type and its items carry their own
+urgency like anything else; it is never a separate bucket.</p>
+<p>Critical Now is soft-capped at five. Past five, Seam ranks and demotes with its reasoning visible
+("demoted: due Friday, not today"). A Critical tier with twelve items in it means nothing, so the cap
+is a feature of the priority model rather than of the layout.</p>
+<p>Anything Seam assigned itself renders <em>provisional</em>: dashed border, hollow chip. Tapping the
+chip confirms it in place and teaches the model. Confirmed items render solid. You should always be
+able to tell, at a glance, which judgments are yours and which are the machine's.</p>
+<p>Over the Horizon never badges during the week. It surfaces at Review Friday, in one guided pass.</p>
+
+<h2 id="claims">Claims &amp; provenance</h2>
+<p>Every extracted signal is tappable and resolves to the exact message it came from. No claim without
+a link — if Seam says "due Wednesday" it will show you who said so and when.</p>
+<div class="callout warn">
+<h4>Urgency from outside is marked</h4>
+<p>A deadline asserted by an external sender is labelled <em>urgency claimed by sender — unverified</em>
+and can never reach Critical Now on its own. It needs internal corroboration: a date in your tracker, a
+message from someone inside. A vendor's "expires Friday" is a sales tactic until something of yours agrees.</p>
+</div>
+
+<h2 id="cold">Cold start</h2>
+<p>Bottom-up inference needs history, and day one has none. Seam is explicit about it rather than
+pretending confidence:</p>
+<ul>
+  <li>Day one leads with the two things that work with zero inference — extracted dates, and asks of
+    yours that got no reply.</li>
+  <li>Workstreams appear as <em>proposals</em> ("these nine messages look like one effort — name it?").
+    Unnamed proposals re-cluster on the next sync; naming one makes it stable.</li>
+  <li>A <strong>settling in</strong> banner replaces confident tiering until confirmation volume
+    crosses a threshold.</li>
+  <li>The person filter stays off until the registry has enough addresses to be useful.</li>
+</ul>
+<p>You can shortcut all of this with a ten-minute seeding conversation: name three to five workstreams,
+point at their channels, list the people you cannot keep waiting. Inference then corroborates and
+extends rather than bootstrapping from nothing.</p>
+
+<h2 id="safety">Safety model</h2>
+<p>Seam moves text written by people outside your organisation toward an agent. That is the whole risk,
+and it is designed for rather than mitigated after.</p>
+<table>
+  <tr><th>Rule</th><th>How it is enforced</th></tr>
+  <tr><td>Synced content is data, never instructions <span class="status off">designed</span></td>
+      <td>The posture is settled and no compilation code exists yet to violate it. When it is built,
+          untrusted text will be structurally separated from the instruction channel (not merely
+          delimiter-wrapped, which is defeatable), and adversarial evals will report an injection rate.</td></tr>
+  <tr><td>You approve every write <span class="status on">enforced today</span></td>
+      <td>This build holds no write capability. The write allowlist in the profile is empty, and a repo
+          lint greps the source for send-capable tool names. <em>Honest scope of that lint:</em> it
+          checks our own source text — it is a naming guard, not a runtime capability boundary. The
+          real boundary is the empty allowlist plus your per-write confirmation, and binding it to the
+          host's tool manifest at call time is planned.</td></tr>
+  <tr><td>External-sourced facts never auto-promote <span class="status off">designed</span></td>
+      <td>The rule is settled and a fixture exists for the attacker-derived-fact case; the compiler and
+          its golden test are not built yet. We will not claim this as enforced until the test runs.</td></tr>
+  <tr><td>External urgency never reaches Critical alone <span class="status off">designed</span></td>
+      <td>Visible in the board today ("held at opportunity"), but the tiering code and its golden are
+          not written. Designed, not yet enforced.</td></tr>
+  <tr><td>Rules are never taken from message bodies <span class="status off">designed</span></td>
+      <td>The poisoned-message fixture exists; the adjudication and the <code>injection_attempt_logged</code>
+          ledger event are specified and shown in the prototype ledger, not yet wired in code.</td></tr>
+  <tr><td>Residency <span class="status on">enforced today</span></td>
+      <td>Seam refuses to run if the store belongs to a different profile — real, and covered by a test.
+          Scope limit: it compares a profile <em>name</em> to a store marker, not the account identity
+          of the connected mailbox; binding to connector identity is planned.</td></tr>
+</table>
+
+<h2 id="leaves">What leaves your machine</h2>
+<p>Your messages live in plain files on your machine. But inference is not local: to compile a card,
+Seam sends the relevant message text to a model provider over the network. We say so plainly because
+the alternative — implying nothing ever leaves — is the claim that would fail an audit.</p>
+<table>
+  <tr><th>What</th><th>Where it goes</th></tr>
+  <tr><td>Message text needed to compile a card (sender, snippet, thread context)</td>
+      <td>The model provider named in your profile, per compilation. Nothing else.</td></tr>
+  <tr><td>Raw messages, entities, ledger, learned state</td>
+      <td>Nowhere. Plain files under your <code>store_root</code>. No server, no account, no telemetry.</td></tr>
+</table>
+<p>Every model call is recorded in the ledger as a <code>model_call</code> event carrying the provider,
+the exact <em>versioned</em> model id (not a family name), the message ids included, and the bytes sent
+— so "what left, and when" is answerable line by line, not asserted.</p>
+<h3>What the provider does with it</h3>
+<p>Seam is <strong>provider-agnostic by design</strong>: you choose the model provider and bring your own
+agreement with them. Naming the provider is half the disclosure; the other half is their handling terms,
+which are yours to set, not ours to assert:</p>
+<table>
+  <tr><th>Question</th><th>Answer (from provider terms)</th></tr>
+  <tr><td>Retention window for submitted content</td><td><em>&lt;fill from DPA&gt;</em></td></tr>
+  <tr><td>Is submitted content used for training?</td><td><em>&lt;fill from DPA&gt;</em></td></tr>
+  <tr><td>DPA / BAA in place?</td><td><em>&lt;fill&gt;</em></td></tr>
+  <tr><td>Data-residency region</td><td><em>&lt;fill&gt;</em></td></tr>
+</table>
+<p class="note">Until these are filled for your provider, treat Seam as unfit for regulated mail. The
+seeding conversation also sends content (workstream and people names); it is covered by the same terms.</p>
+
+<h2 id="ledger">The ledger</h2>
+<p>Every state change — yours and Seam's — appends to <code>events/ledger-YYYY-MM.jsonl</code> with an
+actor attached.</p>
+<pre><code>{<span class="k">"ts"</span>:"2026-08-07T07:42:08Z",<span class="k">"actor"</span>:"agent",<span class="k">"type"</span>:"model_call",
+ <span class="k">"provider"</span>:"anthropic",<span class="k">"model"</span>:"claude",
+ <span class="k">"message_ids"</span>:["email:m-5001a"],<span class="k">"bytes_sent"</span>:2841}
+{<span class="k">"ts"</span>:"2026-08-07T07:42:09Z",<span class="k">"actor"</span>:"agent",<span class="k">"type"</span>:"tier_assigned",
+ <span class="k">"action"</span>:"act_201",<span class="k">"tier"</span>:"critical",
+ <span class="k">"reason"</span>:"internal corroboration + extracted deadline"}
+{<span class="k">"ts"</span>:"2026-08-07T08:03:44Z",<span class="k">"actor"</span>:"user",<span class="k">"type"</span>:"tier_confirmed",
+ <span class="k">"action"</span>:"act_205"}</code></pre>
+<p>Which means "what did this thing do while I was away" is answerable completely, in a file you own,
+in a format you can grep. Honest limit: it is a plaintext log the writing process could in principle
+rewrite — a debug-grade audit trail, not a tamper-evident one. Hash-chaining or an append-only sink is
+the planned hardening; today the value is completeness and legibility, not cryptographic integrity.</p>
+
+<h2 id="freshness">Freshness &amp; dark sources</h2>
+<p>A stale board that looks fresh is worse than no board. Each source carries its own freshness chip.
+If one fails, it goes <em>dark</em>: its chip turns red, its signals pause, and the sync completes
+anyway — one broken connection never blanks the page.</p>
+<div class="callout">
+<h4>Silence maths excludes dark windows</h4>
+<p>"Four days silent" is a lie if the source was not syncing for two of them. Seam subtracts dark
+windows before it tells you nobody answered.</p>
+</div>
+
+<h2 id="profiles">Profiles</h2>
+<p>One install, many personas. A profile binds a persona to its store, its MCP servers, its real tool
+names, and its people.</p>
+<table>
+  <tr><th>Lives in</th><th>Holds</th><th>Travels by</th></tr>
+  <tr><td>The plugin</td><td>Code, prompts, adapters, fixtures, the board template</td><td>git</td></tr>
+  <tr><td><code>~/.seam/profiles/</code></td><td>Your real bindings, store root, principals</td>
+      <td>Nothing — per machine, never committed</td></tr>
+  <tr><td>The store</td><td>Messages, entities, ledger, what Seam has learned</td><td>Your own folder sync</td></tr>
+</table>
+<p>Prompts and logic address abstract surfaces — email, chat, calendar — never products. Supporting a
+new provider is a new adapter and fixtures, with no prompt changes.</p>
+
+<h2 id="limits">MVP limits</h2>
+<p>Stated plainly, because a tool that oversells its current state does not get a second week:</p>
+<table>
+  <tr><th>Capability</th><th>Status</th></tr>
+  <tr><td>Email ingest, thread &amp; workstream inference, tiering, board</td><td><span class="status on">in MVP</span></td></tr>
+  <tr><td>Calendar read — meetings, focus blocks, attendees as evidence</td><td><span class="status on">in MVP</span></td></tr>
+  <tr><td>Chat ingest</td><td><span class="status off">not connected</span></td></tr>
+  <tr><td>Any write — drafts, holds, filters (all user-confirmed when they land)</td><td><span class="status off">not yet</span></td></tr>
+  <tr><td>Drift detection against a tracker</td><td><span class="status off">needs tracker access</span></td></tr>
+  <tr><td>Rollups &amp; weekly reporting</td><td><span class="status off">later</span></td></tr>
+</table>
+<div class="callout stop">
+<h4>The one thing to understand before you rely on it</h4>
+<p>Seam proposes. You dispose. It cannot act in the world without your approval — today it cannot act
+at all — and every judgment it makes is labelled as its own until you confirm it. If that ever stops
+being true, the ledger will show you.</p>
+</div>
+</main>
+</div>
+<script>
+</script>
+</body>
+</html>

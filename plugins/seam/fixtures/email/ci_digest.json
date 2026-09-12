@@ -1,0 +1,8 @@
+{"threadId":"t-7001","messages":[
+ {"id":"m-7001a","payload":{"headers":[
+   {"name":"From","value":"ci-noreply@stoneridge.com"},
+   {"name":"Date","value":"Tue, 4 Aug 2026 02:00:00 -0400"},
+   {"name":"Subject","value":"Nightly Semgrep digest — 41 findings"},
+   {"name":"Precedence","value":"bulk"},
+   {"name":"List-Unsubscribe","value":"<mailto:leave-ci@stoneridge.com>"}]},
+  "snippet":"41 findings across 6 repos; 39 pre-existing…"}]}

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Seam — the work between your apps</title>
+<style id="shared">/* Seam MVP — shared design tokens, graduated from board prototype v7. */
+:root{
+  --paper:#F4F7F6; --ink:#1B2431; --ink-soft:#4A5563; --stitch:#A7B0BC;
+  --card:#FFFFFF; --line:#DCE2E6; --chip:#EDF1F0;
+  --indigo:#4C5FD5; --moss:#4E7A52; --ochre:#B07A2E; --alert:#B3402F;
+  --link:#3A4DC4; --warn-bg:#FBF3E4; --warn-ink:#8A5A16;
+  --ledger-bg:#141F2A; --ledger-txt:#C4D2DE; --ledger-key:#8FB7E8;
+  --radius:6px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:700;letter-spacing:-.01em;margin:0}
+code,kbd,.mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+a{color:var(--link)}
+.seam-rule{border:0;border-top:1px dashed var(--stitch);margin:0}
+.wordmark{font-family:'Archivo',sans-serif;font-weight:700;letter-spacing:-.02em}
+.wordmark::after{content:"";display:inline-block;width:26px;border-top:2px dashed var(--stitch);
+  margin-left:8px;vertical-align:6px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:var(--chip);border:1px solid var(--line);
+  border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--ink-soft);white-space:nowrap}
+.chip.warn{background:var(--warn-bg);border-color:#E8D6AE;color:var(--warn-ink)}
+.chip.bad{background:#FBEDEB;border-color:#E7C4BD;color:var(--alert)}
+.btn{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:var(--radius);padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--stitch)}
+.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+.deep{color:var(--link);text-decoration:none;border-bottom:1px dotted currentColor}
+.deep::after{content:" ↗";font-size:.85em}
+</style>
+<style>
+.proto{background:var(--warn-bg);border-bottom:1px solid #E8D6AE;color:var(--warn-ink);
+  padding:6px 20px;font-size:12px;text-align:center}
+.nav{display:flex;align-items:center;gap:24px;padding:16px 32px;max-width:1120px;margin:0 auto}
+.nav .wordmark{font-size:20px}
+.nav a{margin-left:auto;font-size:14px;color:var(--ink-soft);text-decoration:none}
+.nav a+a{margin-left:20px}
+section{max-width:1120px;margin:0 auto;padding:0 32px}
+.hero{padding:60px 32px 46px;text-align:center}
+.hero h1{font-size:46px;line-height:1.08;max-width:16ch;margin:0 auto 16px;letter-spacing:-.025em}
+.hero .sub{font-size:19px;color:var(--ink-soft);max-width:58ch;margin:0 auto 14px}
+.hero .diff{font-size:15px;color:var(--ink);max-width:52ch;margin:0 auto 24px;font-weight:500}
+.cta{display:flex;gap:11px;justify-content:center;flex-wrap:wrap}
+.btn.lg{padding:11px 22px;font-size:14.5px}
+.hero .fine{margin-top:16px;font-size:12.5px;color:var(--stitch)}
+.problem{padding:50px 32px}
+.problem h2{font-size:29px;max-width:20ch;margin-bottom:14px}
+.problem p{font-size:16px;color:var(--ink-soft);max-width:62ch}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:30px}
+.tile{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--indigo);
+  border-radius:var(--radius);padding:19px}
+.tile.moss{border-left-color:var(--moss)} .tile.ochre{border-left-color:var(--ochre)}
+.tile h3{font-size:15.5px;margin-bottom:6px}
+.tile p{font-size:14px;color:var(--ink-soft);margin:0}
+.shot{padding:42px 32px}
+.shot .frame{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+  box-shadow:0 1px 3px rgba(27,36,49,.06)}
+.shot .bar{background:var(--chip);border-bottom:1px solid var(--line);padding:7px 13px;
+  font-size:11.5px;color:var(--ink-soft);font-family:var(--mono,monospace);display:flex;gap:8px}
+.shot .body{padding:20px}
+.mock-card{border:1px dashed var(--line);border-left:3px solid var(--ochre);border-radius:var(--radius);
+  padding:13px 15px;background:#fff;max-width:600px}
+.mock-card .hd{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.mock-card .ti{font-weight:600;font-size:15.5px;margin-bottom:7px}
+.mock-card .ln{font-size:13.5px;color:var(--ink-soft)}
+.lbl{font-size:10px;letter-spacing:.08em;color:var(--stitch)}
+.claim{border-bottom:1px dotted var(--link);color:var(--link)}
+.callouts{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:22px}
+.co{font-size:13.5px;color:var(--ink-soft);border-left:2px solid var(--stitch);padding-left:12px}
+.co strong{color:var(--ink);display:block;font-size:14px;margin-bottom:2px}
+.trust{background:var(--card);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  padding:50px 0;margin-top:20px}
+.trust h2{font-size:29px;margin-bottom:8px;max-width:24ch}
+.trust .sub{color:var(--ink-soft);font-size:16px;max-width:60ch;margin-bottom:24px}
+.tlist{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 32px}
+.t{display:flex;gap:11px;align-items:flex-start}
+.t .m{font-size:10.5px;border-radius:3px;padding:1px 6px;white-space:nowrap;margin-top:2px;font-weight:600}
+.t .m.now{color:var(--moss);border:1px solid #C6DAC8;background:#EDF3ED}
+.t .m.des{color:var(--ink-soft);border:1px solid var(--line);background:var(--chip)}
+.t p{margin:0;font-size:14px;color:var(--ink-soft)}
+.t p strong{color:var(--ink)}
+.leaves{padding:44px 32px}
+.leaves h2{font-size:24px;margin-bottom:8px}
+.leaves p{color:var(--ink-soft);font-size:15px;max-width:62ch}
+.leaves .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+.leaves .box{border:1px solid var(--line);border-radius:var(--radius);padding:16px;background:var(--card)}
+.leaves .box h4{font-size:13px;margin-bottom:6px}
+.leaves .box.stay{border-left:3px solid var(--moss)}
+.leaves .box.go{border-left:3px solid var(--ochre)}
+.leaves .box p{font-size:13.5px;margin:0}
+.who{padding:48px 32px}
+.who h2{font-size:29px;margin-bottom:6px}
+.who .sub{color:var(--ink-soft);margin-bottom:20px;font-size:15px}
+.who .p{border:1px solid var(--line);border-radius:var(--radius);padding:17px;background:var(--card);max-width:640px}
+.who .p h3{font-size:14.5px;margin-bottom:5px}
+.who .p p{font-size:13.5px;color:var(--ink-soft);margin:0}
+.honest{padding:44px 32px}
+.honest .box{border:1px solid var(--line);border-left:3px solid var(--ochre);background:var(--warn-bg);
+  border-radius:var(--radius);padding:22px 26px}
+.honest h2{font-size:22px;margin-bottom:10px}
+.honest ul{margin:10px 0 0;padding-left:20px}
+.honest li{font-size:14px;color:var(--warn-ink);margin:5px 0}
+.end{text-align:center;padding:56px 32px 30px}
+.end h2{font-size:32px;margin-bottom:10px}
+.end p{color:var(--ink-soft);font-size:16px;margin-bottom:22px}
+footer{border-top:1px dashed var(--stitch);padding:22px 32px 40px;max-width:1120px;margin:0 auto;
+  display:flex;gap:16px;font-size:12.5px;color:var(--stitch);flex-wrap:wrap}
+footer a{color:var(--ink-soft);text-decoration:none}
+@media(max-width:840px){.grid3,.callouts,.tlist,.leaves .two,.who .row{grid-template-columns:1fr}
+  .hero h1{font-size:34px}.hero{padding:38px 20px}}
+</style>
+</head>
+<body>
+<div class="proto">Prototype site for internal review — Seam is personal-first and has not shipped. No sign-up exists.</div>
+<div class="nav">
+  <span class="wordmark">Seam</span>
+  <a href="../docs/index.html">Docs</a><a href="#trust">Trust</a><a href="#leaves">What leaves your machine</a><a href="#honest">What it can't do</a>
+</div>
+
+<div class="hero">
+  <h1>The asks you owe are scattered. Seam gathers them.</h1>
+  <p class="sub">You delegated it, they said "midweek," it's Thursday, and nobody told you. Your obligations
+  live across mail and calendar; no single app sees the through-line, so you carry it in your head and
+  things fall through the seams.</p>
+  <p class="diff">Seam reads those surfaces, ranks what actually needs you, links every claim to its
+  source — and cannot touch anything without your say-so.</p>
+  <div class="cta">
+    <a class="btn primary lg" href="../ui/index.html">See the board</a>
+    <a class="btn lg" href="../docs/index.html#install">How to install</a>
+  </div>
+  <p class="fine">Runs on your machine · plain files you own · you approve every write · reads mail + calendar today · sees delegations made over mail</p>
+</div>
+<hr class="seam-rule" style="max-width:1120px;margin:0 auto">
+
+<section class="problem">
+  <h2>You are not disorganised. Your work is distributed.</h2>
+  <p>A vendor renewal lives in an email chain and a calendar invite; the ask you made about it is three
+  days old with no reply. Two surfaces, one piece of work, and the only place it exists whole is your
+  memory. That reassembly — every morning — is the cost. Seam does it for you and shows its work.</p>
+  <div class="grid3">
+    <div class="tile"><h3>Asks that went quiet</h3>
+      <p>You delegated it, they said "midweek," it's Thursday and nobody has told you. Seam watches your
+      sent mail for the ask and the silence after it.</p></div>
+    <div class="tile moss"><h3>Dates said in passing</h3>
+      <p>The deadline that mattered was one clause in a Tuesday email. Seam extracts it and shows you the
+      sentence it came from.</p></div>
+    <div class="tile ochre"><h3>Manufactured urgency</h3>
+      <p>"Pricing expires Friday" from a seller is not a deadline from your finance team. Seam marks the
+      difference instead of laundering it.</p></div>
+  </div>
+</section>
+
+<section class="shot">
+  <div class="frame">
+    <div class="bar"><span>store/board/index.html</span><span>·</span><span>email 07:42</span>
+      <span>calendar 07:42</span></div>
+    <div class="body">
+      <div class="mock-card">
+        <div class="hd"><span class="chip">NUDGE · waiting</span><span class="chip">OPPORTUNITY · provisional</span></div>
+        <div class="ti">Legal redlines on the MSA — counsel said midweek.</div>
+        <div class="ln"><span class="lbl">WHY NOW</span> Not yet due; nudge proposed
+          <span class="claim">Thursday</span> if still silent.</div>
+        <div class="ln"><span class="lbl">CONTEXT</span> Blocks the renewal reply; 18% uplift on the table.</div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+          <span class="chip">stated expectation: midweek</span>
+          <span class="chip">silent 3d</span><span class="chip">from your sent mail</span></div>
+      </div>
+      <div class="callouts">
+        <div class="co"><strong>Every claim is a link.</strong> Tap "midweek" and you land on the message
+          that said it. No assertion without provenance.</div>
+        <div class="co"><strong>Provisional until you say so.</strong> Dashed border means Seam decided
+          this, not you. One tap confirms it and teaches the ranking.</div>
+        <div class="co"><strong>Action type is a lens, not a bucket.</strong> "Waiting on someone" is a
+          filter across tiers — the item keeps its real urgency.</div>
+        <div class="co"><strong>Twelve words, then fourteen, then eighteen.</strong> Card prose is
+          budget-enforced. If it can't say why in fourteen words, it doesn't know why.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="trust" id="trust">
+<section>
+  <h2>Useful and auditable — you don't have to choose.</h2>
+  <p class="sub">The point of Seam is that a security-conscious person gets both: a triage that actually
+  helps, and the ability to see exactly what it saw, decided, and did. Some guarantees hold in code
+  today; others are designed and honestly labelled. We don't badge what we haven't built.</p>
+  <div class="tlist">
+    <div class="t"><span class="m now">enforced today</span><p><strong>You approve every write.</strong>
+      This build holds no write capability at all. When drafting arrives it stages for your confirmation
+      and never sends, posts, or notifies anyone.</p></div>
+    <div class="t"><span class="m now">enforced today</span><p><strong>Every event names its actor.</strong>
+      user or agent, on every state change — including every model call. "What did it do while I was
+      away" is answerable line by line. (Plaintext today; tamper-evidence is planned.)</p></div>
+    <div class="t"><span class="m now">enforced today</span><p><strong>Work and personal never mix.</strong>
+      Seam refuses to start against a store belonging to another profile.</p></div>
+    <div class="t"><span class="m des">designed</span><p><strong>Synced text is data, never instructions.</strong>
+      The posture is settled; the compiler that must honour it isn't built yet, so we don't yet claim it
+      as enforced.</p></div>
+    <div class="t"><span class="m des">designed</span><p><strong>External urgency is marked and capped.</strong>
+      Visible in the board today; the tiering code and its test are the next milestone.</p></div>
+    <div class="t"><span class="m des">designed</span><p><strong>Rules never come from message bodies.</strong>
+      The poisoned-message fixture exists; adjudication and injection-logging are specified, not yet wired.</p></div>
+  </div>
+</section>
+</div>
+
+<section class="leaves" id="leaves">
+  <h2>What leaves your machine</h2>
+  <p>We won't tell you nothing leaves — that would be the claim that fails an audit. Your files stay
+  local; inference does not. To compile a card, the relevant message text goes to a model provider, and
+  every such call is logged.</p>
+  <div class="two">
+    <div class="box stay"><h4>Stays local</h4>
+      <p>Raw messages, workstreams, facts, the ledger, everything Seam learns. Plain files under a folder
+      you chose. No server, no account, no telemetry.</p></div>
+    <div class="box go"><h4>Goes to the model provider</h4>
+      <p>The message text needed to compile a card — per compilation, nothing else. Recorded as a
+      <code>model_call</code> ledger event with provider, versioned model id, message ids, and bytes sent.
+      What the provider retains or trains on is disclosed from their terms in the docs — not asserted here.</p></div>
+  </div>
+</section>
+
+<section class="who">
+  <h2>Who it is for</h2>
+  <p class="sub">One person — specifically, a security-conscious leader who owes answers and audits their tools.</p>
+  <div class="p"><h3>The person who owes answers and trusts nothing by default</h3>
+    <p>Your day is other people's asks, and the expensive miss is forgetting a person, not a task. You'd
+    also want to read the source, the ledger, and the test suite before letting anything near your
+    mailbox. Seam is built for exactly that person: it helps, and it shows its work. It is not a team
+    product and has no multi-user story — n=1 is the design, not a gap.</p></div>
+</section>
+
+<section class="honest" id="honest">
+  <div class="box">
+    <h2>What it can't do yet</h2>
+    <ul>
+      <li>It cannot send, reply, post, or write anything — drafts included. Writes arrive later, always
+      user-confirmed; sending never does.</li>
+      <li>Mail and calendar only. Chat is not connected in this release.</li>
+      <li>No drift detection against a tracker — that needs access it doesn't have.</li>
+      <li>Reflect (rollups) and Know (facts) are designed, not built. Operate is the whole of this release.</li>
+      <li>Day one it knows nothing about you until the 10-minute setup conversation seeds it.</li>
+      <li>Personal-first: dogfooded on real mail before it ships anywhere, likely open-sourced, not sold.</li>
+    </ul>
+  </div>
+</section>
+
+<div class="end">
+  <h2>See what a morning looks like.</h2>
+  <p>The board, seeded, with a day's mail and calendar on it.</p>
+  <div class="cta"><a class="btn primary lg" href="../ui/index.html">Open the board</a>
+    <a class="btn lg" href="../docs/index.html">Read the docs</a></div>
+</div>
+<footer><span class="wordmark" style="font-size:14px">Seam</span>
+  <a href="../docs/index.html">Documentation</a><a href="#trust">Trust</a>
+  <a href="#leaves">Data flow</a><a href="#honest">Limitations</a>
+  <span style="margin-left:auto">MVP prototype · for review · not published</span></footer>
+</body>
+</html>

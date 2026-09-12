@@ -1,0 +1,74 @@
+{
+  "_note": "Story-compilation golden. Produced by the model from the seed-42 corpus board via src/compile/prompt.mjs, then accepted only after passing the budget, external-marking, and fence-echo linters. Regenerate when the compile prompt changes; the eval asserts every entry still validates.",
+  "_corpus": { "seed": 42, "days": 5, "perDay": 300 },
+  "card_0": {
+    "title": "Weigh in on the cutover window and rollback plan",
+    "why_now": "M. Chen is waiting; principal asked directly",
+    "context": "IAM Unification: group mapping and cutover sequencing unresolved across two threads"
+  },
+  "card_2": {
+    "title": "Confirm phish blast radius before the all-staff notice goes out",
+    "why_now": "Credential resets underway; notice pending your scope confirmation",
+    "context": "Gateway logs and token revocation in progress; blast radius still unconfirmed"
+  },
+  "card_5": {
+    "title": "Reply to Jordan on EOQ pricing and data residency",
+    "why_now": "Vendor's sender-claimed EOQ deadline; counsel's DPA questions still open",
+    "context": "SecureTooling renewal: residency clause and termination terms unsettled with legal"
+  },
+  "card_8": {
+    "title": "Review the Q3 board narrative and risk register",
+    "why_now": "M. Chen is a principal and is waiting on the narrative",
+    "context": "Budget line, remediation SLA and risk register open before the board deck"
+  },
+  "card_13": {
+    "title": "Confirm containment in the security incident channel",
+    "why_now": "Clicks confirmed internally; containment and blast radius still open",
+    "context": "Security channel: forensics running, all-staff notice pending, containment unverified"
+  },
+  "card_1": {
+    "title": "Chase M. Chen on SCIM provisioning",
+    "why_now": "You asked by midweek; no reply yet",
+    "context": "Your SCIM provisioning ask to Chen is unanswered in IAM Unification"
+  },
+  "card_3": {
+    "title": "Chase Noah Park on the IOC sweep",
+    "why_now": "You asked by midweek; incident work, still no reply",
+    "context": "Your IOC sweep request to Noah is unanswered during the phish response"
+  },
+  "card_4": {
+    "title": "Reply to Jordan on MSA redlines and termination terms",
+    "why_now": "Sender-claimed EOQ urgency, uncorroborated internally, held out of Critical",
+    "context": "Renewal terms: auto-renew, seat count and termination clauses still with counsel"
+  },
+  "card_6": {
+    "title": "Chase counsel on the MSA redlines",
+    "why_now": "You asked by midweek; redlines block the renewal reply",
+    "context": "Your MSA redline request to counsel is unanswered while renewal pricing runs"
+  },
+  "card_7": {
+    "title": "Chase Noah Park on SCIM provisioning and group mapping",
+    "why_now": "Two asks by midweek; neither answered",
+    "context": "Tenant Migration: SCIM provisioning and group mapping both awaiting Noah's reply"
+  },
+  "card_9": {
+    "title": "Chase M. Chen on the budget line",
+    "why_now": "You asked by midweek; principal has not replied",
+    "context": "Your budget line question to Chen is unanswered before the Q3 deck"
+  },
+  "card_10": {
+    "title": "Pick the reverse proxy and nightly sync back up",
+    "why_now": "Your own thread, no one else involved, still open",
+    "context": "Ajilty homelab: GPU node, backup job and reverse proxy left unresolved"
+  },
+  "card_11": {
+    "title": "Reply to Jordan on the Friday pricing deadline",
+    "why_now": "Friday deadline and 18% uplift are sender-claimed, not corroborated",
+    "context": "Vendor says signature by Friday locks pricing; nothing internal confirms it"
+  },
+  "card_12": {
+    "title": "Chase Priya Raghavan on the threat model",
+    "why_now": "You asked by midweek; no reply yet",
+    "context": "Your threat model request to Priya is unanswered in the SDLC uplift"
+  }
+}
