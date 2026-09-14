@@ -165,9 +165,8 @@ telemetry) for "where is X installed", within these limits.
   but the tool hint reads like a syntax complaint rather than "this event is absent." Confirm
   Firewall Management is enforcing before reading a `FirewallMatchEvent` zero as "no blocked
   traffic."
-- **A fleet-wide `groupBy` on a specific `RemotePort` silently caps at exactly `limit=` rows**
-  with an empty `warnings` array, and the result is dominated by Zscaler tunnel noise. **Pin the
-  destination address, not the port.**
+- A fleet-wide `groupBy` on a specific `RemotePort` hits the same `limit=` truncation (empty
+  `warnings`) and is dominated by Zscaler tunnel noise — pin the destination address, not the port.
 - **The Firewall Management MCP surface exposes create/delete on rule GROUPS but nothing to
   attach a group to a POLICY.** A rule group created via `falcon_create_firewall_rule_group` sits
   `enabled: false` with `policy_ids` empty and enforces nothing; policy attachment has no MCP
