@@ -9,7 +9,7 @@ How to drive the Horizon3 MCP for reading autonomous-pentest results. The server
 at `mcp.horizon3ai.com`. If tools are deferred, load schemas first (e.g. ToolSearch
 `select:mcp__horizon3__run_h3_graphql_query`). **`run_h3_graphql_request` is deprecated and
 no-ops — use `run_h3_graphql_query` for every read.** Read-only: never call `run_pentest` or any
-mutation.
+mutation. **The query argument is `graphql_query`, not `query`** — passing `query` is rejected.
 
 ## An expired token registers ZERO tools — it never surfaces as a tool error
 
@@ -189,6 +189,10 @@ the Remediation Hub route here.
   an urgency claim.
 - **`weakness_series_facets` has no severity facet** — use `weakness_series_count` with a filter
   instead (which is where the uppercase trap bites).
+- **`weakness_series_page` itself rejects `filter_by_inputs`**:
+  `Unknown argument 'filter_by_inputs' on field 'Query.weakness_series_page'`. The page query is
+  unfiltered — filter via `weakness_series_count` (above), and establish completeness by walking
+  pages (`PageInfo` carries no `total_count`), never by reading a total off the page.
 - **A `WeaknessSeries` name can embed an address that CONTRADICTS the record's own `ip`.** Two
   rows in one account did. **Remediate from `ip`, never from the name.**
 - **`WeaknessSeries` field traps:** `Cannot query field 'context_score' on type
