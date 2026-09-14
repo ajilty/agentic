@@ -10,6 +10,9 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 
 ## falcon_search_ngsiem (CQL / LogScale)
 
+- **The CQL argument is `query_string`, not `query`.** Passing `query` fails pydantic
+  validation, `Field required` for `query_string` — a call-shape error that reads like a missing
+  query rather than a wrong parameter name.
 - **Sample before you aggregate**: `<filter> | head(3)`, read the real field names, then
   `top()`/`count()`. `top(missing_field)` returns empty with no error — and so does a field that
   is real but lives inside `@rawstring` on an unparsed dataset: `groupBy` on one returned 0 rows
@@ -31,6 +34,12 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   `top(field, limit=N)` for "most"; use `groupBy(…limit…)` only with the limit above
   cardinality.
 - `OR` across two `regex()` calls is HTTP 400; write `field=/.../i or field=/.../i`.
+- **`table(limit=N)` truncates from the END of the query window, not the start.** Raising the
+  limit never surfaces an early event; narrow the time range instead.
+- **A `groupBy` after a loose case-insensitive regex filter (`CommandLine=/pattern/i`) can return
+  implausible fleet-wide counts** — no error, just a plausible wrong number. An exact-match
+  filter plus an explicit `case {}` control returns the correct ones; reserve the loose regex for
+  discovery, not for counting.
 
 ### Reading results
 
@@ -63,6 +72,11 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 - **A blocked process lands under `#event_simpleName=ProcessBlocked`** (full `CommandLine`,
   `ImageFileName`, `ParentBaseFileName`), not `ProcessRollup2`: zero `ProcessRollup2` children of
   a parent is not "no telemetry" when the detection shows prevention.
+- **For "what is listening / what connected inbound", use `NetworkReceiveAcceptIP4`, not
+  `NetworkListenIP4`.** `#event_simpleName=NetworkListenIP4` is unreliable — it returned zero rows
+  for a port that was provably listening; the inbound-accept event caught it. A wildcard-bound
+  socket (`:::<port>`) also needs `NetworkReceiveAcceptIP6` checked separately, or the IPv6 half
+  of the exposure is missed.
 - `groupBy` silently drops a column whose field is absent on the rows. `ProcessRollup2` does not
   reliably populate `FileVersion`: pin a build by `SHA256HashData` mapped via
   `falcon_search_applications` or RTR `filehash` (read-only RTR has no PE-version command;
@@ -144,12 +158,31 @@ telemetry) for "where is X installed", within these limits.
 - `host_info.hostname` is rejected, HTTP 400 `property "host_info.hostname" not allowed`; scope
   by `aid` (resolve via `falcon_search_hosts`).
 
+## Firewall Management (NG-SIEM `FirewallMatchEvent` + rule-group writes)
+
+- **`FirewallMatchEvent` returns zero rows AND zero `processed_events` tenant-wide when Falcon
+  Firewall Management has never enforced on the estate** — the event type does not exist here,
+  but the tool hint reads like a syntax complaint rather than "this event is absent." Confirm
+  Firewall Management is enforcing before reading a `FirewallMatchEvent` zero as "no blocked
+  traffic."
+- **A fleet-wide `groupBy` on a specific `RemotePort` silently caps at exactly `limit=` rows**
+  with an empty `warnings` array, and the result is dominated by Zscaler tunnel noise. **Pin the
+  destination address, not the port.**
+- **The Firewall Management MCP surface exposes create/delete on rule GROUPS but nothing to
+  attach a group to a POLICY.** A rule group created via `falcon_create_firewall_rule_group` sits
+  `enabled: false` with `policy_ids` empty and enforces nothing; policy attachment has no MCP
+  tool, so a group built here is inert until wired up in the console.
+
 ## Real Time Response (read-only tier)
 
-- `falcon_run_rtr_read_only_command_and_wait` needs a `session_id`; `device_id` alone fails with
+- `falcon_run_rtr_read_only_command_and_wait` and `falcon_execute_rtr_read_only_command` both
+  need a `session_id`; a `device_id` alone fails with
   `1 validation error for run_read_only_command_and_waitArguments / session_id / Field required`.
   `falcon_init_rtr_session` first (it returns the host's command schema and `offline_queued: false`
   when live), carry `session_id` into every command, `falcon_delete_rtr_session` when done.
+- **A session expires mid-use and the failure reads as a missing session, not an expired one**:
+  `Could not find existing session` (code `40002`). Re-init on that error and resume; do not
+  treat it as a bad `session_id` you passed.
 - **`rtr_state: enabled` is policy, not liveness**: init against a host not checked in returns
   HTTP 404, `errors[0].code` `40401`, `Could not establish sensor comms`. Compare `last_seen` to
   now before planning RTR; laptops are unreachable off-hours.
