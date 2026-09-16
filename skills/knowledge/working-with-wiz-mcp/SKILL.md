@@ -131,8 +131,8 @@ finer details.)*
   set. **Pass the status explicitly, in both polarities, before characterising a backlog.**
 - **`list_issues` pages 10 with a `totalCount` and no pagination parameter.** Slice with
   `created_after` / `created_before` (`list_issues`-only names); records sharing a timestamp
-  cannot be separated, so
-  exhaustive enumeration is not always reachable — report the shortfall.
+  cannot be separated, so exhaustive enumeration is not always reachable — report the
+  shortfall.
 - **`externalOwners` is a technology IDENTIFIER, not a count, and `EQUALS "0"` means
   UNATTRIBUTED.** A rule written to fire on "zero external owners" therefore fires on every
   principal Wiz has not classified, including your own accounts sitting unclassified in the
