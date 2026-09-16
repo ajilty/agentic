@@ -73,8 +73,12 @@ Splunk MCP surface, not one server.
 - **The search head renders `_time` in its own timezone while raw JSON timestamps are UTC**, so
   `strftime` output is already local. Cross-check one row's `_raw` timestamp against its `_time`
   before trusting any rendered time.
-- **An absolute `earliest_time` in Splunk's own `%m/%d/%Y:%H:%M:%S` form is rejected** —
-  `HTTP 400 'Invalid earliest_time'`. Relative windows (`-60h`) work.
+- **Time bounds go on the tool's `earliest_time` / `latest_time` parameters, relative form
+  (`-7d` / `now`).** An absolute `%m/%d/%Y:%H:%M:%S` value is rejected: `HTTP 400 'Invalid
+  earliest_time'`. `earliest_time="..."` pasted inside `query` fails as an opaque `Search job
+  failed (sid: <n>.<n>)` (six in a row while `splunk_get_info` succeeded between attempts, so
+  not session expiry); the same SPL passed once the bounds moved to the parameters. `Search job
+  failed` on a healthy server is a query-shape problem, not a server one.
 
 - **Numbers come back as strings** (`"count": "28"`). Cast before doing math or comparisons.
 - **A raw-event `| table ...` dump overflows the response cap and spills to a

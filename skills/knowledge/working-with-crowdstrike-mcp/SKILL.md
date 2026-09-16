@@ -115,10 +115,10 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 - **`falcon_idp_investigate_entity` can be scope-denied on a token where every other tool
   works**, verbatim: `access denied, scope not permitted Required scopes: Identity Protection
   Entities:read` — a separately licensed module, so an entitlement answer, not a connectivity
-  one. Its `entity_names` also takes a STRING, not a list, and the rejection reads as a bad
-  entity rather than a bad call shape: `1 validation error for investigate_entityArguments |
-  entity_names | Input should be a valid string [type=string_type, input_value=['<name>'],
-  input_type=list]`.
+  one. `entity_names` and `email_addresses` are each a STRING, not a list, so one entity per
+  call, and the rejection reads as a bad entity rather than a bad call shape: `1 validation
+  error for investigate_entityArguments | entity_names | Input should be a valid string
+  [type=string_type, input_value=['<name>'], input_type=list]`.
 
 ## falcon_search_applications (Discover)
 
