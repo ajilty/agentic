@@ -67,6 +67,11 @@ Search and read mechanics for the Slack MCP tools (`slack_search_*`, `slack_read
   absent). Infer "likely unanswered" from thread content and label it as inference.
 - **DMs and group DMs the integration can access DO surface in search.** Include them
   deliberately and flag them, or exclude them explicitly — don't be surprised by them.
+- **Bot block-kit cards return BLANK `text` to search, so no query will ever match one.** The
+  content lives in `blocks` and the index sees an empty `text`: searching any literal string off
+  the rendered card returns `No results found`. A critical alert card that had sat in a channel
+  for weeks surfaced only by reading the channel over an explicit ts range with
+  `include_bots=true`. **Never conclude "we were never alerted" from search alone.**
 - **`slack_search_channels` returns PUBLIC channels only.** Private channels that read fine by
   ID come back as `No results found` by name. A zero-result channel search is **not** evidence
   the channel is absent — resolve known-priority private channels by ID and keep the mapping.
@@ -96,14 +101,18 @@ re-verify before citing.
 - **A no-floor detailed channel read beats a windowed one.** `slack_read_channel` with
   `limit` 10-25 and **no `oldest`** returns in-window top-level posts *and* a
   `Thread: N replies (latest: <ts>)` annotation on older parents, in one call — which is how a
-  still-live thread whose parent predates the window gets caught. A windowed read hides it.
+  still-live thread whose parent predates the window gets caught. A windowed read hides it, and
+  the failure is total: **a windowed read of a named priority channel returned zero messages
+  while the whole exchange sat as thread replies under a parent posted before the floor.** An
+  empty windowed channel read is not a quiet channel.
 - **Read tools return no permalinks; search does.** `slack_read_channel` and
   `slack_read_thread` return only `message_ts`, while `slack_search_public_and_private` returns
   a real permalink per hit. Where a message must carry a citable URL and constructing one is not
   acceptable, **recover it by searching a distinctive verbatim string from the body** with
-  `include_bots=true` and `on:<date>` — that reliably returns the one hit with its real
-  permalink. Where recovery fails, emit `url: null`; never hand back a constructed link as if it
-  were observed.
+  `include_bots=true` and `on:<date>` — reliable for a bot message carrying real `text`, and
+  impossible for a block-kit card (above), whose permalink can only be constructed from the
+  channel id and `ts` and must be labelled as constructed. Where recovery fails, emit
+  `url: null`; never hand back a constructed link as if it were observed.
 - **Permalinks are otherwise constructible without extra calls:**
   `https://<workspace>.slack.com/archives/<CHANNEL_ID>/p<TS_WITHOUT_DOT>`, plus
   `?thread_ts=<parent_ts>&cid=<CHANNEL_ID>` for thread replies.
