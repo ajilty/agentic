@@ -6,14 +6,14 @@ description: "Wiz MCP (list_issues, graph_search, list_cloud_resources, multi-te
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
 
 How to drive the Wiz MCP tools for security hunts. If tools are deferred, load schemas first
-(e.g. ToolSearch `select:mcp__wiz__list_sbom`). **Multi-tenant orgs:** separate MCP server
-entries for each Wiz tenant share the same URL (`https://mcp.app.wiz.io`) — tenant selection is
-scoped to the OAuth session. Run every hunt against each tenant, and read the control-probe
-section below before asserting that the two are in fact separated. **Two tenants can also answer
-each other's labelling questions:** a principal one tenant calls "outside our cloud
-organizations" may be fully inventoried in the sibling tenant,
-so querying the sibling for the same account id is the fastest way to tell an unknown third
-party from an unregistered affiliate. Wiz cannot make that correlation itself.
+(e.g. ToolSearch `select:mcp__<wiz-server>__execute,mcp__<wiz-server>__discover`).
+**Multi-tenant orgs:** separate MCP server entries for each Wiz tenant share the same URL
+(`https://mcp.app.wiz.io`) — tenant selection is scoped to the OAuth session. Run every hunt
+against each tenant, and read the control-probe section below before asserting that the two are
+in fact separated. **Two tenants can also answer each other's labelling questions:** a principal
+one tenant calls "outside our cloud organizations" may be fully inventoried in the sibling
+tenant, so querying the sibling for the same account id is the fastest way to tell an unknown
+third party from an unregistered affiliate. Wiz cannot make that correlation itself.
 
 ## Reading the schema before you hunt
 
@@ -21,8 +21,11 @@ party from an unregistered affiliate. Wiz cannot make that correlation itself.
   characters on two domains), and a tool listing cannot be aggregated in-query the way the
   generic spill advice prescribes. Grep the spill, and do it before the hunt rather than
   mid-query.
+- **Never guess a `tool_name`; `discover` lists the real ones.** A wrong name returns
+  `tool "<name>" is not available` (20 straight misses on plausible names in one session); an
+  `additionalProperties '<key>' not allowed` rejection (next bullet) means the name is right.
 - **A deliberately wrong input is a free schema read.** A wrong *parameter* returns
-  `additionalProperties zzz_probe not allowed`, which proves the tool exists and lists its
+  `additionalProperties 'zzz_probe' not allowed`, which proves the tool exists and lists its
   required properties; a wrong *value* returns the legal enum verbatim, e.g. `value must be one
   of "NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"`; a wrong *shape* names it (`expected array, but
   got string`). That enum read is the cheapest guard against the uppercase-value trap. A
@@ -93,8 +96,12 @@ finer details.)*
   overlaps). For exhaustive enumeration use the **grouped endpoints** with
   `group_by=["VULNERABLE_ASSET"]` and accept multiple ordering passes rather than trusting one
   page.
-- **Param naming is inconsistent across sibling tools** — fetch the exact schema first before
-  composing a call; don't reuse a sibling's param name.
+- **Param names do not carry across sibling tools, and an unknown key rejects the call** (the
+  `additionalProperties` error above). Probe before composing. Observed: `get_posture_issue`
+  takes `issue_id` (`id` fails `missing properties: 'issue_id'`); `list_posture_issues` rejects
+  `first`, `created_after`, `created_before` (all legal on `list_issues`) and windows on
+  `created_at_after` / `created_at_before`; `list_issues` rejects `order_by`, so sort
+  client-side.
 - **`list_issues` returns no assignee fields** — "unassigned" cannot be verified from a list
   call; carry a prior observation as unconfirmed, or fetch the single issue.
 - **Wiz "Issues" lag — don't read "0 Issues" as low risk.** Fresh Vulnerability Findings may not
@@ -123,7 +130,8 @@ finer details.)*
   returned 38, so any backlog count built on the default is wrong by the size of the resolved
   set. **Pass the status explicitly, in both polarities, before characterising a backlog.**
 - **`list_issues` pages 10 with a `totalCount` and no pagination parameter.** Slice with
-  `created_after` / `created_before`; records sharing a timestamp cannot be separated, so
+  `created_after` / `created_before` (`list_issues`-only names); records sharing a timestamp
+  cannot be separated, so
   exhaustive enumeration is not always reachable — report the shortfall.
 - **`externalOwners` is a technology IDENTIFIER, not a count, and `EQUALS "0"` means
   UNATTRIBUTED.** A rule written to fire on "zero external owners" therefore fires on every
