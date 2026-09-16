@@ -95,8 +95,13 @@ the library directory and the symlink:
 ln -s ../../../skills/knowledge/working-with-<tool> plugins/edges/skills/working-with-<tool>
 ```
 
-Add the new skill's row to the table in `plugins/edges/README.md` and bump the
-plugin version in `plugins/edges/.claude-plugin/plugin.json`.
+Add the new skill's row to the table in `plugins/edges/README.md`.
+
+**Bump the plugin version in `plugins/edges/.claude-plugin/plugin.json` on every
+merged change, body-only edits included** (patch for edges, minor for a new skill).
+Installs cache the plugin by version, so a merge that leaves the version alone never
+reaches anyone's sessions: `/plugin update` reports "already at the latest version"
+while the skills on disk stay stale.
 
 ## Validate and submit
 
