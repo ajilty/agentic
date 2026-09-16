@@ -133,6 +133,11 @@ Two related traps worth checking before trusting a filtered corpus:
   `jq -s '.[].text | fromjson'` dies on the first one. Guard each parse:
   `jq -s '.[].text | try fromjson'`, or a `try/except json.loads` loop. Lowering `limit` is not
   a fix; a handful of wide records can spill on its own.
+- **A spilled `.json` file can be double-JSON-encoded, so `grep` returns zero matches for a
+  string that is demonstrably in the content.** A `grep` zero against a spill file is not
+  evidence of absence: byte-count the file or run `python -c "import json,sys;
+  json.load(open(sys.argv[1]))"` first — a double-encoded file loads as one giant string (or
+  fails), which is the tell. Decode once (`json.loads` twice, or `jq fromjson`) before searching.
 - **Numbers come back as strings** (`"count": "28"`) from many servers. Cast before any math or
   comparison; a string compare sorts `"9"` above `"28"`.
 
