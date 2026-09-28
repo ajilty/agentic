@@ -86,7 +86,7 @@ if have_yq4; then
     if [ -z "$f" ] || [ "$f" = null ]; then fail "declared hook '$name' has no script: field in agents.yaml (the contract IS the map)"; continue; fi
     if [ "$w" = 0 ] || [ "$w" = null ]; then fail "declared hook '$name' has no watch: classes in agents.yaml"; continue; fi
     if [ ! -x "$HD/$f" ]; then fail "declared hook '$name' -> $f missing or non-executable"; continue; fi
-    if grep -q "/$f\"" "$HJ"; then pass; else fail "declared hook '$name' ($f) not wired in hooks.json"; fi
+    if grep -qF -e "/$f\"" -e "/$f\\\"" "$HJ"; then pass; else fail "declared hook '$name' ($f) not wired in hooks.json"; fi
   done
 else
   echo "(skip contract-parity: $YQ4_SKIP)"
