@@ -30,6 +30,10 @@ Search and read mechanics for the Slack MCP tools (`slack_search_*`, `slack_read
   Pagination reality below). A run that stopped at three would have looked complete in both
   cases. **Page until the oldest `ts` actually crosses the window floor**, and where it never
   does, say the window was not covered.
+- **The documented `in:<#C…>` filter can return silent zeros** for messages known to exist
+  (thread replies worst), reproduced across several priority channels. Drop `in:`, scope with
+  `from:` plus `on:` and a distinctive keyword, and filter by channel id client-side; that
+  recovered every known permalink.
 - **`include_context=false` is mandatory on sweeps.** The default `true` attaches surrounding
   messages and blows past the 25K-token response cap on busy days, and the context is rarely
   useful.
@@ -40,7 +44,10 @@ Search and read mechanics for the Slack MCP tools (`slack_search_*`, `slack_read
   docs or the `limit` param suggest. There is no broad call that returns a whole week.
 - The efficient sweep is therefore **one search per day, fired in parallel** in a single turn,
   then a parallel second round of `cursor` fetches for any day that returned exactly 20. One or
-  two rounds cover realistic volumes.
+  two rounds cover realistic volumes. The search cursor is base64 of `CURRENT_PAGE:N`
+  (`printf 'CURRENT_PAGE:3' | base64`): fetch pages 2..N in one parallel batch and discard
+  from the first short page. Untested: whether a built cursor gets past the 3-page `to:me`
+  hard stop below.
 - **Dedupe the union by `(channel_id, ts)`** — results can overlap at page boundaries.
 - **`sort_dir="asc"` silently truncates and still declares completeness.** The same day-scoped
   query returned **19 messages ascending and 40+ descending**, and the short run ended with the
@@ -94,6 +101,10 @@ re-verify before citing.
 - Classify messages from fields already present — standalone (`thread_ts` absent or equal to
   `ts` with `reply_count == 0`), thread start (`thread_ts == ts`, `reply_count > 0`), thread
   reply (`thread_ts != ts`).
+- **Reads carry reaction counts, never who reacted.** Attributing a decision or an
+  acknowledgement to an emoji needs `slack_get_reactions` on that message. And
+  `response_format: "concise"` drops the thread and reaction lines entirely, so a concise read
+  can neither classify threads (above) nor see a still-live one (no-floor read, below).
 - **Don't eagerly call `slack_read_thread` to fetch parents** — roughly 10s per call and it
   rarely changes a summary. Record the `thread_ts` pointer; fetch on demand.
 - **`slack_read_thread` takes `message_ts` (the parent's ts), not `thread_ts`.** Passing

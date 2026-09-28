@@ -133,7 +133,12 @@ activity lookups.
   `reviewDecision: APPROVED` still report a populated `reviewRequests` array. A reviewers-array
   check alone therefore marks them as still awaiting the user — **gate on `state` before reading
   `reviewRequests`**, or the inbox inflates with resolved work. This is what turned 7 in-window
-  `review_requested` notifications into 0 real asks.
+  `review_requested` notifications into 0 real asks. The corollary: `reviewDecision: APPROVED`
+  plus pending requests on a merged PR is normal, so an approval check cannot detect
+  merged-without-the-requested-review; check the requested reviewer against the PR's reviews.
+- **A dismissed approval vanishes** from `reviewDecision` and from search, and empties
+  `reviewRequests`, so the PR reads as never reviewed. Reconstruct real review state from
+  `latestReviews` plus the timeline (`REVIEW_DISMISSED_EVENT`).
 - **For a time-window lens, notifications beat search — and only notifications see the work that
   arrived and cleared inside the window.**
   `gh api --paginate "notifications?all=true&since=<iso>&per_page=100"` surfaced all 7 in-window
