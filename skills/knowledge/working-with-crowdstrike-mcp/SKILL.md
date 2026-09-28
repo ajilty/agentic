@@ -12,7 +12,10 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
 
 - **The CQL argument is `query_string`, not `query`.** Passing `query` fails pydantic
   validation, `Field required` for `query_string` — a call-shape error that reads like a missing
-  query rather than a wrong parameter name.
+  query rather than a wrong parameter name; `start`/`end` are ISO-8601 only
+  (`Invalid isoformat string: '7d'`).
+- **A `field := formatTime(...)` assignment stage drops every later `select()` / `head()`**
+  with no error. Put formatting last and check the result shape.
 - **Sample before you aggregate**: `<filter> | head(3)`, read the real field names, then
   `top()`/`count()`. `top(missing_field)` returns empty with no error — and so does a field that
   is real but lives inside `@rawstring` on an unparsed dataset: `groupBy` on one returned 0 rows
@@ -53,7 +56,9 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   the filter alone (`<filter> | head(3)` or `| count()`), then aggregate.
 - **A short free-text token is not a filter.** A two-character token into `groupBy` scanned
   215,686,423 events and returned lexicographically-first groups unrelated to the token (192
-  groups where 128 mentioned it); a distinctive phrase was precise. Compare `job.event_count`
+  groups where 128 mentioned it); a distinctive phrase is precise and cheap over `search-all`
+  (six months, ~18TB, ~100s): `groupBy([#repo, #event.dataset])`, then drill the repos that
+  hit. Compare `job.event_count`
   against `job.processed_events` before trusting any free-text aggregation, and anchor to fields
   (`Vendor.actor.alternateId=/x/i`) or tags: `#repo`, `#Vendor`, `#type`, `#event.dataset`,
   `#event.module`, `#event.kind`.
@@ -156,7 +161,11 @@ telemetry) for "where is X installed", within these limits.
   returned 96 findings for other vendors. Never scope an estate with Spotlight or accept "no
   Spotlight CVE" as evidence for a non-Microsoft product.
 - `host_info.hostname` is rejected, HTTP 400 `property "host_info.hostname" not allowed`; scope
-  by `aid` (resolve via `falcon_search_hosts`).
+  by `aid` (resolve via `falcon_search_hosts`, where a contains-wildcard `hostname:'*x*'` is
+  HTTP 400 but the text-match `hostname:~'x'` works).
+- **Exploit status IS exposed, behind `facet: "cve"`.** Without it the cve block carries only
+  the id; with it each finding carries its ExPRT rating, exploit status and CISA KEV flag. Rank
+  on those, not on finding count.
 
 ## Firewall Management (NG-SIEM `FirewallMatchEvent` + rule-group writes)
 
@@ -199,7 +208,8 @@ telemetry) for "where is X installed", within these limits.
 - Only detections carry a link: `falcon_search_hosts` has no URL field; on
   `falcon_search_vulnerabilities`, `remediation.entities[].link` is an empty string and
   `remediation.entities[].vendor_url` / `cve.vendor_advisory[]` are external vendor URLs.
-- `falcon_update_detections` batches many `ids`. The top-level `comment` rollup comes back
+- `falcon_update_detections` returns empty on success and batches many `ids`; confirm by
+  filtered re-read (status, tags, `comments[]`). The top-level `comment` rollup comes back
   word-scrambled: read `comments[]` (`falcon_user_id`, `timestamp`, `value`). Comments post as
   the API client, so name the human in the text. Resolution is tag-based: `true_positive` /
   `false_positive` / `ignored` populate the console column; `status:closed` alone does not.
@@ -215,6 +225,13 @@ Worked examples; they apply only where your estate ingests the same sources.
   id. The discriminating field, `senderHeader`, is absent from the alert and lives only in the
   NG-SIEM row's `@rawstring`; reading direction off the alert alone turns an inbound phish into
   an outbound lure from your own user.
+- **Mail-gateway process rows (Mimecast `emailsecurity.process`) carry `Vendor.attachments` and
+  `email.subject` but no sender or recipient**: a sender + attachment filter returns zero with
+  `processed_events: 0`. Join through subject or messageId / `aggregateId`. `Vendor.route`
+  exists on dlp/spam rows but not receipt rows (drops from `groupBy`, above); classify receipt
+  direction by recipient-domain regex.
+- **Spearphish detections can carry an empty `sender` with `header_from` populated** (all 24
+  rows of one campaign), so a sender-keyed sweep misses the campaign; key on `header_from` too.
 - **Message-ID is not a dedupe key across journal legs**: two journal forks of one message carry
   different synthetic Message-IDs and `aggregateId`s, so a Message-ID dedupe over-counts. The
   journal fork shows three markers together (Message-ID ending `@journal.report.generator`, a

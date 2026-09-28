@@ -20,7 +20,9 @@ Splunk MCP surface, not one server.
 - **Re-prime, then send exactly one search.** A `splunk_get_*` metadata call (`splunk_get_info`,
   `splunk_get_user_info`) re-establishes the session. Follow it with the search.
 - **Only one `splunk_run_query` reliably lands per re-prime, and it degrades over a long
-  session** — later re-primes stop holding.
+  session** — later re-primes stop holding, until every call returns `Session is not logged
+  in` (54 identical repeats in one run, none recovering): stop and hand the reconnect to the
+  operator.
 - **Never batch multiple `splunk_run_query` calls in one message.** They serialize through a
   single session and every call after the first fails with the session error. Issue them one per
   turn.

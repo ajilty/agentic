@@ -13,17 +13,12 @@ discover them live.
 
 - **`searchJiraIssuesUsingJql` bloats past the 25K-token cap even with narrow `fields`** — every
   node embeds avatar URLs (4 sizes × user/reporter/assignee), project metadata, and self-links
-  regardless. Keep `maxResults` small (50 → 25 → 10), resume via `nextPageToken`. On overflow
-  the tool saves the JSON to a temp file and returns the path (three overflows in one session,
-  88-185K characters): **reading the spill beats a narrower re-query** — `jq` it
-  (`.issues.nodes[] | {key, summary: .fields.summary, status: .fields.status.name}`).
-  **Cut `maxResults`, not `fields` — the bloat is per-*node* overhead, not per-field.** Every
-  user node (assignee, reporter, comment author) carries four `avatarUrls` plus a `self` URL, so
-  a 20-issue page that includes `assignee` costs far more than 20 summaries, and dropping a
-  field or two barely moves it. Measured: **~1.5K of avatar and self-URL overhead per issue**,
-  enough that a request for four narrow fields still overflows; 20-25 results with a narrow
-  field list is safe; a 30-result `text ~ "<term>"` query overflowed *with* an explicit narrow
-  field list and spilled to a temp file.
+  regardless. `maxResults` floors at 50, so lowering it is no overflow escape; resume via
+  `nextPageToken`. On overflow the tool spills JSON to a temp file (88-185K chars seen): `jq`
+  the spill, and carry `.webUrl` in every projection or the link is lost
+  (`.issues.nodes[] | {key, webUrl, summary: .fields.summary, status: .fields.status.name}`).
+  Bloat is per-node (~1.5K avatar/self-URL overhead per issue), so dropping `fields` doesn't
+  help.
 - **`cloudId` accepts the bare site URL** (`<your-site>.atlassian.net`) on `getJiraIssue` and
   the Confluence read tools alike, so `getAccessibleAtlassianResources` is not a required first
   call. That saves a round trip, which matters when the transport is serialized against another
@@ -38,8 +33,8 @@ discover them live.
   descending and reverse client-side.
 - **The served schema drifts in both directions** (a parameter like `searchResultMode` appears,
   then vanishes with `additionalProperties: false`). Read the served schema at session start.
-  When a count mode exists it **returns full issue payloads anyway** — compute counts
-  client-side; never trust `count` to be cheap.
+  `searchResultMode: "count"`, when served, returns `{totalCount, nodes: []}`; confirm `nodes`
+  is empty on the first response, else count client-side.
 - Never request `description`/`comment` in the *search* step — only in per-issue `getJiraIssue`.
 
 ## JQL limits (the traps that look like bugs)
@@ -93,6 +88,10 @@ discover them live.
   `assignee IN ("<id1>", "<id2>")`.
 - **Deactivated accounts drop out of user search, not out of data.** Resolve via a known issue's
   assignee/reporter field, or email-literal JQL (`assignee = 'user@domain'`) — both still work.
+  Orphaned tickets: `assignee in inactiveUsers()`; enumerating departed users undercounts it.
+- `approval = myPending()` (singular) returns 0, no error (0 vs 2); use
+  `approvals = myPending()`. It covers only the logged-in accountId; say other accountIds are
+  unchecked.
 
 ## Write path
 

@@ -27,10 +27,10 @@ third party from an unregistered affiliate. Wiz cannot make that correlation its
 - **A deliberately wrong input is a free schema read.** A wrong *parameter* returns
   `additionalProperties 'zzz_probe' not allowed`, which proves the tool exists and lists its
   required properties; a wrong *value* returns the legal enum verbatim, e.g. `value must be one
-  of "NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"`; a wrong *shape* names it (`expected array, but
-  got string`). That enum read is the cheapest guard against the uppercase-value trap. A
-  parameter that does NOT error is in the schema; whether it is *applied* still needs the
-  both-polarities probe in `working-with-mcp-connectors`.
+  of "NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"`; a wrong shape or type names it (`expected
+  array, but got string`; `properties/tech_name/type`). That enum read is the cheapest guard
+  against the uppercase-value trap. A parameter that does NOT error is in the schema; whether it
+  is *applied* still needs the both-polarities probe in `working-with-mcp-connectors`.
 - **`graph_search` takes a free-text STRING, not an object.** Passing a query object returns
   `expected string, but got object`, and a string it cannot parse returns `Failed to convert free
   text to graph query`.
@@ -100,8 +100,8 @@ finer details.)*
   `additionalProperties` error above). Probe before composing. Observed: `get_posture_issue`
   takes `issue_id` (`id` fails `missing properties: 'issue_id'`); `list_posture_issues` rejects
   `first`, `created_after`, `created_before` (all legal on `list_issues`) and windows on
-  `created_at_after` / `created_at_before`; `list_issues` rejects `order_by`, so sort
-  client-side.
+  `created_at_after` / `created_at_before`; `list_issues` rejects `order_by` (its name is
+  `order_by_field`).
 - **`list_issues` returns no assignee fields** — "unassigned" cannot be verified from a list
   call; carry a prior observation as unconfirmed, or fetch the single issue.
 - **Wiz "Issues" lag — don't read "0 Issues" as low risk.** Fresh Vulnerability Findings may not
@@ -129,16 +129,45 @@ finer details.)*
   about the filter it applied: unfiltered returned 7 where the same query with a resolved status
   returned 38, so any backlog count built on the default is wrong by the size of the resolved
   set. **Pass the status explicitly, in both polarities, before characterising a backlog.**
-- **`list_issues` pages 10 with a `totalCount` and no pagination parameter.** Slice with
-  `created_after` / `created_before` (`list_issues`-only names); records sharing a timestamp
-  cannot be separated, so exhaustive enumeration is not always reachable — report the
-  shortfall.
+- **`list_issues` returns 10 by default with a `totalCount`**; `first` caps at 20, and the
+  served schema has at times carried no pagination parameter at all. Page with `after`
+  (`pageInfo.endCursor`) where it is served; otherwise slice with `created_after` /
+  `created_before` (`list_issues`-only names), where records sharing a timestamp cannot be
+  separated, so exhaustive enumeration is not always reachable — report the shortfall.
+- **`list_issues` never returns THREAT_DETECTION issues**, at any severity, and has no type
+  parameter, so a "zero open criticals" built on it is a false all-clear (it produced two).
+  Take the threat census from `list_issues_grouped` with `type: ["THREAT_DETECTION"]` (its
+  default omits threats) and `group_by: "SOURCE_RULE"`, never `SUBSCRIPTION`: subscription
+  grouping drops every entity without one (identity-provider service principals,
+  source-control integrations).
+- **`list_issues` filtered by `resource_id` is not exhaustive for that resource**: on one role
+  it returned only the toxic-combination Issues and missed a HIGH excessive-access finding and
+  two CSPM findings. Before a per-resource negative, also query
+  `list_excessive_access_findings` (`principal_id`) and `list_cloud_configurations_findings`
+  (`resource_id`).
+- **`list_detections` filters on update time only** (`updated_at_after`,
+  `updated_at_in_last_amount`), not event time, and events lag by hours (~4.7h, one measurement):
+  over-fetch the window, or a same-day recurrence lands in the next run.
+- **`list_sensor_cloud_events` `kind: ["RUNTIME_EXECUTION_DATA"]` alone is a silent zero**:
+  `origin` still defaults to `["WIZ_SENSOR"]` (rule-matched only). Pass
+  `origin: ["WIZ_SENSOR_RUNTIME_EVENTS"]` with a tight resource and a ≤15-min window (the
+  telemetry is a firehose); `command_line_contains: ["helm"]` went from 0 to 110 in 15 min.
 - **`externalOwners` is a technology IDENTIFIER, not a count, and `EQUALS "0"` means
   UNATTRIBUTED.** A rule written to fire on "zero external owners" therefore fires on every
   principal Wiz has not classified, including your own accounts sitting unclassified in the
   discovered-resources queue. The proof is in the same tenant: a role owned by a recognised
   vendor carried that vendor's technology id in the field. **Read the raw value on a known row
   before treating the field as a count.**
+- A falling open-threat count can be aging-out, not triage: auto-resolve `DETECTION_EXPIRED`
+  (no resolver) or deletion (~90 days after last detection). A deleted id returns
+  `{"extensions":{"code":"NOT_FOUND"},"path":["issue"]}`, identical to a sibling-tenant id;
+  probe the other tenant before calling it gone.
+- **Timestamps re-stamp without a real change**: `statusChangedAt`, `resolvedAt` and posture
+  `createdAt`/`updatedAt`, while `resolved_at_*` filters have returned silent zeros on threats.
+  None of them alone proves a resolution or a new item in a window. Keep a full open-id census
+  per tenant (`list_threats`, `first` 20 with `after` to `hasNextPage false`, full ids).
+  open(prev) + created - resolved - open(now) is the count of unexplained departures
+  (deletions); name each departed id, and each resolved one with its `resolution_reason`.
 - **`list_subscriptions` accepts no parameters at all** and returns only the first 20 of its own
   `totalCount`. The cloud-account inventory cannot be exhaustively enumerated from this tool.
 
