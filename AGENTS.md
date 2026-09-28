@@ -2,6 +2,10 @@
 
 This repo authors portable agent skills and plugins for multiple harnesses (Claude Code, OpenAI Codex, opencode), distributed via the ajilty marketplace. Portable skills live in `skills/`, plugins in `plugins/`.
 
+## Before pushing
+
+Run `scripts/check.sh` (the `pre-push` hook runs it too; CI runs the same script). A local failure that also reproduces on main is not pre-existing unless main's latest CI run is red on the same check (`gh run list --branch main --workflow tests`); otherwise it is environment drift, usually a newer `claude` CLI than main was last tested with, and it blocks the PR. See README "Contributing setup".
+
 ## Official docs: fetch live, don't trust memory
 
 Harness plugin/skill APIs move faster than any local copy or model training data. For the dev workflows of this repo (creating skills, plugins, hooks, commands, subagent personas, MCP integrations), pull the official docs on the fly and treat them as the source of truth for any enumerable API surface: hook event names, frontmatter fields, manifest schemas.
