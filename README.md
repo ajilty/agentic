@@ -59,6 +59,15 @@ configure an expected identity:
 git config hooks.expectedIdentity "Your Name <you@example.com>"
 ```
 
+The `pre-push` hook runs `scripts/check.sh`, which runs exactly what CI
+(`.github/workflows/tests.yml`) runs: every plugin suite, strict plugin
+validation, the review-workflow guards and the library-wiring checks. Run it
+yourself before pushing; a missing `yq`, `rumdl` or `claude` is reported as
+SKIPPED, which is not a pass. If it fails, fix the failure. A local failure that
+also reproduces on main is not pre-existing unless main's latest CI run is red
+on the same check (`gh run list --branch main --workflow tests`); otherwise it
+is environment drift (CI installs the latest `claude` CLI) and it blocks the PR.
+
 ## Where things live
 
 - Harness emitters (compile agents.yaml contracts to Claude Code / Codex /

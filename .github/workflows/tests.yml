@@ -1,4 +1,6 @@
 name: tests
+# Every job runs a section of scripts/check.sh, the same script contributors run
+# locally (and the pre-push hook runs). Change checks there, not here.
 on: [push, pull_request]
 jobs:
   plugin-tests:
@@ -16,16 +18,7 @@ jobs:
           enable-cache: false   # no lockfile in this repo; the cache would never invalidate
       - run: uv tool install rumdl && rumdl --version
       - name: Run every plugin suite (plugins/*/tests/run.sh)
-        run: |
-          set -e; found=0
-          for t in plugins/*/tests/run.sh; do
-            [ -f "$t" ] || continue
-            found=1
-            echo "::group::$t"
-            bash "$t"
-            echo "::endgroup::"
-          done
-          if [ "$found" -eq 0 ]; then echo "no plugin suites found"; exit 1; fi
+        run: bash scripts/check.sh plugin-tests
   validate-plugins:
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +26,7 @@ jobs:
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
       - name: Validate marketplace and all plugins (strict)
-        run: bash scripts/validate-plugins.sh
+        run: bash scripts/check.sh validate-plugins
   review-workflow-guards:
     runs-on: ubuntu-latest
     steps:
@@ -42,47 +35,13 @@ jobs:
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
-      - name: Review job can post (pull-requests write)
-        # A read-only token lets the review run to completion, hit dozens of
-        # silent permission denials, then exit green having posted nothing.
-        # Assert the grant statically so nobody pays to rediscover that.
-        run: |
-          perm=$(yq '.jobs.claude-review.permissions.pull-requests' .github/workflows/claude-code-review.yml)
-          if [ "$perm" != "write" ]; then
-            echo "claude-review needs 'pull-requests: write' to post its review; found: $perm"
-            exit 1
-          fi
-          echo "claude-review has pull-requests: write."
-      - name: Review job skips fork PRs (no secrets, no spend)
-        run: |
-          cond=$(yq '.jobs.claude-review.if' .github/workflows/claude-code-review.yml)
-          case "$cond" in
-            *"head.repo.full_name == github.repository"*)
-              echo "claude-review is gated to same-repo PRs." ;;
-            *)
-              echo "claude-review must be gated to same-repo PRs; found if: $cond"
-              exit 1 ;;
-          esac
+      - name: Review job can post (pull-requests write) and skips fork PRs
+        # Assertions live in scripts/check.sh (review_workflow_guards) so local runs match.
+        run: bash scripts/check.sh review-workflow-guards
 
   library-wiring:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Symlinks resolve (library-view wiring, ADR-0036)
-        run: |
-          broken=$(find plugins -type l ! -exec test -e {} \; -print)
-          if [ -n "$broken" ]; then
-            echo "Dangling symlinks (skills ship as empty components):"
-            echo "$broken"
-            exit 1
-          fi
-          echo "All plugin symlinks resolve."
-      - name: No file symlinks (discovery skips them, ADR-0036)
-        run: |
-          filelinks=$(find plugins -type l -xtype f -print)
-          if [ -n "$filelinks" ]; then
-            echo "Symlinked files are invisible to component discovery; symlink directories instead:"
-            echo "$filelinks"
-            exit 1
-          fi
-          echo "No file symlinks."
+      - name: Symlinks resolve, no file symlinks (library-view wiring, ADR-0036)
+        run: bash scripts/check.sh library-wiring

@@ -54,8 +54,8 @@ cc_hooks_json() { # <out.json> <hook-path-prefix> [<matcher>:<script>...]
   local out="$1" H="$2"; shift 2
   _cc_entries() { local i=0 n=$# s
     for s in "$@"; do i=$((i+1))
-      if [ "$i" -lt "$n" ]; then printf '        { "type": "command", "command": "%s/%s" },\n' "$H" "$s"
-      else printf '        { "type": "command", "command": "%s/%s" } ] }' "$H" "$s"; fi
+      if [ "$i" -lt "$n" ]; then printf '        { "type": "command", "command": "\\"%s/%s\\"" },\n' "$H" "$s"
+      else printf '        { "type": "command", "command": "\\"%s/%s\\"" } ] }' "$H" "$s"; fi
     done; }
   local RB WE DP PC
   RB=($(hooks_watching 'file-read|shell')); WE=($(hooks_watching 'file-write'))

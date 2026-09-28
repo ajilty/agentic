@@ -105,8 +105,10 @@ while the skills on disk stay stale.
 
 ## Validate and submit
 
-- `claude plugin validate plugins/edges --strict` must pass (CI runs it on
-  every PR via `scripts/validate-plugins.sh`, ADR-0038).
+- `scripts/check.sh` must pass: it runs what CI runs, including
+  `claude plugin validate --strict` on every plugin (ADR-0038). A failure that
+  also reproduces on main is not pre-existing unless main's latest CI run is red
+  on the same check (`gh run list --branch main --workflow tests`).
 - Commit with an `edges(<tool>): <edge>` subject (see `git log --oneline --
   skills/knowledge` for the style), branch, push, and open a PR. CI's review
   runs when the PR goes ready-for-review.

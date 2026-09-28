@@ -2,12 +2,12 @@
   "hooks": {
     "PostToolUse": [
       { "matcher": "Write|Edit", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-syntax.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/lint-markdown.sh", "timeout": 20 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/validate-syntax.sh\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-markdown.sh\"", "timeout": 20 } ] }
     ],
     "PreToolUse": [
       { "matcher": "Bash", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-git-staging.sh", "timeout": 10 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/guard-git-staging.sh\"", "timeout": 10 } ] }
     ]
   }
 }

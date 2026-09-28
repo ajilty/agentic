@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run what CI runs before anything leaves the machine (scripts/check.sh, about
+# 30s). Active once per clone, alongside pre-commit:
+#   git config core.hooksPath scripts/githooks
+#
+# If it fails, fix the failure. A failure that also reproduces on main is not
+# pre-existing unless main's latest CI run is red on the same check:
+#   gh run list --branch main --workflow tests
+# Otherwise it is environment drift (usually a newer claude CLI) and it blocks
+# the push, exactly as it will block the PR.
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+echo "pre-push: running scripts/check.sh (what CI runs)..." >&2
+if ! bash "$root/scripts/check.sh" </dev/null >&2; then
+  echo "" >&2
+  echo "pre-push: scripts/check.sh failed; push blocked. Fix the failure above." >&2
+  exit 1
+fi

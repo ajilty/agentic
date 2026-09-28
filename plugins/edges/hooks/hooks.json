@@ -3,15 +3,15 @@
   "hooks": {
     "PostToolUseFailure": [
       { "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/journal.sh", "async": true, "timeout": 10 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/journal.sh\"", "async": true, "timeout": 10 } ] }
     ],
     "PostToolUse": [
       { "matcher": "mcp__.*", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/journal.sh", "async": true, "timeout": 10 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/journal.sh\"", "async": true, "timeout": 10 } ] }
     ],
     "SessionStart": [
       { "matcher": "startup|resume", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/notice.sh", "timeout": 10 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/notice.sh\"", "timeout": 10 } ] }
     ]
   }
 }
