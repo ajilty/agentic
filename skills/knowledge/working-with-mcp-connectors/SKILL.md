@@ -44,6 +44,17 @@ blind to this class:
   preset can recover independently — re-probe each after a reconnect rather than assuming the fix
   was global.
 
+## A failed server stays failed; an expired one fails identically
+
+- **A server that failed at session start stays failed after its cause clears.** One that timed
+  out or failed DNS at start does not reconnect when the network recovers, and a
+  credential-gated server can start closed after any session restart (a model switch
+  included). A `curl` to the host answering proves only that the cause cleared; the fix is the
+  client's reconnect of that named server, and the grade is not final, so re-probe before
+  writing any coverage claim.
+- An auth-expired server fails every call with one identical string; probe once (one attempt
+  of a documented re-prime counts), stop, and report the reconnect as the operator's action.
+
 ## The credential CLI is not the arbiter, in either direction
 
 **`op whoami` returning `account is not signed in` is not evidence that credential-backed MCP

@@ -4,6 +4,10 @@ This repo authors portable agent skills and plugins for multiple harnesses (Clau
 
 `CLAUDE.md` is a symlink to this file. Claude Code v2.1.277+ reads `AGENTS.md` natively, but not in every session (Bedrock, telemetry disabled, hooks disabled by policy — its native support ships as the built-in `agents-md` plugin). The symlink covers those sessions, gets this file listed in `/memory` and `/context`, and fires `InstructionsLoaded` hooks; content is never loaded twice. Keep it.
 
+## Before pushing
+
+Run `scripts/check.sh` (the `pre-push` hook runs it too; CI runs the same script). A local failure that also reproduces on main is not pre-existing unless main's latest CI run is red on the same check (`gh run list --branch main --workflow tests`); otherwise it is environment drift, usually a newer `claude` CLI than main was last tested with, and it blocks the PR. See README "Contributing setup".
+
 ## Official docs: fetch live, don't trust memory
 
 Harness plugin/skill APIs move faster than any local copy or model training data. Before you write or change a skill, plugin, hook, command, subagent persona, MCP integration, marketplace entry, or eval case, pull the relevant doc below and treat it as the source of truth for any enumerable API surface: hook event names, frontmatter fields, manifest schemas, grader types. Fetching costs one call; a hallucinated field name costs a release.

@@ -47,6 +47,10 @@ visually** instead of trusting the broken text layer.
 
 ## Search and status limits (mail + calendar)
 
+- Date bounds and returned `receivedDateTime` are UTC, not mailbox-local; convert the window
+  before sending and every value before showing.
+- **A quoted phrase returns zero**; it does not degrade to a token search. Re-run unquoted
+  before any negative claim.
 - **Free-text `query` cannot combine with date filters inside a named folder** — either date-bound
   the folder listing (no query) and page by `offset`, or run the free-text search unscoped and
   filter client-side.
@@ -57,9 +61,8 @@ visually** instead of trusting the broken text layer.
     thread-content inference, labeled as such.
   - **Per-attendee `responseStatus` on a calendar event** — absent from
     `outlook_calendar_search`, present on `read_resource` for the event, one entry per attendee
-    with values like `accepted` / `none` (verified on three events). **This corrects an earlier
-    note here that said accept/tentative status "is not a field": it is a field, just not a
-    search field.** `showAs` (busy vs tentative) is only a proxy. **There is no cheap bulk
+    with values like `accepted` / `none` (verified on three events): a field, just not a
+    search field. `showAs` (busy vs tentative) is only a proxy. **There is no cheap bulk
     form** — one read per event, so for a whole-calendar RSVP sweep fall back to the
     `Accepted:` / `Tentative:` / `Declined:` auto-receipts in Sent Items (see below) and label
     them as the proxy they are.
@@ -75,14 +78,23 @@ visually** instead of trusting the broken text layer.
   and **no `totalResultCount`**, so it can be paged forever without ever learning the
   denominator. The Inbox-scoped variant of the same window *does* return `totalResultCount`.
   Page the unscoped sweep until a page comes back short, and report its coverage as unbounded.
+  **The unscoped search also excludes Junk Email and Deleted Items** (26 and 10 messages on two
+  days), so list those two with `folderName` and merge by id; and **its index lags at the
+  window edge** (two messages from the last two minutes were missing but present in the Inbox
+  listing), so re-run a short trailing window before closing the count.
 - **Inbox-folder listings miss auto-filed threads.** Sender-scoped searches return in-window mail
   that the Inbox listing does not (rules and auto-filing move it) — an inbox-only sweep
-  undercounts. Cross-check hot threads by sender before claiming "no mail from X".
+  undercounts. Cross-check hot threads by sender before claiming "no mail from X", and
+  **re-confirm any such negative with free text** too: a sender-scoped search has returned
+  empty for a live correspondent. Sender scope beats folder scope; free text beats both for a
+  negative.
   **The mechanism: setting `order` (`newest`/`oldest`) on `outlook_email_search` silently scopes
   the search to the Inbox unless `folderName` is also given.** Measured: a date-bounded listing
   returned 11 results and omitted a message that an unscoped sender search found in the same
   window, because a mail rule had filed it elsewhere. Any "sorted by date" sweep is therefore an
   Inbox sweep by default. Pass `folderName` explicitly, or run unscoped and sort client-side.
+- **SharePoint share-notification mails carry no document URL.** Report the item as a named
+  gap; never construct a link.
 
 ## The tenant's Graph quota is shared across every surface
 
@@ -95,7 +107,12 @@ visually** instead of trusting the broken text layer.
   Microsoft Graph rate limit (429). Results may be incomplete.` The quota is the tenant's, not
   the session's, so "run Teams first while the quota is fresh" is not a working strategy.
   `outlook_email_search` draws on the same quota and fails differently: `RATE_LIMITED: Graph API
-  Error: Too many requests`, with `graphErrorCode: TooManyRequests`.
+  Error: Too many requests`, with `graphErrorCode: TooManyRequests`. Parallel calls throttle
+  together (4 parallel mail calls all 429, retry-after ~62s; concurrent calendar+Teams: 429
+  `ApplicationThrottled` / `MailboxConcurrency`, 503 `CommandConcurrencyLimitReached`);
+  serialize all Graph calls.
+- `chat_message_search` with `*` or a single letter returns 0 with no banner; sweep with a KQL
+  OR-list of common words.
 - **Recovery is slower than a minute and not monotonic.** Measured in one run: a 90s backoff
   still returned 0 of 47; 150s produced the only clean pass (37 of 47); a 100s backoff after
   that re-throttled to 0 of 47. Back off longer than feels necessary and re-check coverage.
@@ -120,10 +137,9 @@ visually** instead of trusting the broken text layer.
 - **A reserved room can appear only in the invite body text**, while the event's `location`
   field carries just the online-meeting URL — a sweep that reads `location` misses the room.
 - **Event body text truncates mid-string with no ellipsis**, so a join URL can silently lose its
-  query string (cut at `…/j/<id>?`, dropping the `pwd` parameter). Report the URL as null rather
-  than completing it from the pattern. (Events carry no `onlineMeeting`/`joinUrl` field at all —
-  see "No headers, and no admin surface" below; every join link comes out of body or location
-  text, and this is how that parse fails.)
+  query string (cut at `…/j/<id>?`, dropping the `pwd` parameter). For Teams-hosted events take
+  `onlineMeeting.joinUrl` from a full `read_resource` event read; for other providers report a
+  truncated body URL as null, never complete it.
 - **Sent Items is ~a third RSVP auto-receipts, and they are noise and signal at once.** Of 80
   sent messages over 7 days, roughly 20 were `Accepted:` / `Tentative:` / `Canceled:` /
   `New Time Proposed:` receipts and ~6 were file-share/comment notifications, so a naive sent
@@ -144,9 +160,6 @@ visually** instead of trusting the broken text layer.
   mail-flow, permission-change and audit questions to a SIEM that ingests the Exchange audit
   stream instead**; that pivot turns a dead end into a single query, and is usually the only way
   to establish who did what to which mailbox.
-- **Calendar events return no `onlineMeeting` object and no `joinUrl` field.** Where a join link
-  exists it sits inside the event's free-text body or location and must be parsed out. Do not
-  report "no join link" from the absence of the field.
 
 ## Two 403s that look like outages and are not
 

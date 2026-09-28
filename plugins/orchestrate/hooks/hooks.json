@@ -2,21 +2,21 @@
   "hooks": {
     "PreToolUse": [
       { "matcher": "Read|Bash", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/deny-heldout-read.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/keep-on-branch.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/gate-prod-apply.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/run-scope.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/guard-shared-checkout.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/guard-merge-base.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/guard-done.sh" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/deny-heldout-read.sh\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/keep-on-branch.sh\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/gate-prod-apply.sh\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/run-scope.sh\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/guard-shared-checkout.sh\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/guard-merge-base.sh\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/guard-done.sh\"" } ] },
       { "matcher": "Write|Edit", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/write-scope.sh" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/write-scope.sh\"" } ] },
       { "matcher": "Task|Agent", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/on-writer-dispatch.sh" } ] } ],
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/on-writer-dispatch.sh\"" } ] } ],
     "SessionStart": [
       { "matcher": "compact", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/on-compaction.sh" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/on-compaction.sh\"" } ] },
       { "matcher": "startup|resume", "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/warn-agent-teams.sh" } ] } ]
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks/warn-agent-teams.sh\"" } ] } ]
   }
 }

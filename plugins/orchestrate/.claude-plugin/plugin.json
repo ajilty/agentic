@@ -1,6 +1,6 @@
 {
   "name": "orchestrate",
-  "version": "0.8.26",
+  "version": "0.8.27",
   "description": "Standing operator loop: feed goals of any altitude; capability-subtracted personas execute with single-writer, held-out-oracle, and pre-apply-gate guarantees, surviving interruption and remembering judgment across goals.",
   "author": {
     "name": "ajilty",

@@ -1,6 +1,6 @@
 {
   "name": "guards",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Hooks that guard against known failure modes. PostToolUse: JSON/YAML syntax validation (incl. .md frontmatter) and rumdl Markdown lint on every Edit/Write, findings fed back to Claude for same-turn self-correction. PreToolUse: denies sweeping git staging (add -A/./-u, commit -a) so unrelated files never ride into a commit.",
   "author": {
     "name": "ajilty",

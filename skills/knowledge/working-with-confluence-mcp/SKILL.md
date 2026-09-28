@@ -30,6 +30,9 @@ not this skill's.
 - **A bad space key inside `space in ("A","B","C")` returns a silent zero for that key**, not an
   error, so a "nothing in space X" claim built on a multi-key query is untrustworthy on its own.
   Validate each key with a bare `space = "<KEY>"` probe before reporting an absence.
+- **Quote every space key.** `IN` is CQL-reserved and can be a real key: `space = IN` and
+  `space in (IN, SEC)` mis-parse, a loud 400 `BadRequestException` naming the reserved word
+  (not a silent zero); `space in ("IN", "SEC")` works.
 - **`lastmodified >= "YYYY-MM-DD"` is day-granular only** — CQL cannot express an intra-day
   window start. Over-fetch the whole day and filter client-side on the returned timestamp,
   which is itself a **relative string**, so the boundary filter is approximate: a hit half an
@@ -96,6 +99,9 @@ The comment tools each cover a disjoint slice, and each one's silence looks like
 - **Status lozenge:**
   `<span data-type="status" data-color="green|blue|purple|red|yellow|neutral">Label</span>` —
   copy the label vocabulary and colors from the tenant's existing pages.
+- **The store normalizes markup, so a byte diff after publish always fails**: `<strong><u>`
+  is reordered and `<thead>` collapsed into the body (three consecutive publishes). Verify
+  rendered structure (heading order, table shape, cell text), not bytes.
 - **Full-width tables:** `<table data-layout="full-width">`; a plain `<table>` defaults to the
   narrow layout.
 - Nested sub-bullets (`<ul><li>…<ul>…</ul></li></ul>`) render fine. Never wrap body content in

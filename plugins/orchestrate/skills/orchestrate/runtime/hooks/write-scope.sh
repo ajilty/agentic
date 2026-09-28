@@ -73,7 +73,7 @@ if [ -n "$tool" ] && ! is_write "$tool"; then exit 0; fi
 cmd="$(J .tool_input.command)"
 looks_patch=false; case "$cmd" in *'*** Begin Patch'*) looks_patch=true ;; esac
 if [ "$tool" = apply_patch ] || [ "$looks_patch" = true ]; then
-  paths="$(printf '%s\n' "$cmd" | sed -n 's/^\*\*\* \(Add File\|Update File\|Delete File\|Move to\): //p')"
+  paths="$(printf '%s\n' "$cmd" | sed -En 's/^\*\*\* (Add File|Update File|Delete File|Move to): //p')"
   [ -n "$paths" ] || deny "<apply_patch: no parseable target>"
   while IFS= read -r tp; do [ -n "$tp" ] && confine "$tp"; done <<PATCHEOF
 $paths
