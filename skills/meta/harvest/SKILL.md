@@ -71,22 +71,40 @@ Both forked skills run in the **background**: the invocation returns at once
 and the result arrives later as a task notification. Give the user a
 three-line status and stop; continue the chain from the notification, not by
 waiting. Every mode of the author returns the branch name, the PR URL, and a
-per-edge (or per-prune) line; the reviewer returns a verdict.
+per-edge (or per-prune) line naming the file it landed in; the reviewer
+returns a verdict.
 
 ## 4. Review, then ship
 
-When the author's notification arrives, invoke `edges:harvest-review` with
-the branch name (for a diet, say so: `diet <branch>`). It returns a verdict
-per edge: `accept`, `compress` (with the shorter text), `redundant` (with what
-already covers it), or `not-an-edge`; on a diet, a verdict per prune plus its
-own check that nothing operational was lost.
+When the author's notification arrives, fan the review out. The author stays
+single because its cross-file view catches duplicates and misfiled edges;
+review splits because a reviewer reading one file judges it more closely than
+one reading the whole branch. In one turn, invoke `edges:harvest-review`
+once per skill file the branch changes, all in parallel, each with
+`<branch> <skill-path>` followed by the confirmed observations for the edges
+the author says landed in that file. Alongside them, invoke it once more with
+`branch <branch>` for the branch-level checks (cross-file duplicates,
+misfiling, identity leaks across the whole diff, commit body, version bump,
+description caps). Each returns a verdict per edge in its file: `accept`,
+`compress` (with the shorter text), `redundant` (with what already covers
+it), or `not-an-edge`; the branch instance returns findings, each naming a
+file. Act once every notification is in.
 
-- All `accept`: invoke `edges:harvest-author` once more with `ship <branch>`
+A diet does not fan out: it touches one skill, so invoke the reviewer once
+with `diet <branch>`. It returns a verdict per prune plus its own check that
+nothing operational was lost.
+
+- All `accept`, every file and the branch instance: invoke `edges:harvest-author` once more with `ship <branch>`
   so it marks the draft PR ready for review. **Except a diet:** a diet PR
   stays draft, and you hand the user its URL with the prune list so they
   confirm the removals before marking it ready themselves.
-- Anything else: invoke `edges:harvest-author` with `revise <branch>` and the
-  verdict, then review again. Two rounds is the budget; if the third review
-  still objects, surface the disagreement to the user instead of looping.
+- Anything else: invoke `edges:harvest-author` with `revise <branch>` and
+  only the non-`accept` verdicts, each under its file, with any branch
+  finding filed under the file it names. Then re-review only those files,
+  plus `branch <branch>` again (a revise rewrites the commit, and a drop can
+  empty a file). A file that came back all `accept` with no branch finding
+  is not reviewed again. Two rounds is the budget, counted per file; if a
+  file's third review still objects, surface that file's disagreement to the
+  user instead of looping, and do not ship until they settle it.
 
 Relay to the user only the PR link and what changed, in one paragraph.

@@ -16,9 +16,15 @@ the user may be sitting in.
 
 ## Setup (candidates, revise, diet)
 
-1. Clone `https://github.com/ajilty/agentic` into a fresh scratch directory
-   and `git config core.hooksPath scripts/githooks` (leak guard). For
-   `revise` and `diet` on an existing branch, check that branch out.
+1. Clone `https://github.com/ajilty/agentic` into a fresh scratch directory.
+   Before the first commit, do the repo's contributing setup (README
+   "Contributing setup", pointed to from `AGENTS.md`): `git config
+   core.hooksPath scripts/githooks`, and set the contributor's configured
+   commit identity plus `hooks.expectedIdentity`. A fresh clone has neither,
+   so without this the identity and leak guard never runs; one harvest commit
+   already reached the public remote authored with the operator's work email
+   that way. For `revise` and `diet` on an existing branch, check that branch
+   out.
 2. Read `plugins/edges/CONTRIBUTING.md` and follow it; it is the authority on
    edge shape, budgets, redaction, wiring, and commit style.
 3. **Collision check (candidates and diet only).**
@@ -30,7 +36,8 @@ the user may be sitting in.
 `ship` needs none of this; see below.
 
 Every mode returns the same shape: branch name, PR URL, and one line per edge
-(or per prune) saying where it landed and why.
+(or per prune) naming the skill file it landed in and why. The harvest skill
+reviews each file separately, so that file path is how review finds its edges.
 
 ## Mode: candidates (default)
 
@@ -50,7 +57,11 @@ For each candidate, read the whole target skill before adding a line:
   "Load before the first call", operation areas, user cues; 400 characters
   hard cap. Error strings, field names and response shapes never go in it.
 
-Then `bash scripts/validate-plugins.sh`, commit with an
+Then `bash scripts/check.sh` (the full CI mirror; `pre-push` runs it too).
+A failure that also reproduces on main is pre-existing only if main's latest
+CI run (`gh run list --branch main --workflow tests`) is red on the same
+check; otherwise it blocks the PR and is reported, never shipped past.
+Commit with an
 `edges(<tool>): <edge>` subject, push, and open the PR **as a draft**
 (`gh pr create --draft`) with a body listing each edge and its redaction
 statement. Return the standard shape.
@@ -59,8 +70,11 @@ statement. Return the standard shape.
 
 Check out the branch, apply the verdict literally: use the reviewer's
 `compress` text, drop `redundant` and `not-an-edge` items (say so in the
-commit), and if a drop empties the PR, close it and return that. Re-validate,
-push, return the standard shape.
+commit), and if a drop empties the PR, close it and return that. The verdict
+is grouped by file; edit only the files it names, since the others are
+already accepted and will not be reviewed again. Re-run `bash scripts/check.sh`
+(same rule as above), push, return
+the standard shape.
 
 ## Mode: ship <branch>
 
