@@ -37,8 +37,10 @@ Authoring rules (edge shape, size, redaction, validation, PR flow) live in
   current session's tool-call learnings and confirms candidates with you, then
   hands off to two forked subagents so your session keeps its context:
   `harvest-author` clones, writes, validates, and opens a draft PR;
-  `harvest-review` judges each edge fresh (is it an edge, is it already
-  covered, is it the shortest form) before the PR is marked ready.
+  `harvest-review` runs once per changed skill file, in parallel, and judges
+  each edge fresh (is it an edge, is it already covered, is it the shortest
+  form) before the PR is marked ready; one more instance owns the
+  branch-level checks.
   `/edges:harvest diet <tool>` runs a compression pass on a skill that has
   grown.
 - **Between sessions**: the plugin's hooks keep a **failure journal**. Every
