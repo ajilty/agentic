@@ -4,7 +4,7 @@ description: Adversarial fresh-context review of an edges-library branch before 
 user-invocable: false
 context: fork
 agent: general-purpose
-argument-hint: "<branch> <skill-path> + observations | branch <branch> | diet <branch>"
+argument-hint: "<branch> <skill-path> round <n> [prior <verdict-path>] + observations | branch <branch> round <n> [prior <verdict-path>] | diet <branch>"
 ---
 
 # Harvest review
@@ -15,7 +15,9 @@ edges library sharp and small. The argument names a branch of
 scratch and read `plugins/edges/CONTRIBUTING.md` for the rules you are
 enforcing. The harvest skill runs several of you in parallel, one per skill
 file the branch changes plus one for the branch, so stay inside your scope:
-another reviewer covers the rest.
+another reviewer covers the rest. The argument also carries `round <n>`;
+from round 2 on it adds `prior <verdict-path>`, the previous verdict for your
+scope (see Verdict). Round 1 has no prior.
 
 - `<branch> <skill-path>` (file scope, the default): the path is one
   `SKILL.md` the branch changes, and the rest of the argument is the source
@@ -71,8 +73,10 @@ whole branch against `origin/main` and check:
 - **Description caps**: `bash plugins/edges/tests/test_descriptions.sh`
   passes.
 
-Report each as a finding naming the file it lands in, so the harvest skill
-can route it to that file's revision.
+Report each as a finding naming the skill file it lands in, or `branch`
+for the commit message, PR body, identity leaks outside skill files,
+`plugin.json` version, and description caps, so the harvest skill can route
+it to that scope's revision.
 
 ## Diet branches
 
@@ -91,11 +95,13 @@ every string it dropped exists in the body.
 **Report everything you see the first time.** The author gets two revision
 rounds; a later round only checks that the earlier verdict was applied and
 that the fixes introduced nothing new. A finding you could have raised in
-round one and raise in round three costs the human a decision.
+round one and raise in round three costs the human a decision. In round 2 or
+later, read the prior verdict at `<verdict-path>`: confirm each of its items
+landed, and flag only regressions the fix introduced. No fresh nits.
 
 Start with your scope (the skill path, `branch`, or `diet`). Then one line
 per edge: `accept`, `compress: <your text>`, `redundant: <covering bullet>`,
 or `not-an-edge: <why>`; on a diet, one line per prune: `accept` or
-`restore: <why>`; in branch scope, one line per finding with its file, or
-`accept`. Then any file-level findings. Be specific enough that the author
-can apply it without judgment. Do not edit the branch.
+`restore: <why>`; in branch scope, one line per finding with its file or
+`branch`, or `accept`. Then any file-level findings. Be specific enough that
+the author can apply it without judgment. Do not edit the branch.

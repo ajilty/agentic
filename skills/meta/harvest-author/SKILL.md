@@ -72,7 +72,9 @@ Check out the branch, apply the verdict literally: use the reviewer's
 `compress` text, drop `redundant` and `not-an-edge` items (say so in the
 commit), and if a drop empties the PR, close it and return that. The verdict
 is grouped by file; edit only the files it names, since the others are
-already accepted and will not be reviewed again. Re-run `bash scripts/check.sh`
+already accepted and will not be reviewed again. Findings under `branch` may
+edit the commit message (amend), the PR body, and
+`plugins/edges/.claude-plugin/plugin.json`. Re-run `bash scripts/check.sh`
 (same rule as above), push, return
 the standard shape.
 
