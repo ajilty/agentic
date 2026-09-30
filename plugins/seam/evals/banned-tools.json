@@ -1,0 +1,20 @@
+{
+  "comment": "Build & Run §6.1 + M4 accept: zero send-capable tool names may appear in plugin code. The lint scans src/, bin/, and skills/ for these substrings. slack_send_message is banned unless immediately followed by _draft (regex below).",
+  "banned_regexes": [
+    "slack_send_message(?!_draft)",
+    "slack_schedule_message",
+    "schedule_message",
+    "slack_add_reaction",
+    "slack_create_conversation",
+    "slack_create_canvas",
+    "slack_update_canvas",
+    "respond_to_event",
+    "send_email",
+    "messages\\.send",
+    "run_action",
+    "create_applet",
+    "delete_event",
+    "delete_file",
+    "delete_label"
+  ]
+}

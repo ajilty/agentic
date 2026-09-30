@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- The board renders attacker-influenced content (message snippets, discovered
+     links) into a page opened in the user's logged-in browser. Strict CSP: no
+     remote origins, no inline/remote script beyond the board's own, so an injected
+     tag cannot exfiltrate on render. Fonts are system-stack, never fetched. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Seam — v7</title>
+<style>
+  :root{
+    --paper:#F4F7F6; --ink:#1B2431; --ink-soft:#4A5563; --stitch:#A7B0BC;
+    --card:#FFFFFF; --line:#DCE2E6; --chip:#EDF1F0;
+    --indigo:#4C5FD5; --moss:#4E7A52; --ochre:#B07A2E; --alert:#B3402F;
+    --link:#3A4DC4; --warn-bg:#FBF3E4; --warn-ink:#8A5A16;
+    --ledger-bg:#141F2A; --ledger-txt:#C4D2DE; --ledger-key:#8FB7E8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{font-family:'IBM Plex Sans',system-ui,sans-serif;background:var(--paper);
+    background-image:linear-gradient(rgba(27,36,49,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(27,36,49,.028) 1px,transparent 1px);
+    background-size:26px 26px;color:var(--ink);font-size:15px;line-height:1.45;padding-bottom:120px}
+  button{font-family:inherit;cursor:pointer}
+  button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--indigo);outline-offset:2px}
+  a.lnk{color:var(--link);text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;font-weight:500}
+  a.lnk:hover{text-decoration-style:solid}
+  a.lnk .ext{font-size:.85em}
+
+  .topbar{display:flex;align-items:center;gap:13px;flex-wrap:wrap;padding:11px 20px 9px;border-bottom:1px solid var(--line);
+    background:rgba(244,247,246,.93);backdrop-filter:blur(6px);position:sticky;top:0;z-index:40}
+  .brand{font-family:'Archivo',sans-serif;font-weight:800;font-size:18px;letter-spacing:.42em;text-transform:uppercase;padding-bottom:3px;border-bottom:2px dashed var(--stitch)}
+  .modes{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--card)}
+  .mode{border:0;background:transparent;padding:8px 13px;font-size:13px;font-weight:500;color:var(--ink-soft);display:flex;align-items:center;gap:7px}
+  .mode.active{background:var(--ink);color:#fff}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:10.5px;background:var(--chip);color:var(--ink-soft);border-radius:9px;padding:1px 6px;min-width:18px;text-align:center}
+  .mode .badge.hot{background:var(--alert);color:#fff}
+  .mode.active .badge{background:rgba(255,255,255,.18);color:#fff}
+  .mode.active .badge.hot{background:var(--alert)}
+  .top-actions{margin-left:auto;display:flex;gap:7px;align-items:center}
+  .kbd-hint{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--stitch)}
+  @media (hover:none){.kbd-hint{display:none}}
+  .src-strip{display:flex;gap:10px;flex-wrap:wrap;width:100%;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-soft);padding-top:2px}
+  .src-strip .ok b{color:var(--moss)}
+  .src-strip .bad{color:var(--alert);font-weight:500}
+  .src-strip .sys{margin-left:auto;color:var(--stitch)}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:500}
+  .btn:hover{border-color:var(--stitch)}
+  .btn-ink{background:var(--ink);border-color:var(--ink);color:#fff}
+  .btn-ink:hover{background:#2A3648}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--ink-soft)}
+  .btn-ghost:hover{color:var(--ink)}
+  .btn-sm{padding:5px 10px;font-size:12.5px;border-radius:7px}
+
+  .wrap{display:grid;grid-template-columns:256px 1fr;max-width:1220px;margin:0 auto}
+  .rail{padding:22px 16px 22px 20px;border-right:1px solid var(--line)}
+  .rail-label,.section-label{font-family:'Archivo',sans-serif;font-weight:800;font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-soft)}
+  .rail-label{display:block;margin-bottom:12px}
+  .ws{margin-bottom:14px;border:1px solid var(--line);border-radius:10px;background:var(--card);overflow:hidden}
+  .ws.active{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+  .ws-main{padding:10px 12px;cursor:pointer;width:100%;text-align:left;border:0;background:transparent;display:block}
+  .ws-main:hover{background:#FAFCFB}
+  .ws-name{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
+  .thread-swatch{width:18px;border-top:3px solid;border-radius:2px;flex:none}
+  .profile-tag{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;color:var(--stitch);border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-left:auto}
+  .ws-meta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-top:5px}
+  .ws-foot{display:flex;justify-content:space-between;align-items:center;border-top:1px dashed var(--line);padding:6px 12px}
+  .ws-foot a{font-size:11px}
+  .ws-cfg{border:0;background:transparent;font-size:11.5px;color:var(--ink-soft);padding:2px 4px;border-radius:5px}
+  .ws-cfg:hover{color:var(--ink);background:var(--chip)}
+  .rail-tools{margin-top:18px;display:flex;flex-direction:column;gap:7px}
+
+  .board{padding:24px 24px 24px 40px;position:relative;min-height:60vh}
+  .board::before{content:"";position:absolute;top:28px;bottom:10px;left:20px;border-left:2px dashed var(--stitch)}
+
+  .banner{background:#F6E4E0;border:1px solid #E4B7AE;color:#7A2C1F;border-radius:9px;padding:8px 12px;font-size:12.5px;margin-bottom:14px}
+  .glance-strip{display:none;background:var(--chip);border-radius:8px;padding:7px 11px;font-size:12px;color:var(--ink-soft);margin-bottom:12px}
+  @media (max-width:840px){.glance-strip{display:flex;justify-content:space-between;gap:8px;align-items:center}}
+  .glance-strip button{border:0;background:transparent;color:var(--ink-soft);font-weight:700}
+
+  .wywa{border:1.5px dashed var(--indigo);background:#F6F7FD;border-radius:12px;padding:13px 15px;margin-bottom:18px}
+  .wywa-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .wywa-title{font-family:'Archivo',sans-serif;font-weight:700;font-size:14px}
+  .wywa-sub{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-soft)}
+  .wywa ul{margin:8px 0 0 18px;font-size:13px;color:var(--ink-soft)}
+  .wywa li{margin-bottom:3px}
+  .wywa .card-actions{margin-top:10px}
+
+  .filterbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;font-size:13px;flex-wrap:wrap}
+  .fchip{background:var(--ink);color:#fff;border-radius:7px;padding:4px 10px;display:flex;gap:8px;align-items:center}
+  .fchip button{border:0;background:transparent;color:#fff;font-weight:700}
+
+  .calwrap{margin-bottom:22px}
+  .cal-day-label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;color:var(--stitch);text-transform:uppercase;margin:0 0 7px 2px}
+  .calrow{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+  .calitem{border-radius:10px;padding:8px 12px;min-width:170px;flex:1;background:var(--card);border:1px solid var(--line)}
+  .calitem.focus,.calitem.gap.acc{border:1.5px dashed var(--indigo);background:#F6F7FD;cursor:pointer}
+  .calitem.focus:hover,.calitem.gap.acc:hover{background:#EEF1FC}
+  .calitem.viewing{border-style:solid;box-shadow:0 0 0 1px var(--indigo)}
+  .calitem.dragover{background:#E8EBFB;border-style:solid}
+  .calitem.gap{border:1.5px dashed var(--stitch);background:rgba(255,255,255,.55)}
+  .cal-time{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);display:flex;justify-content:space-between;gap:6px}
+  .cal-fill{font-family:'IBM Plex Mono',monospace;font-size:10px}
+  .cal-fill.over{color:var(--alert);font-weight:500}
+  .cal-label{font-weight:600;font-size:13px;margin-top:2px}
+  .cal-count{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;background:var(--indigo);color:#fff;border-radius:8px;padding:1px 7px;margin-left:6px}
+  .cal-src{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--stitch);letter-spacing:.05em}
+  .cal-empty{font-size:11px;color:var(--stitch);margin-top:5px}
+  .cal-actions{margin-top:7px;display:flex;gap:6px}
+
+  .tier{margin-bottom:28px}
+  .tier-head{display:flex;align-items:baseline;gap:10px;margin-bottom:11px;flex-wrap:wrap}
+  .tier-head .section-label{color:var(--ink)}
+  .tier-head.alert .section-label{color:var(--alert)}
+  .tier-count{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-soft)}
+  .tier-note{font-size:12px;color:var(--ink-soft)}
+
+  .card{position:relative;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--stitch);
+    border-radius:10px;padding:12px 13px 11px;margin-bottom:11px;transition:opacity .25s,transform .25s}
+  .card::before{content:"";position:absolute;left:-24px;top:22px;width:20px;border-top:2px dashed var(--stitch)}
+  .card.provisional{border-style:dashed;border-left-style:solid}
+  .card.sel{box-shadow:0 0 0 2px var(--indigo)}
+  .card.leaving{opacity:0;transform:translateX(14px)}
+  .card[draggable=true]{cursor:grab}
+  .card-top{display:flex;align-items:flex-start;gap:9px}
+  .unread-dot{width:8px;height:8px;border-radius:50%;background:var(--indigo);flex:none;margin-top:6px}
+  .card-title{font-weight:600;font-size:14.5px;flex:1;min-width:0}
+  .type-badge{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.1em;background:var(--ink);color:#fff;border-radius:4px;padding:2.5px 6px;white-space:nowrap;margin-top:2px}
+  .card.personal .type-badge{background:var(--ink-soft)}
+  .tier-chip{font-family:'IBM Plex Mono',monospace;font-size:10.5px;border:1.5px solid var(--ink);border-radius:5px;padding:2px 7px;white-space:nowrap}
+  .tier-chip.hollow{border-style:dashed;color:var(--ink-soft);border-color:var(--ink-soft)}
+  .menu-btn{border:1px solid var(--line);background:var(--card);border-radius:7px;width:30px;height:26px;font-weight:700;color:var(--ink-soft);flex:none;line-height:1}
+  .menu-btn:hover{border-color:var(--stitch);color:var(--ink)}
+  .story{margin-top:7px;font-size:12.5px;color:var(--ink-soft)}
+  .story b{color:var(--ink);font-weight:600;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{font-family:'IBM Plex Mono',monospace;font-size:11px;background:var(--chip);border-radius:5px;padding:2.5px 7px;color:var(--ink-soft);border:0}
+  .chip.alert{background:#F6E4E0;color:var(--alert)}
+  .chip.staged{background:#E4EEE5;color:var(--moss)}
+  .chip.extclaim{background:var(--warn-bg);color:var(--warn-ink);border:1px dashed #C89A4E}
+  .chip.claim{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;color:var(--link);background:#EDF0FA}
+  .chip.claim:hover{text-decoration-style:solid}
+  .chip.effort{background:transparent;border:1px solid var(--line)}
+  .card-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+  .expand-btn{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--ink-soft);font-size:12.5px;font-weight:500;padding:2px 0}
+  .expand-btn:hover{color:var(--ink)}
+  .chev{display:inline-block;transition:transform .2s}
+  .card.open .chev{transform:rotate(90deg)}
+  .msgs{display:none;margin-top:11px;border-top:1px dashed var(--line);padding-top:10px}
+  .card.open .msgs{display:block}
+  .msg{display:flex;gap:9px;padding:7px 0;border-bottom:1px solid #F0F3F2}
+  .msg:last-of-type{border-bottom:0}
+  .msg-ico{flex:none;width:22px;height:22px;border-radius:6px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--ink-soft)}
+  .msg-ico svg{width:13px;height:13px}
+  .msg-body{flex:1;min-width:0}
+  .msg-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .msg-from{font-weight:600;font-size:12.5px}
+  .msg-time{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--stitch)}
+  .msg-snippet{font-size:12.5px;color:var(--ink-soft);margin-top:2px;font-style:italic}
+  .msg-open{margin-left:auto;flex:none;font-size:11.5px;align-self:baseline}
+  .attach{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .attach-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--stitch);letter-spacing:.06em}
+  .attach a{font-size:11.5px;background:var(--chip);border-radius:5px;padding:3px 8px;text-decoration:none;color:var(--link);border:1px solid transparent}
+  .attach a:hover{border-color:var(--indigo)}
+
+  .resolved{margin-top:26px;border-top:1px dashed var(--line);padding-top:12px}
+  .resolved-title{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.1em;color:var(--stitch);text-transform:uppercase;margin-bottom:7px}
+  .rrow{display:flex;gap:9px;align-items:center;padding:5px 0;opacity:.55;font-size:12.5px;transition:opacity .15s}
+  .rrow:hover{opacity:.85}
+  .rrow .rtitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-soft)}
+  .rres{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;background:var(--chip);border-radius:4px;padding:2px 6px;color:var(--ink-soft);flex:none}
+
+  .pop{position:absolute;z-index:70;background:var(--card);border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 8px 24px rgba(20,31,42,.14);min-width:214px;padding:6px;display:none}
+  .pop.open{display:block}
+  .pop button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 10px;font-size:13px;border-radius:7px;color:var(--ink)}
+  .pop button:hover{background:var(--chip)}
+  .pop .pop-head{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--stitch);padding:6px 10px 2px;text-transform:uppercase}
+  .pop hr{border:0;border-top:1px dashed var(--line);margin:5px 6px}
+
+  .pane{display:none}
+  .pane.active{display:block}
+  .roll{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px;border-left:4px solid var(--stitch)}
+  .roll-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .roll-title{font-weight:600;font-size:14.5px;flex:1}
+  .roll-window{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft)}
+  .roll-cadence{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--stitch);margin-top:3px}
+  .roll-stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft)}
+  .roll-stats b{color:var(--ink);font-weight:600}
+  .fact{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 13px;margin-bottom:10px}
+  .fact-row{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .fact-name{font-weight:600;font-size:13.5px}
+  .fact-val{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--chip);padding:2px 8px;border-radius:5px}
+  .fact-meta{font-size:12px;color:var(--ink-soft);margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .anchor-ok{color:var(--moss)}
+  .anchor-lag{color:var(--alert)}
+
+  .cfg{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;border-top:4px solid var(--indigo)}
+  .cfg-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  .cfg-title{font-family:'Archivo',sans-serif;font-weight:700;font-size:17px}
+  .cfg-sub{font-size:12.5px;color:var(--ink-soft);margin-bottom:14px}
+  .cfg-sec{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line)}
+  .cfg-sec-title{font-family:'Archivo',sans-serif;font-weight:800;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:10px}
+  .person{display:flex;gap:10px;align-items:center;padding:7px 0;flex-wrap:wrap}
+  .person-name{font-weight:600;font-size:13.5px;min-width:130px}
+  .person-role{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--stitch)}
+  .handle{display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;background:var(--chip);border-radius:5px;padding:2px 7px;color:var(--ink-soft)}
+  .handle svg{width:11px;height:11px}
+  .conf-ok{font-size:11px;color:var(--moss);margin-left:auto}
+  .conf-sus{font-size:11px;color:var(--alert);margin-left:auto;display:flex;gap:6px;align-items:center}
+  .space-row{display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;flex-wrap:wrap}
+  .space-ico{width:20px;height:20px;border-radius:5px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);flex:none}
+  .space-ico svg{width:12px;height:12px}
+  .obs{color:var(--alert);font-family:'IBM Plex Mono',monospace;font-size:10.5px}
+
+  .ledger{position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--ledger-bg);color:var(--ledger-txt);
+    border-top:2px dashed var(--stitch);transform:translateY(calc(100% - 42px));transition:transform .28s;max-height:46vh;display:flex;flex-direction:column}
+  .ledger.open{transform:translateY(0)}
+  .ledger-bar{display:flex;align-items:center;gap:12px;padding:9px 20px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;flex:none}
+  .ledger-bar b{color:#fff;font-weight:500}
+  .ledger-hint{color:#7B8B99;margin-left:auto}
+  .ledger-body{overflow-y:auto;padding:4px 20px 16px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.7}
+  .ledger-body .k{color:var(--ledger-key)}
+  .ledger-body .agent{color:#D9B26A}
+  .ledger-empty{color:#7B8B99;padding:6px 0}
+
+  .overlay{position:fixed;inset:0;background:rgba(20,31,42,.45);z-index:80;display:none;align-items:flex-start;justify-content:center;padding:7vh 18px 18px;overflow-y:auto}
+  .overlay.open{display:flex}
+  .modal{background:var(--card);border-radius:14px;max-width:600px;width:100%;padding:22px;border-top:4px solid var(--indigo);max-height:82vh;overflow-y:auto}
+  .modal h3{font-family:'Archivo',sans-serif;font-weight:700;font-size:16px;margin-bottom:4px}
+  .modal .prov{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-bottom:14px}
+  .draft{border:1px dashed var(--stitch);border-radius:10px;padding:14px;font-size:14px;background:#FAFCFB;white-space:pre-line;max-height:34vh;overflow-y:auto}
+  .modal-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .modal-note{font-size:12px;color:var(--ink-soft);margin-top:12px}
+  .qrow{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap;font-size:13.5px}
+  .qrow:last-child{border-bottom:0}
+  .qcount{font-family:'IBM Plex Mono',monospace;font-size:11px;background:var(--chip);border-radius:9px;padding:1px 8px}
+  .qname{font-weight:600;flex:1;min-width:140px}
+  .arow{display:flex;gap:9px;align-items:baseline;padding:6px 0;font-size:12.5px;border-bottom:1px solid #F0F3F2}
+  .arow:last-child{border-bottom:0}
+  .arow .at{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--stitch);flex:none}
+  textarea.cap{width:100%;border:1px dashed var(--stitch);border-radius:10px;padding:12px;font-family:inherit;font-size:14px;min-height:90px;background:#FAFCFB}
+
+  .pal{background:var(--card);border-radius:14px;max-width:520px;width:100%;padding:10px;box-shadow:0 16px 40px rgba(20,31,42,.25)}
+  .pal input{width:100%;border:0;border-bottom:1px dashed var(--line);padding:10px 8px;font-size:15px;font-family:inherit;background:transparent}
+  .pal-list{max-height:44vh;overflow-y:auto;padding-top:6px}
+  .pal-list button{display:flex;width:100%;gap:10px;align-items:center;text-align:left;border:0;background:transparent;padding:9px 10px;font-size:13.5px;border-radius:8px}
+  .pal-list button:hover,.pal-list button.hl{background:var(--chip)}
+  .pal-list .pk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--stitch);margin-left:auto}
+
+  .keys{background:var(--card);border-radius:14px;max-width:480px;width:100%;padding:20px}
+  .keys h3{font-family:'Archivo',sans-serif;font-size:15px;margin-bottom:12px}
+  .keys .kgrid{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;font-size:13px}
+  .keys kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;background:var(--chip);border:1px solid var(--line);border-radius:5px;padding:1px 7px}
+
+  .toast{position:fixed;bottom:56px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;
+    border-radius:9px;padding:10px 16px;font-size:13px;opacity:0;pointer-events:none;transition:all .3s;z-index:90;max-width:92vw}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none !important}}
+  @media (max-width:840px){
+    .wrap{grid-template-columns:1fr}
+    .rail{border-right:0;border-bottom:1px solid var(--line);display:flex;gap:10px;overflow-x:auto;padding:14px 16px}
+    .rail-label{display:none}
+    .ws{min-width:212px;flex:none;margin-bottom:0}
+    .rail-tools{flex-direction:row;min-width:200px}
+    .board{padding:20px 14px 20px 32px}
+    .board::before{left:13px}
+    .card::before{left:-17px;width:13px}
+    .topbar{padding:10px 14px}
+    .modes{order:3;width:100%}
+    .mode{flex:1;justify-content:center}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Seam</div>
+  <div class="modes" role="tablist" aria-label="Operating modes">
+    <button class="mode active" id="tab-operate" onclick="setMode('operate')">Operate <span class="badge hot" id="bOperate">0</span></button>
+    <button class="mode" id="tab-reflect" onclick="setMode('reflect')">Reflect <span class="badge" id="bReflect">0</span></button>
+    <button class="mode" id="tab-know" onclick="setMode('know')">Know <span class="badge" id="bKnow">0</span></button>
+  </div>
+  <div class="top-actions">
+    <span class="kbd-hint">? keys · / palette</span>
+    <button class="btn btn-sm" onclick="openCapture()">＋ Capture</button>
+    <button class="btn btn-sm" onclick="openAgent()">Agent <span class="badge" id="bAgent">0</span></button>
+    <button class="btn btn-sm" id="syncBtn">Sync now</button>
+  </div>
+  <div class="src-strip" id="srcStrip"></div>
+</header>
+
+<div class="wrap">
+  <aside class="rail" aria-label="Workstreams" id="railWrap">
+    <div id="rail" style="display:contents"></div>
+    <div class="rail-tools">
+      <button class="btn btn-sm" onclick="openReview()">Review Friday <span class="badge" id="bReview">4</span></button>
+    </div>
+  </aside>
+
+  <main class="board">
+    <div id="filterbar"></div>
+    <div class="pane active" id="pane-operate">
+      <div class="glance-strip" id="glance">📱 Phone = glance + capture · full triage on desktop <button onclick="this.parentElement.style.display='none'">✕</button></div>
+      <div class="banner" id="staleBanner">⚠ Jira has been dark since 06:04 (2 syncs missed). Its signals are paused and silence counts exclude the dark window.</div>
+      <div class="wywa" id="wywa">
+        <div class="wywa-head"><span class="wywa-title">While you were away</span><span class="wywa-sub">Fri 18:00 → Tue 07:42 · 3 days</span></div>
+        <ul>
+          <li>Decided without you: employeeNumber confirmed as immutable ID (vendor thread)</li>
+          <li>Concluded: 2 threads resolved themselves — no action needed</li>
+          <li>New proposal: 6 messages cluster as a possible "Vendor security review" workstream</li>
+          <li>Agent: staged 3 drafts, proposed 1 fact, assigned 8 provisional tiers → <a class="lnk" href="#" onclick="openAgent();return false">agent activity</a></li>
+        </ul>
+        <div class="card-actions"><button class="btn btn-sm btn-ghost" onclick="dismissWywa()">Caught up — dismiss</button></div>
+      </div>
+      <div id="calwrap" class="calwrap"></div>
+      <div id="tiers"></div>
+      <div id="cfgwrap"></div>
+      <div id="resolvedOp"></div>
+    </div>
+
+    <div class="pane" id="pane-reflect"><div id="reflectWrap"></div><div id="resolvedRe"></div></div>
+
+    <div class="pane" id="pane-know"><div id="knowWrap"></div><div id="resolvedKn"></div></div>
+  </main>
+</div>
+
+<div class="pop" id="pop"></div>
+
+<div class="ledger" id="ledger">
+  <div class="ledger-bar" onclick="toggleLedger()" role="button" tabindex="0"><b>store ledger</b><span id="ledgerCount">0 events</span><span class="ledger-hint">actor-attributed JSONL — tap to view</span></div>
+  <div class="ledger-body" id="ledgerBody"></div>
+</div>
+
+<div class="overlay" id="overlay"><div class="modal" id="modalBox">
+  <h3 id="modalTitle"></h3>
+  <div class="prov" id="modalProv"></div>
+  <div id="modalBody"></div>
+  <div class="modal-actions" id="modalActions"></div>
+  <div class="modal-note" id="modalNote"></div>
+</div></div>
+
+<div class="overlay" id="palOverlay"><div class="pal">
+  <input id="palInput" placeholder="Type a command…" autocomplete="off">
+  <div class="pal-list" id="palList"></div>
+</div></div>
+
+<div class="overlay" id="keysOverlay"><div class="keys">
+  <h3>Keyboard triage</h3>
+  <div class="kgrid">
+    <span><kbd>j</kbd> <kbd>k</kbd></span><span>next / previous card</span>
+    <span><kbd>enter</kbd></span><span>expand / collapse</span>
+    <span><kbd>c</kbd></span><span>confirm tier</span>
+    <span><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></span><span>move to Critical / Opportunity / Horizon</span>
+    <span><kbd>b</kbd></span><span>move to next open block</span>
+    <span><kbd>d</kbd></span><span>done</span>
+    <span><kbd>s</kbd></span><span>snooze 2 days</span>
+    <span><kbd>o</kbd></span><span>open draft</span>
+    <span><kbd>u</kbd></span><span>undo last resolve</span>
+    <span><kbd>/</kbd></span><span>command palette</span>
+    <span><kbd>?</kbd></span><span>this help</span>
+  </div>
+  <div class="modal-actions"><button class="btn" onclick="closeOverlays()">Close</button></div>
+</div></div>
+
+<div class="toast" id="toast"><span id="toastMsg"></span></div>
+
+<script>
+const ICONS={
+ email:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M2 4l6 5 6-5"/></svg>',
+ slack:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 2v6M11 8v6M2 11h6M8 5h6"/></svg>',
+ jira:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.5L14.5 8 8 14.5 1.5 8z"/><path d="M8 5L11 8 8 11 5 8z"/></svg>',
+ github:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5" cy="4" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="11" cy="8" r="2"/><path d="M5 6v4M7 12c3 0 4-1.5 4-2.5"/></svg>',
+ cal:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg>',
+ wiki:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 2h8.5L14 4.5V14H3z"/><path d="M6 6h5M6 9h5M6 12h3"/></svg>'
+};
+const WS={
+ iam:{name:"IAM Consolidation",color:"var(--indigo)",profile:"work"},
+ sdlc:{name:"SDLC Enhancements",color:"var(--moss)",profile:"work"},
+ aj:{name:"Ajilty",color:"var(--ochre)",profile:"personal"}
+};
+const SOURCES=[
+ {name:"email",t:"07:42",ok:true},{name:"slack",t:"07:42",ok:true},
+ {name:"calendar",t:"07:42",ok:true},{name:"jira",t:"failed 06:04",ok:false}
+];
+const EFFORT_MIN={S:15,M:30,L:60};
+const PEOPLE=[{id:'chen',name:'M. Chen',m:['chen']},{id:'dana',name:'Dana',m:['dana','okafor']},{id:'marta',name:'Marta',m:['marta']},{id:'rpatel',name:'R. Patel',m:['patel']},{id:'jkim',name:'J. Kim',m:['j.kim','jkim']}];
+function itemPeople(it){const t=it.msgs.map(x=>x.from.toLowerCase()).join(' ');return PEOPLE.filter(p=>p.m.some(s=>t.includes(s))).map(p=>p.id)}
+
+let cal={
+ today:[
+  {id:"cal_f1",kind:"focus",label:"Focus",time:"9:00–10:30",cap:90,src:"your calendar",items:[]},
+  {id:"cal_m1",kind:"meet",label:"IAM stand-up",time:"11:00",ws:"iam",attendees:["Dana","J. Kim","You"]},
+  {id:"cal_m2",kind:"meet",label:"Vendor sync — Marta",time:"14:00",ws:"iam",attendees:["Marta (vendor)","Dana","You"]},
+  {id:"cal_g1",kind:"gap",label:"Proposed block",time:"15:00–16:00",cap:60,src:"free gap detected",items:[],accepted:false}
+ ],
+ tomorrow:[
+  {id:"cal_f2",kind:"focus",label:"Focus",time:"13:00–15:00",cap:120,src:"your calendar",items:[]}
+ ]
+};
+
+const CFG={
+ iam:{
+  people:[
+   {name:"M. Chen",role:"boss · principal",handles:[["email","m.chen@…"],["slack","@mchen"]],ok:true},
+   {name:"Dana Okafor",role:"IAM eng",handles:[["email","d.okafor@…"],["slack","@dana"],["jira","dokafor"]],ok:true},
+   {name:"Marta Reyes",role:"vendor",handles:[["email","marta@vendorco…"]],ok:true},
+   {name:"J. Kim ↔ kimchi-dev",role:"suspected same person",handles:[["slack","@jkim"],["github","kimchi-dev"]],ok:false}
+  ],
+  sanctioned:[["slack","#iam-consolidation"],["jira","IAM project"],["email","iam-core@ DL"]],
+  observed:[["slack","DM thread w/ Marta"]],
+  anchors:[["jira","IAM Unification epic","jira/IAM-1"],["wiki","IAM runbook","confluence/iam-runbook"]],
+  report:"Weekly · Fri 17:00 · audience: M. Chen"
+ },
+ sdlc:{
+  people:[{name:"R. Patel",role:"appsec",handles:[["slack","@rpatel"],["github","r-patel"]],ok:true},
+          {name:"Priya S.",role:"eng lead",handles:[["slack","@priya"]],ok:true}],
+  sanctioned:[["slack","#appsec"]],observed:[],anchors:[],
+  report:"Weekly · Mon 09:00 · audience: security team"
+ },
+ aj:{
+  people:[{name:"You",role:"group of one",handles:[["github","alex"]],ok:true}],
+  sanctioned:[["github","ajilty repo"]],observed:[],anchors:[],
+  report:"none — personal"
+ }
+};
+
+/* chips: [text, class, claimLink?] — claim chips are provenance-linked */
+let items=[
+ {id:"act_101",ws:"iam",tier:"critical",provisional:true,unread:true,type:"APPROVE",effort:"S",
+  title:"Approve the HR → Okta attribute mapping",
+  whyNow:"Due Wed Aug 6 — M. Chen is cc'd; HR tech is blocked on you.",
+  context:"Proposal sits in IAM-214; Chen nudged on Slack last evening.",
+  chips:[["due Aug 6","claim","jira/IAM-214"],["boss cc'd","claim","slack/C-iam/p1722"]],
+  msgs:[
+   {src:"jira",from:"Jira · IAM-214",time:"Aug 3 · 16:40",snip:"@alex approval needed on attribute mapping before Wed",link:"jira/IAM-214"},
+   {src:"slack",from:"M. Chen (boss)",time:"Aug 3 · 17:02",snip:"can you clear the mapping approval so HR tech isn't blocked?",link:"slack/C-iam/p1722"}
+  ],
+  attachments:[["mapping-sheet.xlsx","drive/mapping"],["IAM-214","jira/IAM-214"]]},
+
+ {id:"act_102",ws:"iam",tier:"critical",provisional:true,unread:true,type:"REPLY",effort:"M",
+  title:"Reply to Marta with the ID decision for the Aug 21 cutover",
+  whyNow:"Vendor waiting 2 days; this gates their migration work.",
+  context:"SCIM conflict resolved internally (employeeNumber); sandbox access is with Dana.",
+  chips:[["waiting 2d","claim","gmail/t-4411"],["cutover Aug 21","claim","gmail/t-4411"],["draft ready",""]],
+  draft:"Hi Marta,\n\nThanks for flagging the two blockers. On the SCIM attribute conflict — we agreed internally to map employeeNumber as the immutable ID, so please proceed on that basis.\n\nOn the sandbox tenant access, I've asked Dana to provision your service account; expect credentials by Thursday.\n\nDoes anything else gate the Aug 21 cutover on your side?\n\nBest,\nAlex",
+  draftTarget:"Save to Gmail Drafts",prov:"reply to: 'Tenant migration — open items' · 6 messages",
+  msgs:[
+   {src:"email",from:"Marta (vendor)",time:"Aug 2 · 09:15",snip:"Two blockers on our side: SCIM attribute conflict and sandbox access…",link:"gmail/t-4411"},
+   {src:"email",from:"You → Dana",time:"Aug 2 · 10:02",snip:"Can you provision the vendor service account this week?",link:"gmail/t-4412"},
+   {src:"slack",from:"D. Okafor",time:"Aug 2 · 11:30",snip:"employeeNumber as immutable ID confirmed on our end",link:"slack/D-dana/p1120"}
+  ],
+  attachments:[["vendor-portal","ext/vendor-portal"],["migration-runbook","confluence/mig-runbook"]]},
+
+ {id:"act_110",ws:"iam",tier:"opportunity",provisional:false,unread:false,type:"REVIEW",effort:"L",
+  title:"Review the QBR board pack before Friday",
+  whyNow:"Auto-demoted from Critical: due Friday, not today.",
+  context:"Chen's office requested review; nothing blocks on it before Thu.",
+  chips:[["auto-demoted ↓","claim","seam/demotion-112"],["due Fri Aug 7","claim","gmail/t-4420"]],
+  msgs:[{src:"email",from:"EA to M. Chen",time:"Aug 3 · 12:10",snip:"board pack attached — comments by Friday please",link:"gmail/t-4420"}],
+  attachments:[["board-pack.pdf","drive/qbr-pack"]]},
+
+ {id:"act_109",ws:"iam",tier:"opportunity",provisional:true,unread:true,type:"REVIEW",effort:"M",
+  title:"Assess the vendor's security questionnaire request",
+  whyNow:"Sender claims urgency — unverified; no internal corroboration found.",
+  context:"New external contact asks for a completed questionnaire 'by EOD'; no matching Jira or principal signal.",
+  chips:[["urgency claimed by sender — unverified","extclaim"],["external · first contact","extclaim"]],
+  msgs:[{src:"email",from:"partners@newvendor.io (external)",time:"Aug 4 · 06:50",snip:"URGENT: we need your completed security questionnaire by EOD today",link:"gmail/t-4431"}],
+  attachments:[["questionnaire.xlsx","gmail/t-4431-att"]]},
+
+ {id:"act_103",ws:"sdlc",tier:"opportunity",provisional:true,unread:false,type:"REVIEW",effort:"M",
+  title:"Review PR #84 to unblock the threat-model checklist",
+  whyNow:"Explicit review request to you, one day old.",
+  context:"R. Patel's checklist formalizes the SDLC gate you asked for.",
+  chips:[["review requested 1d","claim","github/pr-84"]],
+  msgs:[{src:"github",from:"r.patel",time:"Aug 3 · 14:20",snip:"requested your review on threat-model-checklist #84",link:"github/pr-84"}],
+  attachments:[["PR #84","github/pr-84"],["checklist.md","github/pr-84-files"]]},
+
+ {id:"act_104",ws:"sdlc",tier:"opportunity",provisional:true,unread:true,grouping:true,type:"CONFIRM",effort:"S",
+  title:"Confirm the inferred SAST-rollout thread",
+  whyNow:"Medium confidence — your call persists as a constraint.",
+  context:"Seven unthreaded #appsec messages in 40 minutes about the rollout.",
+  chips:[["7 msgs · 40 min","claim","slack/C-appsec/p1004"],["confidence: medium",""]],
+  msgs:[
+   {src:"slack",from:"r.patel",time:"Aug 1 · 10:04",snip:"semgrep rules are too noisy on the monorepo",link:"slack/C-appsec/p1004"},
+   {src:"slack",from:"j.kim",time:"Aug 1 · 10:12",snip:"we could scope rollout to services first, libs later",link:"slack/C-appsec/p1012"},
+   {src:"slack",from:"r.patel",time:"Aug 1 · 10:41",snip:"drafting a rollout doc, will share",link:"slack/C-appsec/p1041"}
+  ],
+  attachments:[["rollout-doc (draft)","drive/sast-rollout"]]},
+
+ {id:"act_105",ws:"aj",tier:"horizon",provisional:true,unread:false,type:"REPLY",effort:"S",
+  title:"Reply on issue #12 about skill-frontmatter portability",
+  whyNow:"Personal stream — no urgency inherited; surfaces at Review Friday.",
+  context:"A contributor reports frontmatter breaking on other harnesses; draft ready.",
+  chips:[["personal",""],["low urgency",""]],
+  draft:"Good catch — the SKILL.md frontmatter should stay harness-agnostic. I'd keep install hints in a separate manifest so other harnesses can ignore them cleanly. PR welcome.",
+  draftTarget:"Save GitHub comment draft",prov:"reply to: issue #12 'skill portability across harnesses'",
+  msgs:[{src:"github",from:"contributor",time:"Jul 30 · 20:11",snip:"frontmatter portability breaks on Codex CLI…",link:"github/issue-12"}],
+  attachments:[["issue #12","github/issue-12"]]},
+
+ {id:"act_106",ws:"iam",tier:"wait",provisional:false,unread:true,type:"NUDGE",effort:"S",
+  title:"Nudge Dana for the SCIM attribute doc",
+  whyNow:"4 business days silent (dark windows excluded); it gates vendor sandbox mapping.",
+  context:"Asked by email Jul 29; cutover risk grows daily.",
+  chips:[["asked Jul 29","claim","gmail/t-4390"],["4d silent · verified","claim","gmail/t-4390"]],
+  draft:"Hi Dana,\n\nQuick nudge on the SCIM attribute doc from last week — the vendor needs it to unblock the sandbox mapping. Even a rough draft by tomorrow keeps the Aug 21 cutover safe.\n\nThanks!\nAlex",
+  draftTarget:"Save nudge to Gmail Drafts",prov:"follow-up on: 'SCIM attribute doc?' · sent Jul 29",
+  msgs:[{src:"email",from:"You → Dana",time:"Jul 29 · 09:31",snip:"Could you get me the SCIM attribute doc this week?",link:"gmail/t-4390"}],
+  attachments:[]},
+
+ {id:"act_108",ws:"iam",tier:"drift",provisional:false,unread:true,type:"RECONCILE",effort:"S",
+  title:"Stage the Jira update with this week's three decisions",
+  whyNow:"The tracked plan is three decisions behind reality.",
+  context:"ID choice, sandbox timing, and cutover date live only in email; comment staged.",
+  chips:[["3 decisions unanchored","claim","gmail/t-4411"],["jira dark — will stage on recovery","alert"]],
+  draft:"Proposed Jira comment on IAM Unification:\n\n• Immutable ID decided: employeeNumber (vendor thread, Aug 2)\n• Vendor sandbox access provisioning by Thu Aug 6\n• Cutover target confirmed: Aug 21\n\nSource: vendor email thread + internal DM, auto-summarized by Seam.",
+  draftTarget:"Stage Jira comment (unsent)",prov:"anchor: Jira epic IAM Unification · last good read Fri",
+  msgs:[
+   {src:"email",from:"Marta (vendor)",time:"Aug 2 · 09:15",snip:"…proceeding with employeeNumber as agreed",link:"gmail/t-4411"},
+   {src:"jira",from:"IAM Unification (anchor)",time:"last good read: Fri",snip:"epic last updated Jul 21 — none of the three decisions present",link:"jira/IAM-1"}
+  ],
+  attachments:[["IAM Unification epic","jira/IAM-1"]]}
+];
+
+const TIERS=[
+ {key:"critical",label:"Critical Now",cls:"alert",note:"cap 5 — consequences today if untouched"},
+ {key:"opportunity",label:"Opportunity Now",cls:"",note:"this week's leverage"},
+ {key:"horizon",label:"Over the Horizon",cls:"",note:"never badges · surfaces at Review Friday"},
+ {key:"wait",label:"Waiting On",cls:"",note:"silence is a signal — dark windows excluded"},
+ {key:"drift",label:"Drift",cls:"",note:"reality vs. the formal systems"}
+];
+const TIER_LABEL={critical:"CRITICAL",opportunity:"OPPTY",horizon:"HORIZON"};
+
+let ledger=[],filterWs=null,filterBlock=null,filterPerson=null,cfgOpen=null;
+let resolvedOp=[],resolvedRe=[],resolvedKn=[];
+let knowPending=true,rollUnread=true,selIdx=-1;
+
+/* pre-seeded agent activity (actor: agent) */
+[["06:58","story_compiled","8 cards"],["06:58","tier_assigned","8 provisional"],
+ ["06:59","tier_demoted","act_110: due Fri, not today"],["07:00","draft_staged","3 drafts (reply, nudge, jira comment)"],
+ ["07:01","fact_proposed","okta_prod_tenant"],["07:02","external_urgency_flagged","act_109: sender-claimed, unverified"]
+].forEach(e=>ledger.push({ts:"2026-08-04T"+e[0],actor:"agent",type:e[1],detail:e[2]}));
+
+function blocksList(){return [...cal.today,...cal.tomorrow].filter(c=>c.kind==='focus'||c.kind==='gap')}
+function inBlock(id){return blocksList().find(b=>b.items.includes(id))}
+function find(id){return items.find(i=>i.id===id)}
+
+function renderSrc(){
+ document.getElementById('srcStrip').innerHTML=SOURCES.map(s=>
+  s.ok?'<span class="ok">'+s.name+' <b>'+s.t+'</b></span>':'<span class="bad">'+s.name+' ✕ '+s.t+'</span>').join('')
+  +'<span class="sys">day 42 · warmed</span>';
+ document.getElementById('staleBanner').style.display=SOURCES.some(s=>!s.ok)?'':'none';
+}
+
+function renderRail(){
+ document.getElementById('rail').innerHTML='<span class="rail-label">Workstreams</span>'+
+  Object.keys(WS).map(k=>{
+   const n=items.filter(i=>i.ws===k).length;
+   return '<div class="ws '+(filterWs===k?'active':'')+'">'
+    +'<button class="ws-main" onclick="pivot(\''+k+'\')">'
+    +'<span class="ws-name"><span class="thread-swatch" style="border-color:'+WS[k].color+'"></span>'+WS[k].name
+    +(WS[k].profile==='personal'?'<span class="profile-tag">PERSONAL</span>':'')+'</span>'
+    +'<span class="ws-meta">'+n+' open'+(filterWs===k?' · viewing':'')+'</span></button>'
+    +'<div class="ws-foot">'
+    +(CFG[k].anchors.length?'<a class="lnk" href="#" onclick="return openLink(\''+CFG[k].anchors[0][2]+'\')">'+CFG[k].anchors[0][1].split(' ')[0]+' anchor <span class="ext">↗</span></a>':'<span style="font-size:11px;color:var(--stitch)">no anchor</span>')
+    +'<button class="ws-cfg" onclick="openCfg(\''+k+'\')">⚙ configure</button>'
+    +'</div></div>';
+  }).join('')
+  +'<div class="ws" style="padding:10px 12px"><span class="rail-label" style="margin-bottom:8px">People</span>'
+  +'<div style="display:flex;flex-wrap:wrap;gap:6px">'
+  +PEOPLE.map(p=>'<button class="btn btn-sm'+(filterPerson===p.id?' btn-ink':'')+'" onclick="pivotPerson(\''+p.id+'\')">'+p.name+'</button>').join('')
+  +'</div></div>';
+}
+function pivotPerson(id){filterPerson=(filterPerson===id)?null:id;filterWs=null;filterBlock=null;cfgOpen=null;
+ logEvent({type:"pivot_person",person:filterPerson||"none"});render();}
+function pivot(k){filterWs=(filterWs===k)?null:k;filterBlock=null;filterPerson=null;cfgOpen=null;
+ logEvent({type:"pivot",ws:filterWs||"all"});render();}
+function pivotBlock(id){filterBlock=(filterBlock===id)?null:id;filterWs=null;filterPerson=null;cfgOpen=null;
+ logEvent({type:"pivot_block",block:filterBlock||"none"});render();}
+function clearFilters(){filterWs=null;filterBlock=null;filterPerson=null;render()}
+
+function openCfg(k){cfgOpen=k;filterWs=k;filterBlock=null;logEvent({type:"config_opened",ws:k});render();window.scrollTo({top:0});}
+function closeCfg(){cfgOpen=null;render()}
+function handleEl(h){return '<span class="handle">'+ICONS[h[0]]+h[1]+'</span>'}
+function renderCfg(){
+ if(!cfgOpen){document.getElementById('cfgwrap').innerHTML='';return}
+ const c=CFG[cfgOpen];
+ document.getElementById('cfgwrap').innerHTML=
+ '<div class="cfg"><div class="cfg-head"><span class="cfg-title">'+WS[cfgOpen].name+' — linkages</span>'
+ +'<button class="btn btn-sm btn-ghost" onclick="closeCfg()">✕ close</button></div>'
+ +'<div class="cfg-sub">Where this stream binds to people, places, and the formal systems — and where reality disagrees.</div>'
+ +'<div class="cfg-sec"><div class="cfg-sec-title">Working group</div>'
+ +c.people.map(p=>'<div class="person"><span class="person-name">'+p.name+'</span><span class="person-role">'+(p.role||'')+'</span>'
+   +p.handles.map(handleEl).join('')
+   +(p.ok?'<span class="conf-ok">auto-merged ✓</span>'
+     :'<span class="conf-sus">holding pen <button class="btn btn-sm" onclick="mergeOk()">Confirm merge</button></span>')+'</div>').join('')+'</div>'
+ +'<div class="cfg-sec"><div class="cfg-sec-title">Workspaces</div>'
+ +c.sanctioned.map(s=>'<div class="space-row"><span class="space-ico">'+ICONS[s[0]]+'</span>'+esc(s[1])+'<span style="font-size:11px;color:var(--moss)">sanctioned ✓</span></div>').join('')
+ +c.observed.map(s=>'<div class="space-row"><span class="space-ico">'+ICONS[s[0]]+'</span>'+esc(s[1])+'<span class="obs">observed outside sanctioned</span>'
+   +'<button class="btn btn-sm" onclick="sanction()">Add to sanctioned</button><button class="btn btn-sm btn-ghost" onclick="keepFlag()">Keep flagged</button></div>').join('')+'</div>'
+ +'<div class="cfg-sec"><div class="cfg-sec-title">Anchors — formal systems</div>'
+ +(c.anchors.length?c.anchors.map(a=>'<div class="space-row"><span class="space-ico">'+ICONS[a[0]==='wiki'?'wiki':a[0]]+'</span>'
+   +'<a class="lnk" href="#" onclick="return openLink(\''+escAttrJs(a[2])+'\')">'+esc(a[1])+' <span class="ext">↗</span></a></div>').join('')
+  :'<div class="space-row" style="color:var(--ink-soft)">none — this stream lives only in the overlay</div>')
+ +'<div class="space-row"><button class="btn btn-sm" onclick="addAnchor()">+ Link an anchor</button></div></div>'
+ +'<div class="cfg-sec"><div class="cfg-sec-title">Reporting</div>'
+ +'<div class="space-row"><span class="space-ico">'+ICONS.cal+'</span>'+c.report
+ +'<button class="btn btn-sm btn-ghost" onclick="editCadence()">Edit cadence</button></div></div></div>';
+}
+function mergeOk(){logEvent({type:"identity_merge_confirmed",person:"j.kim"});
+ CFG.iam.people.find(p=>!p.ok).ok=true;render();toast("Merged — registry updated");}
+function sanction(){logEvent({type:"workspace_sanctioned",ws:cfgOpen,space:"dm_marta"});
+ CFG[cfgOpen].sanctioned.push(CFG[cfgOpen].observed.pop());render();toast("Added to sanctioned set");}
+function keepFlag(){logEvent({type:"workspace_flag_kept",ws:cfgOpen});toast("Kept flagged — drift stays visible");}
+function addAnchor(){logEvent({type:"anchor_link_started",ws:cfgOpen});toast("Anchor picker would open");}
+function editCadence(){logEvent({type:"cadence_edit_opened",ws:cfgOpen});toast("Cadence editor would open");}
+
+/* calendar */
+function blockMin(b){return b.items.reduce((s,id)=>{const it=find(id);return s+(it?EFFORT_MIN[it.effort]:0)},0)}
+function calItemEl(c){
+ if(c.kind==='meet'){
+  return '<div class="calitem" style="border-left:4px solid '+(c.ws?WS[c.ws].color:'var(--stitch)')+'">'
+   +'<div class="cal-time"><span>'+c.time+'</span></div><div class="cal-label">'+c.label+'</div>'
+   +'<div class="cal-src">'+c.attendees.join(' · ')+'</div>'
+   +'<div class="cal-actions"><button class="btn btn-sm" onclick="prep(\''+c.id+'\')">Prep</button></div></div>';
+ }
+ const clickable=c.kind==='focus'||c.accepted;
+ const used=blockMin(c);
+ const fill=clickable?'<span class="cal-fill'+(used>c.cap?' over':'')+'">'+used+'/'+c.cap+'m'+(used>c.cap?' ⚠':'')+'</span>':'';
+ return '<div class="calitem '+c.kind+(c.accepted?' acc':'')+(filterBlock===c.id?' viewing':'')+'" id="'+c.id+'" '
+  +(clickable?'onclick="pivotBlock(\''+c.id+'\')" role="button" tabindex="0" ':'')
+  +'ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event,\''+c.id+'\')">'
+  +'<div class="cal-time"><span>'+c.time+'</span>'+fill+'</div>'
+  +'<div class="cal-label">'+c.label+(c.items.length?'<span class="cal-count">'+c.items.length+'</span>':'')+'</div>'
+  +'<div class="cal-src">'+c.src+(clickable?' · tap to view':'')+'</div>'
+  +(c.kind==='gap'&&!c.accepted?'<div class="cal-actions"><button class="btn btn-sm" onclick="event.stopPropagation();acceptGap(\''+c.id+'\')">Accept as block</button></div>':'')
+  +(clickable&&!c.items.length?'<div class="cal-empty">drag an action here · ⋯ or b</div>':'')
+  +'</div>';
+}
+function renderCal(){
+ document.getElementById('calwrap').innerHTML=cfgOpen?'':
+  '<div class="cal-day-label">Today · from your calendar</div><div class="calrow">'+cal.today.map(calItemEl).join('')+'</div>'
+ +'<div class="cal-day-label">Tomorrow</div><div class="calrow">'+cal.tomorrow.map(calItemEl).join('')+'</div>';
+}
+function acceptGap(id){
+ const g=blocksList().find(c=>c.id===id);g.accepted=true;g.label="Focus (accepted)";
+ logEvent({type:"gap_accepted_as_block",block:id,calendar_write:"private hold, no invitees"});
+ render();toast("Block accepted — private hold staged");
+}
+function prep(id){
+ const m=cal.today.find(c=>c.id===id);
+ logEvent({type:"meeting_prep_opened",meeting:id});
+ showModal({title:"Prep: "+m.label+" · "+m.time,
+  prov:"workstream: "+WS[m.ws].name+" · attendees: "+m.attendees.join(', '),
+  body:"Open items with these people:\n• Reply to Marta re: cutover (draft ready)\n• Waiting on Dana — SCIM attribute doc (4d silent)\n• Approve attribute mapping (due Aug 6)\n\nRelevant facts:\n• Immutable ID = employeeNumber (wiki lagging)\n• Prod Okta tenant = stoneridge-prod-01 (pending promotion)\n\nDrift to raise:\n• Jira epic missing 3 decisions — staged comment ready",
+  save:"Stage prep note",note:"Prep is assembled from the store — actions, facts, and drift filtered to this meeting's people and stream.",
+  onSave:()=>{logEvent({type:"prep_note_staged",meeting:id});toast("Prep note staged");}});
+}
+
+/* cards */
+function chipEl(c){
+ if(c[1]==='claim')return '<button class="chip claim" onclick="event.stopPropagation();openClaim(\''+c[2]+'\',\''+c[0].replace(/'/g,"\\'")+'\')">'+c[0]+'</button>';
+ return '<span class="chip '+(c[1]||'')+'">'+c[0]+'</span>';
+}
+function openClaim(ref,label){logEvent({type:"claim_provenance_opened",claim:label,ref:ref});
+ toast("Claim source → "+ref);}
+function tierChip(it){if(!(it.tier in TIER_LABEL))return '';
+ if(it.provisional)return '<button class="tier-chip hollow" title="AI-assigned, unconfirmed — tap to confirm" onclick="event.stopPropagation();confirmTier(\''+it.id+'\')">'+TIER_LABEL[it.tier]+' · provisional</button>';
+ return '<span class="tier-chip" title="confirmed by you">'+TIER_LABEL[it.tier]+' ✓</span>';}
+// Untrusted-content escaping. Every field sourced from a message — sender,
+// snippet, discovered link — is attacker-controllable and must never reach
+// innerHTML or an attribute raw. esc() for text/attribute context; escAttrJs()
+// for the value inside a single-quoted on* handler. M3's generator must route
+// ALL sender-derived fields through these; this is the load-bearing render rule.
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function escAttrJs(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/[<>"]/g,c=>({'<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function msgRow(m){
+ return '<div class="msg"><div class="msg-ico">'+ICONS[m.src]+'</div><div class="msg-body">'
+  +'<div class="msg-head"><span class="msg-from">'+esc(m.from)+'</span><span class="msg-time">'+esc(m.time)+'</span></div>'
+  +'<div class="msg-snippet">"'+esc(m.snip)+'"</div></div>'
+  +'<a class="lnk msg-open" href="#" onclick="return openLink(\''+escAttrJs(m.link)+'\')">open <span class="ext">↗</span></a></div>';
+}
+function cardEl(it){
+ const blk=inBlock(it.id);
+ return '<div class="card '+(it.provisional?'provisional ':'')+(WS[it.ws].profile==='personal'?'personal ':'')+'" id="'+it.id+'" draggable="true" ondragstart="dragStart(event,\''+it.id+'\')" style="border-left-color:'+WS[it.ws].color+'">'
+  +'<div class="card-top">'
+  +(it.unread?'<span class="unread-dot" title="new since last visit"></span>':'')
+  +'<span class="type-badge">'+esc(it.type)+'</span>'
+  +'<div class="card-title">'+esc(it.title)+'</div>'+tierChip(it)
+  +'<button class="menu-btn" aria-label="Actions" onclick="openMenu(event,\''+escAttrJs(it.id)+'\')">⋯</button></div>'
+  +'<div class="story"><b>WHY NOW</b> — '+esc(it.whyNow)+'<br><b>CONTEXT</b> — '+esc(it.context)+'</div>'
+  +'<div class="chips">'+it.chips.map(chipEl).join('')
+   +'<span class="chip effort">'+it.effort+' · '+EFFORT_MIN[it.effort]+'m</span>'
+   +(blk?'<span class="chip staged">→ '+blk.label+' '+blk.time+'</span>':'')
+   +(it.staged?'<span class="chip staged">'+it.staged+'</span>':'')+'</div>'
+  +'<div class="card-actions">'
+  +'<button class="expand-btn" onclick="toggleCard(\''+it.id+'\')"><span class="chev">▸</span> '+it.msgs.length+' message'+(it.msgs.length>1?'s':'')+'</button>'
+  +(it.draft?'<button class="btn btn-sm btn-ink" onclick="openDraft(\''+it.id+'\')">'+(it.type==='NUDGE'?'Draft nudge':'Open draft')+'</button>':'')
+  +'</div>'
+  +'<div class="msgs">'+it.msgs.map(msgRow).join('')
+  +(it.attachments.length?'<div class="attach"><span class="attach-label">LINKS FOUND</span>'
+    +it.attachments.map(a=>'<a href="#" onclick="return openLink(\''+escAttrJs(a[1])+'\')">'+esc(a[0])+' ↗</a>').join('')+'</div>':'')
+  +'</div></div>';
+}
+function render(){
+ renderSrc();renderRail();renderCal();renderCfg();
+ let fb='';
+ if(filterWs)fb+='<span class="fchip">'+WS[filterWs].name+' <button onclick="clearFilters()">✕</button></span>';
+ if(filterBlock){const b=blocksList().find(x=>x.id===filterBlock);
+  fb+='<span class="fchip">'+b.label+' · '+b.time+' <button onclick="clearFilters()">✕</button></span><span style="color:var(--ink-soft)">this block only · '+blockMin(b)+'/'+b.cap+'m</span>';}
+ if(filterPerson){const p=PEOPLE.find(x=>x.id===filterPerson);
+  fb+='<span class="fchip">Involving: '+p.name+' <button onclick="clearFilters()">✕</button></span>';}
+ document.getElementById('filterbar').innerHTML=fb?'<div class="filterbar">'+fb+'</div>':'';
+
+ if(filterBlock){const b=blocksList().find(x=>x.id===filterBlock);
+  const vis=b.items.map(id=>find(id)).filter(Boolean);
+  document.getElementById('tiers').innerHTML=cfgOpen?'':
+   '<section class="tier"><div class="tier-head"><span class="section-label">In this block</span>'
+   +'<span class="tier-count">'+vis.length+'</span><span class="tier-note">work in order · ⋯ → remove from block returns one to the board</span></div>'
+   +(vis.length?vis.map(cardEl).join(''):'<div class="cal-empty" style="font-size:13px">nothing scheduled here yet</div>')+'</section>';
+ }else{
+  const vis=items.filter(i=>(!filterWs||i.ws===filterWs)&&(!filterPerson||itemPeople(i).includes(filterPerson))&&!inBlock(i.id));
+  document.getElementById('tiers').innerHTML=cfgOpen?'':TIERS.map(t=>{
+   const rows=vis.filter(i=>i.tier===t.key);
+   const empty=t.key==='critical'&&!rows.length?'<div class="cal-empty" style="font-size:13px">Nothing critical — a good morning.</div>':'';
+   if(!rows.length&&t.key!=='critical')return '';
+   const cap=t.key==='critical'?' · '+rows.length+'/5':'';
+   return '<section class="tier"><div class="tier-head '+t.cls+'"><span class="section-label">'+t.label+'</span>'
+    +'<span class="tier-count">'+rows.length+cap+'</span><span class="tier-note">'+t.note+'</span></div>'
+    +rows.map(cardEl).join('')+empty+'</section>';
+  }).join('');
+ }
+ renderResolved();badges();selIdx=-1;
+}
+function badges(){
+ const attn=items.filter(i=>(i.unread||i.provisional)&&i.tier!=='horizon').length;
+ const bo=document.getElementById('bOperate');bo.textContent=attn;
+ bo.classList.toggle('hot',items.some(i=>i.tier==='critical'&&(i.unread||i.provisional)));
+ document.getElementById('bReflect').textContent=rollUnread?1:0;
+ document.getElementById('bKnow').textContent=knowPending?1:0;
+ document.getElementById('bAgent').textContent=ledger.filter(e=>e.actor==='agent').length;
+}
+function setMode(m){
+ ['operate','reflect','know'].forEach(x=>{
+  document.getElementById('pane-'+x).classList.toggle('active',x===m);
+  document.getElementById('tab-'+x).classList.toggle('active',x===m);});
+ closeMenu();
+}
+function dismissWywa(){document.getElementById('wywa').style.display='none';
+ logEvent({type:"wywa_dismissed"});}
+function toggleCard(id){
+ const el=document.getElementById(id);el.classList.toggle('open');
+ const it=find(id);
+ if(it&&it.unread){it.unread=false;logEvent({type:"item_read",action:id});badges();
+  const d=el.querySelector('.unread-dot');if(d)d.remove();}
+}
+function openLink(ref){logEvent({type:"link_opened",ref:ref});toast("Would deep-link to "+ref);return false;}
+
+/* resolve + undo */
+function rrowEl(r,undoFn,idx){
+ return '<div class="rrow"><span class="rres">'+r.res+'</span><span class="rtitle">'+r.title+'</span>'
+  +'<button class="btn btn-sm btn-ghost" onclick="'+undoFn+'('+idx+')">Undo</button></div>';
+}
+function renderResolved(){
+ document.getElementById('resolvedOp').innerHTML=resolvedOp.length?
+  '<div class="resolved"><div class="resolved-title">Resolved today · '+resolvedOp.length+'</div>'
+  +resolvedOp.map((r,i)=>rrowEl(r,'undoOp',i)).join('')+'</div>':'';
+ document.getElementById('resolvedRe').innerHTML=resolvedRe.length?
+  '<div class="resolved"><div class="resolved-title">Reviewed · '+resolvedRe.length+'</div>'
+  +resolvedRe.map((r,i)=>rrowEl(r,'undoRe',i)).join('')+'</div>':'';
+ document.getElementById('resolvedKn').innerHTML=resolvedKn.length?
+  '<div class="resolved"><div class="resolved-title">Settled · '+resolvedKn.length+'</div>'
+  +resolvedKn.map((r,i)=>rrowEl(r,'undoKn',i)).join('')+'</div>':'';
+}
+function resolveItem(id,res){
+ const it=find(id);const blk=inBlock(id);
+ const el=document.getElementById(id);if(el)el.classList.add('leaving');
+ logEvent({type:"action_"+res,action:id});
+ setTimeout(()=>{
+  items=items.filter(i=>i.id!==id);
+  blocksList().forEach(b=>b.items=b.items.filter(x=>x!==id));
+  resolvedOp.unshift({res:res,title:it.title,item:it,prevBlock:blk?blk.id:null});
+  render();
+ },240);
+}
+function undoOp(i){
+ const r=resolvedOp.splice(i,1)[0];
+ items.push(r.item);
+ if(r.prevBlock){const b=blocksList().find(x=>x.id===r.prevBlock);if(b)b.items.push(r.item.id);}
+ logEvent({type:"undo",action:r.item.id,was:r.res});
+ render();toast("Restored");
+}
+function resolveRoll(){
+ rollUnread=false;document.getElementById('rollIam').style.display='none';
+ resolvedRe.unshift({res:"reviewed",title:"IAM Consolidation — weekly sync (Jul 28 – Aug 3)"});
+ logEvent({type:"rollup_reviewed",ws:"iam"});renderResolved();badges();
+}
+function undoRe(i){resolvedRe.splice(i,1);rollUnread=true;
+ document.getElementById('rollIam').style.display='';
+ logEvent({type:"undo",ref:"rollup_iam"});renderResolved();badges();}
+function resolveFact(res){
+ knowPending=false;document.getElementById('factPending').style.display='none';
+ resolvedKn.unshift({res:res,title:"Prod Okta tenant = stoneridge-prod-01"});
+ logEvent({type:"fact_"+res,fact:"okta_prod_tenant"});renderResolved();badges();
+ toast(res==='promoted'?"Fact promoted — wiki nudge queued":"Dismissed");
+}
+function undoKn(i){const r=resolvedKn.splice(i,1)[0];knowPending=true;
+ document.getElementById('factPending').style.display='';
+ logEvent({type:"undo",ref:"fact",was:r.res});renderResolved();badges();}
+function stageWiki(){logEvent({type:"wiki_update_staged",anchor:"confluence/iam-runbook"});
+ toast("Wiki edit staged as draft — publish by hand");}
+function onDemandRoll(){logEvent({type:"rollup_requested"});toast("On-demand rollup: pick stream + window");}
+
+/* ⋯ menu */
+let menuFor=null;
+function openMenu(ev,id){
+ ev.stopPropagation();
+ const it=find(id);menuFor=id;
+ const pop=document.getElementById('pop');let h='';
+ if(it.provisional&&it.tier in TIER_LABEL)h+='<button onclick="confirmTier()">✓ Confirm tier</button>';
+ h+='<div class="pop-head">Move to</div>';
+ [["critical","Critical Now"],["opportunity","Opportunity Now"],["horizon","Over the Horizon"]]
+  .filter(t=>t[0]!==it.tier).forEach(t=>h+='<button onclick="moveTier(\''+t[0]+'\')">'+t[1]+'</button>');
+ blocksList().filter(b=>b.kind==='focus'||b.accepted).forEach(b=>h+='<button onclick="moveBlock(\''+b.id+'\')">'+b.label+' · '+b.time+'</button>');
+ if(inBlock(id))h+='<button onclick="unschedule()">Remove from block</button>';
+ h+='<hr><div class="pop-head">Corrections</div>';
+ Object.keys(WS).filter(k=>k!==it.ws).forEach(k=>h+='<button onclick="wrongWs(\''+k+'\')">Wrong workstream → '+WS[k].name+'</button>');
+ if(it.grouping)h+='<button onclick="groupOk()">✓ Grouping is right</button><button onclick="groupSplit()">Split this thread</button>';
+ h+='<hr>';
+ if(it.tier==='wait')h+='<button onclick="menuSnooze()">Snooze 2 days</button>';
+ h+='<button onclick="menuDone()">Done</button><button onclick="menuDismiss()">Dismiss</button>';
+ pop.innerHTML=h;pop.classList.add('open');
+ const r=ev.target.getBoundingClientRect();
+ pop.style.top=(r.bottom+window.scrollY+6)+'px';
+ pop.style.left=Math.max(10,(r.right+window.scrollX-224))+'px';
+}
+function closeMenu(){document.getElementById('pop').classList.remove('open');menuFor=null}
+document.addEventListener('click',e=>{if(!e.target.closest('.pop'))closeMenu()});
+function confirmTier(id){const it=find(id||menuFor);if(!it)return;it.provisional=false;
+ logEvent({type:"tier_confirmed",action:it.id,tier:it.tier});closeMenu();render();toast("Tier confirmed — weight learned");}
+function moveTier(t,id){const it=find(id||menuFor);if(!it)return;const f=it.tier;it.tier=t;it.provisional=false;
+ logEvent({type:"tier_moved",action:it.id,from:f,to:t});closeMenu();render();toast("Moved — override feeds the model");}
+function moveBlock(bid){assignBlock(menuFor,bid);closeMenu();}
+function unschedule(){const id=menuFor;
+ blocksList().forEach(b=>b.items=b.items.filter(x=>x!==id));
+ logEvent({type:"action_unscheduled",action:id,calendar_write:"private hold removed"});
+ closeMenu();render();toast("Back on the board — hold removed");}
+function wrongWs(k){const it=find(menuFor);const f=it.ws;it.ws=k;
+ logEvent({type:"workstream_corrected",action:it.id,from:f,to:k,constraint:"persisted"});
+ closeMenu();render();toast("Reassigned — clustering learns");}
+function groupOk(){const it=find(menuFor);it.grouping=false;
+ it.title="Work the confirmed SAST-rollout thread";it.whyNow="Grouping locked — similar bursts merge with more confidence.";
+ logEvent({type:"thread_confirmed",thread:"thr_appsec_sast"});closeMenu();render();toast("Confirmed — clustering learns");}
+function groupSplit(){logEvent({type:"thread_split",thread:"thr_appsec_sast"});
+ resolveItem(menuFor,"split_queued");closeMenu();}
+function menuSnooze(){logEvent({type:"followup_snoozed",action:menuFor,until:"2026-08-06"});resolveItem(menuFor,"snoozed");closeMenu();}
+function menuDone(){resolveItem(menuFor,"done");closeMenu();}
+function menuDismiss(){resolveItem(menuFor,"dismissed");closeMenu();}
+
+/* drag */
+function dragStart(ev,id){ev.dataTransfer.setData('text/plain',id)}
+function dragOver(ev){ev.preventDefault();ev.currentTarget.classList.add('dragover')}
+function dragLeave(ev){ev.currentTarget.classList.remove('dragover')}
+function drop(ev,bid){ev.preventDefault();ev.currentTarget.classList.remove('dragover');
+ assignBlock(ev.dataTransfer.getData('text/plain'),bid);}
+function assignBlock(id,bid){
+ const b=blocksList().find(x=>x.id===bid);
+ if(b.kind==='gap'&&!b.accepted){b.accepted=true;b.label="Focus (accepted)";
+  logEvent({type:"gap_accepted_as_block",block:bid,calendar_write:"private hold, no invitees"});}
+ blocksList().forEach(x=>x.items=x.items.filter(y=>y!==id));
+ if(!b.items.includes(id))b.items.push(id);
+ const over=blockMin(b)>b.cap;
+ logEvent({type:"action_scheduled",action:id,block:bid,calendar_write:"private hold staged"});
+ render();toast(over?"Scheduled — block is over capacity ⚠":"Scheduled — off the board, in the block");
+}
+
+/* review friday */
+function openReview(){
+ logEvent({type:"review_friday_opened"});
+ const pen=CFG.iam.people.find(p=>!p.ok);
+ showModal({title:"Review Friday — guided sweep",
+  prov:"four queues · aligned with your reporting cadence",
+  html:'<div class="qrow"><span class="qname">Over the Horizon</span><span class="qcount">1</span><span style="flex-basis:100%;font-size:12.5px;color:var(--ink-soft)">Reply on issue #12 (Ajilty) — keep, act, or release?</span><button class="btn btn-sm" onclick="moveTier(\'opportunity\',\'act_105\');toast(\'Promoted to this week\')">Act this week</button><button class="btn btn-sm btn-ghost" onclick="toast(\'Kept on horizon\')">Keep</button></div>'
+  +'<div class="qrow"><span class="qname">Stale Waiting-On</span><span class="qcount">1</span><span style="flex-basis:100%;font-size:12.5px;color:var(--ink-soft)">Dana · 4d silent — nudge staged; escalate to Chen if silent Monday?</span><button class="btn btn-sm" onclick="logEvent({type:\'escalation_armed\',action:\'act_106\'});toast(\'Escalation armed for Monday\')">Arm escalation</button></div>'
+  +'<div class="qrow"><span class="qname">Closure proposals</span><span class="qcount">1</span><span style="flex-basis:100%;font-size:12.5px;color:var(--ink-soft)">Ajilty — no natural next step, quiet 12d. Reopens on activity.</span><button class="btn btn-sm" onclick="logEvent({type:\'workstream_closed\',ws:\'aj\',reason:\'no_next_step\'});toast(\'Ajilty closed — reopens on activity\')">Close it</button><button class="btn btn-sm btn-ghost" onclick="toast(\'Kept open\')">Keep open</button></div>'
+  +'<div class="qrow"><span class="qname">Identity holding pen</span><span class="qcount">'+(pen?1:0)+'</span><span style="flex-basis:100%;font-size:12.5px;color:var(--ink-soft)">'+(pen?'J. Kim ↔ kimchi-dev — corroborated in SAST thread':'cleared ✓')+'</span>'+(pen?'<button class="btn btn-sm" onclick="mergeOk();toast(\'Merged\')">Confirm merge</button>':'')+'</div>',
+  note:"Horizon items never badge during the week — this sweep is where they surface."});
+}
+
+/* agent activity */
+function openAgent(){
+ logEvent({type:"agent_activity_opened"});
+ const rows=ledger.filter(e=>e.actor==='agent').map(e=>
+  '<div class="arow"><span class="at">'+e.ts.slice(11)+'</span><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--warn-ink)">'+e.type+'</span><span style="color:var(--ink-soft)">'+(e.detail||'')+'</span></div>').join('');
+ showModal({title:"Agent activity — since your last review",
+  prov:"everything the agent did on its own, actor-attributed in the ledger",
+  html:rows||'<div class="cal-empty">no agent activity</div>',
+  note:"Drafts are staged, never sent. Facts are proposed, never auto-promoted from external sources."});
+}
+
+/* capture */
+function openCapture(){
+ showModal({title:"Capture",prov:"drops into the store inbox for desktop triage",
+  html:'<textarea class="cap" id="capText" placeholder="A thought, an intent, a thing to not lose…"></textarea>',
+  save:"Capture to inbox",
+  onSave:()=>{const v=(document.getElementById('capText').value||'').slice(0,140);
+   logEvent({type:"capture_added",text:v||"(empty)"});toast("Captured — will appear in triage");}});
+}
+
+/* modal */
+const ROLLUPS={roll_iam:{title:"IAM Consolidation — weekly sync draft",
+ prov:"window: Jul 28 – Aug 3 · cadence: weekly Fri 17:00 · audience: M. Chen",
+ draft:"Team —\n\nProgress this week on IAM consolidation:\n\n• Decided: employeeNumber is the immutable ID for HR → Okta mapping\n• Cutover target confirmed for Aug 21\n• Vendor sandbox access provisioning in flight (Dana, by Thu)\n\nOpen risk: sandbox access is the long pole; SCIM attribute doc still outstanding.\n\nNext week: mapping approval, sandbox validation, dry-run plan.",
+ draftTarget:"Save to shared doc"}};
+let modalOnSave=null;
+function showModal(o){
+ document.getElementById('modalTitle').textContent=o.title;
+ document.getElementById('modalProv').textContent=o.prov||"";
+ const body=document.getElementById('modalBody');
+ if(o.html){body.className='';body.innerHTML=o.html;}
+ else{body.className='draft';body.textContent=o.body||"";}
+ document.getElementById('modalNote').textContent=o.note||"";
+ document.getElementById('modalActions').innerHTML=
+  (o.save?'<button class="btn btn-ink" id="modalSave">'+o.save+'</button>':'')
+  +'<button class="btn btn-ghost" onclick="hideModal()">Close</button>';
+ modalOnSave=o.onSave;
+ const sv=document.getElementById('modalSave');
+ if(sv)sv.addEventListener('click',()=>{if(modalOnSave)modalOnSave();hideModal();});
+ document.getElementById('overlay').classList.add('open');
+}
+function openDraft(id){
+ const m=ROLLUPS[id]||find(id);if(!m)return;
+ showModal({title:m.title,prov:m.prov,body:m.draft,save:m.draftTarget,
+  note:"Draft-in-place: staged in the source system. Sending happens by your hand, in the native surface.",
+  onSave:()=>{logEvent({type:"draft_staged",target:m.draftTarget,ref:m.id||"rollup"});
+   if(m.id){m.staged="draft staged ✓";if(m.type==='NUDGE')m.chips=m.chips.filter(c=>!c[0].includes('silent'));}
+   render();toast(m.draftTarget+" — send by hand from the native surface");}});
+}
+function hideModal(){document.getElementById('overlay').classList.remove('open')}
+document.getElementById('overlay').addEventListener('click',e=>{if(e.target.id==='overlay')hideModal()});
+
+/* command palette + keys */
+const COMMANDS=[
+ ["Sync now","",()=>document.getElementById('syncBtn').click()],
+ ["Review Friday","r",openReview],
+ ["Agent activity","",openAgent],
+ ["Capture","",openCapture],
+ ["Go: IAM Consolidation","",()=>{pivot('iam')}],
+ ["Go: SDLC Enhancements","",()=>{pivot('sdlc')}],
+ ["Go: Ajilty","",()=>{pivot('aj')}],
+ ["Mode: Operate","",()=>setMode('operate')],
+ ["Mode: Reflect","",()=>setMode('reflect')],
+ ["Mode: Know","",()=>setMode('know')],
+ ["Toggle ledger","",toggleLedger],
+ ["Clear filters","",clearFilters]
+];
+let palHl=0;
+function openPal(){document.getElementById('palOverlay').classList.add('open');
+ const inp=document.getElementById('palInput');inp.value='';renderPal('');setTimeout(()=>inp.focus(),40);}
+function renderPal(q){
+ const list=COMMANDS.filter(c=>c[0].toLowerCase().includes(q.toLowerCase()));
+ palHl=0;
+ document.getElementById('palList').innerHTML=list.map((c,i)=>
+  '<button class="'+(i===0?'hl':'')+'" onclick="runCmd(\''+c[0].replace(/'/g,"\\'")+'\')">'+c[0]+(c[1]?'<span class="pk">'+c[1]+'</span>':'')+'</button>').join('');
+}
+function runCmd(name){const c=COMMANDS.find(x=>x[0]===name);closeOverlays();if(c)c[2]();}
+document.getElementById('palInput').addEventListener('input',e=>renderPal(e.target.value));
+document.getElementById('palInput').addEventListener('keydown',e=>{
+ if(e.key==='Enter'){const b=document.querySelector('#palList button.hl')||document.querySelector('#palList button');
+  if(b)b.click();}
+ if(e.key==='Escape')closeOverlays();
+});
+document.getElementById('palOverlay').addEventListener('click',e=>{if(e.target.id==='palOverlay')closeOverlays()});
+document.getElementById('keysOverlay').addEventListener('click',e=>{if(e.target.id==='keysOverlay')closeOverlays()});
+function closeOverlays(){['palOverlay','keysOverlay','overlay'].forEach(id=>document.getElementById(id).classList.remove('open'))}
+
+function visibleCards(){return Array.from(document.querySelectorAll('#tiers .card'))}
+function selectCard(delta){
+ const cards=visibleCards();if(!cards.length)return;
+ cards.forEach(c=>c.classList.remove('sel'));
+ selIdx=Math.min(cards.length-1,Math.max(0,selIdx+delta));
+ const el=cards[selIdx];el.classList.add('sel');
+ el.scrollIntoView({block:'center',behavior:'smooth'});
+}
+function selId(){const c=visibleCards()[selIdx];return c?c.id:null}
+document.addEventListener('keydown',e=>{
+ if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+ if(e.key==='/'){e.preventDefault();openPal();return}
+ if(e.key==='?'){e.preventDefault();document.getElementById('keysOverlay').classList.add('open');return}
+ if(e.key==='Escape'){closeOverlays();closeMenu();return}
+ const id=selId();
+ switch(e.key){
+  case 'j':selectCard(1);break;
+  case 'k':selectCard(-1);break;
+  case 'Enter':if(id){toggleCard(id)}break;
+  case 'c':if(id){confirmTier(id)}break;
+  case '1':if(id){moveTier('critical',id)}break;
+  case '2':if(id){moveTier('opportunity',id)}break;
+  case '3':if(id){moveTier('horizon',id)}break;
+  case 'b':if(id){const b=blocksList().find(x=>x.kind==='focus'||x.accepted);if(b)assignBlock(id,b.id)}break;
+  case 'd':if(id){resolveItem(id,'done')}break;
+  case 's':if(id){logEvent({type:"followup_snoozed",action:id});resolveItem(id,'snoozed')}break;
+  case 'o':if(id){const it=find(id);if(it&&it.draft)openDraft(id)}break;
+  case 'u':if(resolvedOp.length)undoOp(0);break;
+  case 'r':openReview();break;
+ }
+});
+
+/* ledger / sync / toast — actor-attributed */
+function logEvent(o,actor){o.ts=new Date().toISOString().slice(0,19);o.actor=actor||"user";
+ ledger.unshift(o);renderLedger();}
+function renderLedger(){
+ document.getElementById('ledgerBody').innerHTML=ledger.map(e=>{
+  const cls=e.actor==='agent'?' agent':'';
+  return '{'+Object.entries(e).map(([k,v])=>'<span class="k'+(k==='actor'?cls:'')+'">"'+k+'"</span>:"'+v+'"').join(', ')+'}';
+ }).join('<br>')||'<div class="ledger-empty">// no events yet</div>';
+ document.getElementById('ledgerCount').textContent=ledger.length+' events';
+ badges();
+}
+function toggleLedger(){document.getElementById('ledger').classList.toggle('open')}
+document.getElementById('syncBtn').addEventListener('click',()=>{
+ const t=new Date();
+ SOURCES.forEach(s=>{if(s.ok)s.t=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')});
+ logEvent({type:"sync_requested",scope:"email,slack,calendar"});render();toast("Sync pass triggered — Jira retried, still dark");});
+let toastTimer=null;
+function toast(m){document.getElementById('toastMsg').textContent=m;
+ const t=document.getElementById('toast');t.classList.add('show');
+ clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600);}
+
+
+/* ===== V7: phish workstream + data-driven Reflect/Know with workstream filtering ===== */
+WS.phish={name:"Phish Incident 0804",color:"#3E7C8A",profile:"work"};
+CFG.phish={
+ people:[
+  {name:"Noah Reyes",role:"SOC analyst",handles:[["slack","@noah"],["email","n.reyes@…"]],ok:true},
+  {name:"Sam Whitfield",role:"IT lead",handles:[["slack","@samw"],["email","s.whitfield@…"]],ok:true},
+  {name:"Erin Park",role:"comms",handles:[["email","e.park@…"]],ok:true}
+ ],
+ sanctioned:[["slack","#sec-incidents"],["jira","SEC project"]],observed:[["email","thread w/ mail-gateway vendor"]],
+ anchors:[["jira","SEC-1181 incident","jira/SEC-1181"]],
+ report:"On incident milestones · audience: M. Chen"};
+PEOPLE.push({id:'noah',name:'Noah',m:['noah']},{id:'sam',name:'Sam',m:['sam','whitfield']});
+items.push(
+ {id:"act_201",ws:"phish",tier:"critical",provisional:true,unread:true,type:"INVESTIGATE",effort:"M",
+  title:"Triage the reported phish and confirm blast radius",
+  whyNow:"12 recipients, 2 confirmed clicks within the hour.",
+  context:"Employee report at 07:05; #sec-incidents burst; SEC-1181 opened by Noah.",
+  chips:[["2 clicks confirmed","claim","slack/C-sec/p0731"],["SEC-1181","claim","jira/SEC-1181"]],
+  msgs:[
+   {src:"email",from:"S. Ortiz (employee)",time:"07:05",snip:"got a weird DocuSign-looking email, link goes to alerts-notify.example — did I mess up?",link:"gmail/t-5001"},
+   {src:"slack",from:"Noah Reyes",time:"07:18",snip:"pulling gateway logs — same sender hit 12 mailboxes",link:"slack/C-sec/p0718"},
+   {src:"slack",from:"Sam Whitfield",time:"07:31",snip:"two clicks confirmed, resetting those creds now",link:"slack/C-sec/p0731"},
+   {src:"jira",from:"SEC-1181",time:"07:40",snip:"incident opened: credential phish, containment in progress",link:"jira/SEC-1181"}
+  ],
+  attachments:[["gateway-log-excerpt","drive/gw-log"],["SEC-1181","jira/SEC-1181"]]},
+ {id:"act_202",ws:"phish",tier:"critical",provisional:false,unread:true,type:"APPROVE",effort:"S",
+  title:"Approve the all-staff phishing notice before 10:00",
+  whyNow:"Erin's draft is ready; send window closes at 10:00.",
+  context:"Notice names the lure, not the domain; links to reporting steps.",
+  chips:[["send window 10:00","claim","gmail/t-5004"],["draft ready",""]],
+  draft:"Team —\n\nA phishing email imitating a document-signature request reached some inboxes this morning. If you received an unexpected signature request today, do not click; report it via the phish button. If you clicked, contact IT now — no blame, speed matters.\n\nWe have contained the issue and reset affected credentials.\n\n— Security",
+  draftTarget:"Save to Gmail Drafts",prov:"draft by Erin Park · your sign-off requested",
+  msgs:[{src:"email",from:"Erin Park",time:"08:12",snip:"staff notice attached — can you approve before the 10:00 send window?",link:"gmail/t-5004"}],
+  attachments:[["notice-draft","gmail/t-5004-att"]]},
+ {id:"act_203",ws:"phish",tier:"wait",provisional:false,unread:false,type:"NUDGE",effort:"S",
+  title:"Nudge Sam for mailbox purge confirmation",
+  whyNow:"Purge is the containment gate; incident SLA is 2 hours.",
+  context:"Asked at 08:10 in #sec-incidents; no confirmation yet.",
+  chips:[["asked 08:10","claim","slack/C-sec/p0810"],["SLA 2h","alert"]],
+  draft:"Sam — confirming the purge of the 12 delivered copies completed? Need it logged in SEC-1181 for containment sign-off.",
+  draftTarget:"Save Slack draft",prov:"follow-up on: #sec-incidents · 08:10",
+  msgs:[{src:"slack",from:"You → Sam",time:"08:10",snip:"can you confirm the purge across the 12 mailboxes?",link:"slack/C-sec/p0810"}],
+  attachments:[]}
+);
+ROLLUPS.roll_phish={title:"Phish Incident 0804 — interim update draft",
+ prov:"milestone update · audience: M. Chen",
+ draft:"Interim — credential phish, 0804:\n\n• 12 recipients, 2 clicks; affected credentials reset by 07:45\n• Mailbox purge in progress (IT), staff notice pending approval\n• No lateral movement observed in gateway or IdP logs\n\nNext update at containment sign-off.",
+ draftTarget:"Save to shared doc"};
+const ROLLS=[
+ {id:"roll_iam",ws:"iam",color:"var(--indigo)",badge:true,reviewed:false,
+  title:"IAM Consolidation — weekly sync",window:"Jul 28 – Aug 3",
+  cad:"cadence: weekly · Fri 17:00 · audience: M. Chen · generated Fri 17:00",
+  stats:"<span><b>14</b> messages</span><span><b>2</b> decisions</span><span><b>1</b> open risk</span><span><b>3</b> closed</span>",
+  story:"Decisions: employeeNumber as immutable ID · cutover confirmed Aug 21. Risk: vendor sandbox access pending.",draft:"roll_iam"},
+ {id:"roll_phish",ws:"phish",color:"#3E7C8A",badge:true,reviewed:false,
+  title:"Phish Incident 0804 — interim",window:"07:05 – 08:40 today",
+  cad:"cadence: on incident milestones · audience: M. Chen",
+  stats:"<span><b>23</b> messages</span><span>containment in progress</span><span><b>1</b> approval pending</span>",
+  story:"2 clicks, credentials reset; purge awaiting Sam; staff notice awaiting your approval.",draft:"roll_phish"},
+ {id:"roll_sdlc",ws:"sdlc",color:"var(--moss)",badge:false,reviewed:false,
+  title:"SDLC Enhancements — weekly sync",window:"Jul 28 – Aug 3",
+  cad:"cadence: weekly · Mon 09:00 · audience: security team · generated Mon 09:00",
+  stats:"<span><b>22</b> messages</span><span><b>0</b> decisions</span><span><b>1</b> new thread</span>",
+  story:"Mostly unthreaded chatter; SAST rollout thread inferred and confirmed."},
+ {id:"roll_self",ws:null,color:"var(--stitch)",badge:false,reviewed:false,
+  title:"Seam — self metrics",window:"Jul 28 – Aug 3",
+  cad:"derived from the event stream · the system reports on itself",
+  stats:"<span><b>7m 40s</b> avg board-zero</span><span><b>31</b> resolved</span><span><b>4/5</b> nudges → replies</span><span><b>2</b> drift closed</span>",
+  story:""}
+];
+const FACTS=[
+ {id:"okta",ws:"iam",name:"Prod Okta tenant",val:"stoneridge-prod-01",status:"pending",
+  srcNote:"source: vendor (external)",prov:"gmail/msg_2231"},
+ {id:"phishdom",ws:"phish",name:"Phish sender domain",val:"alerts-notify.example",status:"pending",
+  srcNote:"derived from attacker content — verify independently",prov:"gmail/t-5001"},
+ {id:"immid",ws:"iam",name:"Immutable ID mapping",val:"employeeNumber",status:"lagging",
+  anchor:"confluence/iam-runbook",anchorLabel:"anchor: IAM runbook"},
+ {id:"rot",ws:"sdlc",name:"Service-account rotation",val:"90-day",status:"verified",
+  anchor:"confluence/sec-policy",anchorLabel:"anchor"}
+];
+function renderReflect(){
+ const vis=ROLLS.filter(r=>!r.reviewed&&(!filterWs||r.ws===filterWs)&&(filterWs?true:r.ws!==undefined));
+ document.getElementById('reflectWrap').innerHTML=
+  '<section class="tier"><div class="tier-head"><span class="section-label">Rollups</span>'
+  +'<span class="tier-note">materialize on each workstream cadence · or on demand</span></div>'
+  +(vis.length?vis.map(r=>'<div class="roll" style="border-left-color:'+r.color+'">'
+    +'<div class="roll-head">'+(r.badge?'<span class="unread-dot"></span>':'')
+    +'<span class="roll-title">'+r.title+'</span><span class="roll-window">'+r.window+'</span></div>'
+    +'<div class="roll-cadence">'+r.cad+'</div><div class="roll-stats">'+r.stats+'</div>'
+    +(r.story?'<div class="story" style="margin-top:8px">'+r.story+'</div>':'')
+    +'<div class="card-actions">'
+    +(r.draft?'<button class="btn btn-sm btn-ink" onclick="openDraft(\''+r.draft+'\')">Open draft</button>':'')
+    +'<button class="btn btn-sm btn-ghost" onclick="resolveRoll(\''+r.id+'\')">Mark reviewed</button></div>'
+    +'</div>').join('')
+   :'<div class="cal-empty" style="font-size:13px">No rollups for this stream yet.</div>')
+  +'<div class="card-actions" style="margin-top:4px"><button class="btn btn-sm" onclick="onDemandRoll()">Generate rollup on demand…</button></div></section>';
+}
+function factCard(f){
+ if(f.status==='pending')return '<div class="fact" style="border-style:dashed">'
+  +'<div class="fact-row"><span class="unread-dot"></span><span class="fact-name">'+esc(f.name)+'</span><span class="fact-val">'+esc(f.val)+'</span></div>'
+  +'<div class="fact-meta"><span class="chip extclaim">'+esc(f.srcNote)+'</span>'
+  +'<a class="lnk" href="#" onclick="return openLink(\''+escAttrJs(f.prov)+'\')">provenance <span class="ext">↗</span></a></div>'
+  +'<div class="card-actions"><button class="btn btn-sm btn-ink" onclick="resolveFact(\''+escAttrJs(f.id)+'\',\'promoted\')">✓ Promote fact</button>'
+  +'<button class="btn btn-sm btn-ghost" onclick="resolveFact(\''+escAttrJs(f.id)+'\',\'dismissed\')">Dismiss</button></div></div>';
+ const meta=f.status==='lagging'
+  ?'<span class="anchor-lag">wiki lagging</span><a class="lnk" href="#" onclick="return openLink(\''+escAttrJs(f.anchor)+'\')">'+esc(f.anchorLabel)+' <span class="ext">↗</span></a><button class="btn btn-sm" onclick="stageWiki()">Stage wiki update</button>'
+  :'<span class="anchor-ok">✓ verified in wiki 07:42 — auto-retires next pass</span><a class="lnk" href="#" onclick="return openLink(\''+escAttrJs(f.anchor)+'\')">'+esc(f.anchorLabel)+' <span class="ext">↗</span></a>';
+ return '<div class="fact"><div class="fact-row"><span class="fact-name">'+esc(f.name)+'</span><span class="fact-val">'+esc(f.val)+'</span></div><div class="fact-meta">'+meta+'</div></div>';
+}
+function renderKnow(){
+ const pend=FACTS.filter(f=>f.status==='pending'&&(!filterWs||f.ws===filterWs));
+ const held=FACTS.filter(f=>(f.status==='lagging'||f.status==='verified')&&(!filterWs||f.ws===filterWs));
+ document.getElementById('knowWrap').innerHTML=
+  '<section class="tier"><div class="tier-head"><span class="section-label">Pending promotion</span>'
+  +'<span class="tier-note">external or attacker-derived facts never auto-promote</span></div>'
+  +(pend.length?pend.map(factCard).join(''):'<div class="cal-empty" style="font-size:13px">Nothing pending'+(filterWs?' for this stream':'')+'.</div>')+'</section>'
+  +'<section class="tier"><div class="tier-head"><span class="section-label">Held facts</span>'
+  +'<span class="tier-note">the overlay holds only what the wiki does not</span></div>'
+  +(held.length?held.map(factCard).join(''):'<div class="cal-empty" style="font-size:13px">No held facts'+(filterWs?' for this stream':'')+'.</div>')+'</section>';
+}
+function resolveRoll(id){const r=ROLLS.find(x=>x.id===id);if(!r)return;r.reviewed=true;
+ resolvedRe.unshift({res:"reviewed",title:r.title+" ("+r.window+")",rid:id});
+ logEvent({type:"rollup_reviewed",ref:id});renderReflect();renderResolved();badges();}
+function undoRe(i){const r=resolvedRe.splice(i,1)[0];const roll=ROLLS.find(x=>x.id===r.rid);
+ if(roll)roll.reviewed=false;logEvent({type:"undo",ref:r.rid});renderReflect();renderResolved();badges();}
+function resolveFact(id,res){const f=FACTS.find(x=>x.id===id);if(!f)return;f.status=res;
+ resolvedKn.unshift({res:res,title:f.name+" = "+f.val,rid:id});
+ logEvent({type:"fact_"+res,fact:id});renderKnow();renderResolved();badges();
+ toast(res==='promoted'?"Fact promoted — wiki nudge queued":"Dismissed");}
+function undoKn(i){const r=resolvedKn.splice(i,1)[0];const f=FACTS.find(x=>x.id===r.rid);
+ if(f)f.status="pending";logEvent({type:"undo",ref:r.rid});renderKnow();renderResolved();badges();}
+function badges(){
+ const attn=items.filter(i=>(i.unread||i.provisional)&&i.tier!=='horizon').length;
+ const bo=document.getElementById('bOperate');bo.textContent=attn;
+ bo.classList.toggle('hot',items.some(i=>i.tier==='critical'&&(i.unread||i.provisional)));
+ document.getElementById('bReflect').textContent=ROLLS.filter(r=>r.badge&&!r.reviewed).length;
+ document.getElementById('bKnow').textContent=FACTS.filter(f=>f.status==='pending').length;
+ document.getElementById('bAgent').textContent=ledger.filter(e=>e.actor==='agent').length;
+}
+const __baseRender=render;
+render=function(){__baseRender();renderReflect();renderKnow();};
+
+renderLedger();render();
+</script>
+</body>
+</html>

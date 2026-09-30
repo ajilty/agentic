@@ -1,0 +1,29 @@
+# Seam instance profile — personal persona.
+# `seam init --profile personal` copies this to $SEAM_HOME/profiles/personal.yaml.
+# The filled-in copy is instance config (see docs/PERSISTENCE.md): it carries
+# machine bindings and personal data, and is never committed to the plugin repo.
+profile: personal
+enabled: true
+store_root: ""                    # REQUIRED absolute path; personal: local dir or personal cloud folder
+urgency_profile: personal         # personal: no auto Critical, muted styling
+quiet_hours: "20:00-07:00"
+principals: []                    # seed list of full addresses; weights learned for the rest
+sources:
+  - surface: email
+    mcp: ""                       # MCP server name as connected in this harness
+    backend: fixture              # fixture | live
+    read: []                      # actual tool names discovered at setup
+    write: []                     # draft-creating only; user-confirmed before saving
+    cadence_min: 180
+  - surface: slack
+    mcp: ""
+    backend: fixture
+    read: []
+    write: []
+    cadence_min: 180
+  - surface: calendar
+    mcp: ""
+    backend: fixture
+    read: []
+    write: []                     # private holds only: no attendees, private visibility
+    cadence_min: 360
