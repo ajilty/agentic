@@ -42,3 +42,41 @@ assert_contains "$(printf '%s' "$OUT" | jq -r .systemMessage)" "1 potential tool
 
 # Never errors on garbage stdin.
 run_out "$N" 'nope'; assert_eq "$RC" 0 "bad stdin -> 0"
+
+# New model: the first id is a silent baseline; an unseen id with model-tagged edges installed
+# pends an audit that keeps showing until harvest deletes the marker. Ids stay local.
+MODELS="${EDGES_JOURNAL%.jsonl}.models"; AUDIT="${EDGES_JOURNAL%.jsonl}.audit"
+export EDGES_SKILLS_DIR="$TESTHOME/skills"
+mkdir -p "$EDGES_SKILLS_DIR/working-with-a" "$EDGES_SKILLS_DIR/working-with-b"
+printf -- '- edge one <!-- decays: model -->\n- edge two\n' > "$EDGES_SKILLS_DIR/working-with-a/SKILL.md"
+printf -- '- edge three <!-- decays: model -->\n' > "$EDGES_SKILLS_DIR/working-with-b/SKILL.md"
+model_payload(){ jq -cn --arg m "$1" '{hook_event_name:"SessionStart",source:"startup",cwd:"/w",model:$m}'; }
+rm -f "$EDGES_JOURNAL" "$CURSOR" "$MODELS" "$AUDIT"
+
+run_out "$N" "$(model_payload m-old)"; assert_eq "$OUT" "" "first model -> silent baseline"
+assert_eq "$(cat "$MODELS")" "m-old" "baseline recorded"
+run_out "$N" "$(model_payload 'm-old[1m]')"; assert_eq "$OUT" "" "context suffix is the same model"
+run_out "$N" "$(jq -cn '{hook_event_name:"SessionStart",source:"startup",cwd:"/w"}')"; assert_eq "$OUT" "" "no model field -> silent"
+
+run_out "$N" "$(model_payload m-new)"
+ctx=$(printf '%s' "$OUT" | jq -r .systemMessage)
+assert_contains "$ctx" "2 model-tagged edges to re-check" "unseen model counts tagged edges"
+assert_contains "$ctx" "/edges:harvest audit" "points at the audit mode"
+assert_eq "$(cat "$AUDIT")" "m-new" "audit marked pending"
+run_out "$N" "$(model_payload m-old)"
+assert_contains "$(printf '%s' "$OUT" | jq -r .systemMessage)" "model-tagged" "pending audit persists across sessions"
+rm -f "$AUDIT"
+run_out "$N" "$(model_payload m-new)"; assert_eq "$OUT" "" "harvest cleared the marker; seen model -> silent"
+
+# Both pending: still exactly one line, naming both commands.
+row "$now" "/w" > "$EDGES_JOURNAL"
+run_out "$N" "$(model_payload m-newer)"
+ctx=$(printf '%s' "$OUT" | jq -r .systemMessage)
+assert_contains "$ctx" "1 potential tool failure to harvest, and 2 model-tagged edges" "both clauses"
+assert_eq "$(printf '%s\n' "$ctx" | wc -l | tr -d ' ')" 1 "both -> exactly one line"
+
+# Unseen model with nothing tagged installed: silent (the marker waits for tagged edges).
+rm -f "$EDGES_JOURNAL" "$AUDIT"
+: > "$EDGES_SKILLS_DIR/working-with-a/SKILL.md"; : > "$EDGES_SKILLS_DIR/working-with-b/SKILL.md"
+run_out "$N" "$(model_payload m-newest)"; assert_eq "$OUT" "" "no tagged edges -> silent"
+unset EDGES_SKILLS_DIR

@@ -9,3 +9,13 @@ for f in "$HERE"/../skills/working-with-*/SKILL.md; do
   case "$d" in *'`'*) fail "$(basename "$(dirname "$f")"): description carries a backtick token (symptom strings go in the body)" ;; *) pass ;; esac
   case "$d" in *"Load "*) pass ;; *) fail "$(basename "$(dirname "$f")"): description lacks a 'Load before/when ...' trigger sentence" ;; esac
 done
+
+# Body size: not a failure (a body is budgeted by review, not by count), only the signal
+# that a skill has grown enough to be due a `/edges:harvest diet` (CONTRIBUTING).
+DIET_BYTES=16384
+for f in "$HERE"/../skills/working-with-*/SKILL.md; do
+  n=$(wc -c < "$f" | tr -d ' ')
+  [ "$n" -gt "$DIET_BYTES" ] && printf 'NOTE: %s is %s bytes (diet line %s): consider /edges:harvest diet\n' \
+    "$(basename "$(dirname "$f")")" "$n" "$DIET_BYTES" >&2
+done
+pass

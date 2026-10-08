@@ -2,7 +2,7 @@
 name: harvest
 description: Harvest this session's tool-call learnings into the edges library. Extracts candidates here, confirms them with you, then hands authoring and review to forked subagents so this session keeps its context.
 disable-model-invocation: true
-argument-hint: "[tool] [: observation or direction, e.g. 'new skill' / 'fold into existing'] | diet <tool>"
+argument-hint: "[tool] [: observation or direction, e.g. 'new skill' / 'fold into existing'] | diet <tool> [: direction] | audit"
 ---
 
 # Harvest
@@ -24,7 +24,9 @@ With no arguments, sweep the whole session. An argument names the tool to
 focus on; prose after it is the observation itself or direction ("new skill",
 "fold into the existing one"), and the user's direction binds. `diet <tool>`
 skips extraction and sends the named skill straight to the author for a
-compression pass (step 4, diet mode).
+compression pass (step 4, diet mode); prose after it is direction the author
+follows ("re-check model-tagged edges"). `audit` skips extraction and runs the
+audit section below.
 
 Redact as you collect: no user, company, tenant, or dated incident specifics;
 keep error strings otherwise verbatim.
@@ -55,16 +57,39 @@ vendor (`mcp__wiz__...`) before anything reaches a candidate.
 Present the candidates in one message: for each, the observation (one or two
 lines), the likely target skill, and whether it reads as vendor-specific or as
 a generic connector pattern (those belong in `working-with-mcp-connectors`,
-with at most a one-line pointer in the vendor skill). Ask which to submit.
+with at most a one-line pointer in the vendor skill), and its decay: `tool`
+or `model` per the CONTRIBUTING decay-tag test. Decide it from the variant
+that worked, which the transcript grep above shows: a fix that worked around
+the tool is `tool`; a fix that only corrected the model's own call (a guessed
+field, documented syntax misused, a silent empty trusted) is `model`. When
+the fix is not visible, say `tool`. Ask which to submit.
 Nothing is written before the answer, except the cursor: once the candidates
 are on screen, write the current UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)
 to `journal.cursor` so dismissed rows do not resurface next session.
+
+## Audit (instead of steps 1 and 2)
+
+`audit` re-checks edges tagged `<!-- decays: model -->` after a model this
+machine has not run before comes into use; the session-start line says when.
+Find the installed skills with `grep -Rl 'decays: model'` over the plugin's
+`skills/` directory (`-R`, not `-r`: the entries are symlinks), and present, per
+skill, each tagged bullet in one line with your judgment on this model:
+still needed, or likely not and why. The evidence is what this model does
+without the bullet; if this session has no such evidence, say "untested" and
+suggest a run of the task the edge covers with the skill unloaded. Once the
+list is on screen, delete the audit marker
+(`${EDGES_JOURNAL:-${XDG_STATE_HOME:-$HOME/.local/state}/edges/journal.jsonl}`
+with `.jsonl` replaced by `.audit`) so the line stops. Ask which skills to
+diet; for each, hand off `diet <skill>: re-check model-tagged edges` with
+the per-bullet evidence, one skill per invocation. Nothing is pruned without
+evidence, and an `untested` bullet stays.
 
 ## 3. Hand off
 
 Invoke `edges:harvest-author` with the confirmed candidates as its argument:
 one block per candidate carrying observation, target skill, and any user
-direction. For a diet, skip steps 1 and 2 and invoke it with `diet <skill>`.
+direction, and decay. For a diet, skip steps 1 and 2 and invoke it with
+`diet <skill>`, plus `: <direction>` when the user gave one.
 Do not clone, edit, or open PRs from this session.
 
 Both forked skills run in the **background**: the invocation returns at once

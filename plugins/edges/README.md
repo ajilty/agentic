@@ -42,7 +42,10 @@ Authoring rules (edge shape, size, redaction, validation, PR flow) live in
   form) before the PR is marked ready; one more instance owns the
   branch-level checks.
   `/edges:harvest diet <tool>` runs a compression pass on a skill that has
-  grown.
+  grown. Edges that exist because of model behavior, not tool behavior,
+  carry a `decays: model` tag; when a model that machine has not run before
+  comes into use, the session-start line says so and `/edges:harvest audit`
+  re-checks those edges and offers a diet for the ones it no longer needs.
 - **Between sessions**: the plugin's hooks keep a **failure journal**. Every
   tool error (and every MCP result flagged `isError`) is appended to
   `~/.local/state/edges/journal.jsonl` (`XDG_STATE_HOME` or `EDGES_JOURNAL`

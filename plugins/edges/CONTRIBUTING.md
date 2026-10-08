@@ -58,10 +58,27 @@ incantation over a description of it.
   measurement in an existing one would do. There is no line cap; a skill that
   keeps growing gets a `diet` pass (`/edges:harvest diet <tool>`) instead. A
   diet compresses, and may also **prune** bullets that fail the edge test
-  (documented behavior, tradecraft without a failure behind it); every prune
-  is listed in the PR body and a human confirms the list before merge. The
-  author proves nothing operational was lost by diffing the set of
-  backtick-quoted tokens and every number between old and new.
+  (documented behavior, tradecraft without a failure behind it), or that are
+  tagged `decays: model` and cite evidence that the current model no longer
+  needs them; every prune is listed in the PR body and a human confirms the
+  list before merge. The author proves nothing operational was lost by
+  diffing the set of backtick-quoted tokens and every number between old and
+  new.
+- **Decay tag.** A bullet that exists because of how the *model* behaved,
+  not the tool, ends with `<!-- decays: model -->`. The test: if the next
+  model read the docs perfectly and distrusted empty results, would this
+  bullet still be needed? No means `model` (it guessed a field name, used
+  documented syntax wrong, trusted a silent empty, skipped pagination). Yes
+  means untagged: the tool itself misbehaves (an undocumented limit, a
+  misleading error, a surprising shape), and a better model does not change
+  that. Decide from the fix, the variant that worked, not from the error;
+  when in doubt, leave it untagged. The tag never names a model or a date;
+  `git blame` carries when the edge was observed.
+- **When a diet is due.** Two signals, neither automatic: the edges
+  session-start line reports model-tagged edges to re-check once a model
+  that machine has not run before is in use (`/edges:harvest audit`), and
+  the plugin tests print a `NOTE` for a body over 16 KiB. A size note on a
+  skill dieted since its last growth is not a reason to diet it again.
 - Every skill ends with the report-link footer:
 
   ```

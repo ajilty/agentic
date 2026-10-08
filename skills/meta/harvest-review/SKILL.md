@@ -31,7 +31,7 @@ scope (see Verdict). Round 1 has no prior.
 - `diet <branch>`: unchanged, see Diet branches. A diet touches one skill,
   so it runs as a single instance with no fan-out.
 
-## Four questions, per edge
+## Five questions, per edge
 
 1. **Is it an edge?** Would a docs lookup have answered it? Does it carry a
    symptom, a cause, and something runnable? A tip, a preference, or a
@@ -50,6 +50,11 @@ scope (see Verdict). Round 1 has no prior.
    first call", operation areas, user-utterance cues, 400 characters hard cap
    (CONTRIBUTING). Any error string, field name, or response shape in it is a
    `compress` into the body; over 400 characters is a defect.
+5. **Is the decay tag right?** Apply the CONTRIBUTING decay-tag test to the
+   observation's fix. A bullet that only corrects the model's own call
+   without `<!-- decays: model -->`, or a tagged bullet whose fix works
+   around the tool, is a `compress` whose text adds or drops the tag. Only
+   tag when the observation shows the fix; untagged is the safe default.
 
 Also check, in your file: redaction (any org, person, tenant, hostname,
 dated incident), a correction that left the old claim standing anywhere in
@@ -86,7 +91,11 @@ extract the backtick-quoted tokens and every number from `origin/main`'s copy
 and the branch's, diff them, and check each missing item against the prune
 list. Anything missing and unlisted is a defect. Then judge each listed prune
 with question 1: a pruned incantation, verbatim error string, or correction
-of a live claim is `restore`; a pruned docs restatement is `accept`. Check
+of a live claim is `restore`; a pruned docs restatement is `accept`. A prune
+of a `decays: model` bullet is `accept` only when its prune line cites
+evidence that the current model gets it right unaided; "newer model" alone
+is `restore`. A merge that put a tag on a bullet carrying untagged content
+is a defect. Check
 the description follows the template and stays under 400 characters, and that
 every string it dropped exists in the body.
 
