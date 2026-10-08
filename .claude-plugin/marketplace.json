@@ -34,6 +34,15 @@
       }
     },
     {
+      "name": "seam",
+      "description": "Personal communications command-center overlay: fixture-first sync of email/Slack/calendar into a per-profile store, bottom-up inference, static triage board. Draft-in-place only.",
+      "source": "./plugins/seam",
+      "author": {
+        "name": "ajilty",
+        "email": "github@ajilty.com"
+      }
+    },
+    {
       "name": "edges",
       "description": "Knowledge to overcome model gaps: auto-invoked working-with-<tool> notes on sharp edges of specific tools and vendors.",
       "source": "./plugins/edges",
