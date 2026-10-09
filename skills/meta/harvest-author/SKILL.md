@@ -90,7 +90,9 @@ check; otherwise it blocks the PR and is reported, never shipped past.
 Commit with an
 `edges(<tool>): <edge>` subject, push, and open the PR **as a draft**
 (`gh pr create --draft`) with a body listing each edge and its redaction
-statement. Return the standard shape.
+statement, and the scorecard from the argument under a `## Scorecard`
+heading, verdict lines included, so `git log` carries the per-skill trend.
+Return the standard shape.
 
 ## Mode: revise <branch> + verdict
 

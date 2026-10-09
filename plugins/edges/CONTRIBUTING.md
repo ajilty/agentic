@@ -79,7 +79,11 @@ incantation over a description of it.
   bullet already covers is not dropped as redundant: it says the edge did not
   work. If the skill had not loaded in that session, the description missed
   the surface; if it had, the bullet did not prevent the failure. Harvest
-  records which, and the fix is to the description or the bullet.
+  records which, and the fix is to the description or the bullet. Every
+  harvest ends with a per-skill scorecard (`new / repeat / correction`
+  counts) that the PR body carries; a skill whose repeats plus corrections
+  match or exceed its new edges gets a verdict line and is rewritten rather
+  than appended to. Volume is not the signal, the mix is.
 - Every skill ends with the report-link footer:
 
   ```

@@ -68,6 +68,24 @@ transcript for the skill name). Present it as `repeat hit, skill not loaded`
 did not prevent the failure), with the count. Either way it goes to the author
 as a fix to the description or the bullet, never as a new line, and never
 gets dropped as redundant.
+
+**End the message with a scorecard, one row per target skill.** Each
+candidate is one of three kinds: `new` (nothing covered it), `repeat` (a
+bullet covered it, loaded or not), or `correction` (a bullet covered it
+wrongly). Count them per skill:
+
+```
+working-with-<tool>   new 5   repeat 2 (1 loaded, 1 not)   correction 1
+```
+
+Where `repeat + correction >= new` and the row has at least three candidates,
+add a verdict line under it: `not earning its load: <n> of <m> candidates
+are failures of the skill itself`. Volume alone is not the signal (a quirky
+tool used heavily produces new edges for a long time); the mix is. For a
+skill with a verdict, ask whether to send it as a rewrite rather than
+appends, and pass the answer as direction. The scorecard goes to the author
+with the candidates so it lands in the PR body, which is how the trend
+accumulates in git history.
 Nothing is written before the answer, except the cursor: once the candidates
 are on screen, write the current UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)
 to `journal.cursor` so dismissed rows do not resurface next session.
@@ -76,7 +94,8 @@ to `journal.cursor` so dismissed rows do not resurface next session.
 
 Invoke `edges:harvest-author` with the confirmed candidates as its argument:
 one block per candidate carrying observation, target skill, any user
-direction, and for a repeat hit its kind and count. For a diet, skip steps 1
+direction, and for a repeat hit its kind and count, followed by the scorecard
+verbatim. For a diet, skip steps 1
 and 2 and invoke it with `diet <skill>`, plus `: <direction>` when given.
 Do not clone, edit, or open PRs from this session.
 
