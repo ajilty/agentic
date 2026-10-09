@@ -5,8 +5,8 @@ description: "Wiz MCP (list_issues, graph_search, list_cloud_resources, multi-te
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
 
-How to drive the Wiz MCP tools for security hunts. If tools are deferred, load schemas first
-(e.g. ToolSearch `select:mcp__<wiz-server>__execute,mcp__<wiz-server>__discover`).
+How to drive the Wiz MCP tools for security hunts. The two tools that matter are `discover` (the
+real tool list and schemas) and `execute`.
 **Multi-tenant orgs:** separate MCP server entries for each Wiz tenant share the same URL
 (`https://mcp.app.wiz.io`) — tenant selection is scoped to the OAuth session. Run every hunt
 against each tenant, and read the control-probe section below before asserting that the two are

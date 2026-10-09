@@ -24,12 +24,9 @@ Search and read mechanics for the Slack MCP tools (`slack_search_*`, `slack_read
   operator's `<@U0XXXXXXX>` token were absent from all five pages of a `to:me` sweep and
   returned by a bare `<@U0XXXXXXX> on:<day>` search. **Always run both forms per day and union
   them** — the second query is what catches a decision you are cited as backing.
-- **Don't stop a `to:me` sweep early on a guessed page cap, and don't trust the stop when it
-  comes.** The ceiling is not fixed: one sweep paged cleanly to five and reported genuine
-  end-of-results, while a busier backlog hard-stopped at three (see the page-cap bullet under
-  Pagination reality below). A run that stopped at three would have looked complete in both
-  cases. **Page until the oldest `ts` actually crosses the window floor**, and where it never
-  does, say the window was not covered.
+- **Page a `to:me` sweep until the oldest `ts` actually crosses the window floor**, and where it
+  never does, say the window was not covered; the stop is not trustworthy on its own (page-cap
+  bullet under Pagination reality below).
 - **The documented `in:<#C…>` filter can return silent zeros** for messages known to exist
   (thread replies worst), reproduced across several priority channels. Drop `in:`, scope with
   `from:` plus `on:` and a distinctive keyword, and filter by channel id client-side; that
@@ -105,8 +102,9 @@ re-verify before citing.
   acknowledgement to an emoji needs `slack_get_reactions` on that message. And
   `response_format: "concise"` drops the thread and reaction lines entirely, so a concise read
   can neither classify threads (above) nor see a still-live one (no-floor read, below).
-- **Don't eagerly call `slack_read_thread` to fetch parents** — roughly 10s per call and it
-  rarely changes a summary. Record the `thread_ts` pointer; fetch on demand.
+- **`slack_read_thread` costs roughly 10s per call.** Record the `thread_ts` pointer on a sweep
+  and fetch a thread when the answer depends on its replies (a decision, an acknowledgement, an
+  unanswered ask), not for every parent.
 - **`slack_read_thread` takes `message_ts` (the parent's ts), not `thread_ts`.** Passing
   `thread_ts` fails with ``initialization_failed: Missing value for parameter `message_ts` ``.
 - **A no-floor detailed channel read beats a windowed one.** `slack_read_channel` with

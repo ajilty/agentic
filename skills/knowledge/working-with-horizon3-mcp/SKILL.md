@@ -6,10 +6,9 @@ description: "Horizon3 / NodeZero MCP (pentest results, weaknesses, weakness ser
 # Working with the Horizon3 / NodeZero MCP — sharp edges
 
 How to drive the Horizon3 MCP for reading autonomous-pentest results. The server is an HTTP MCP
-at `mcp.horizon3ai.com`. If tools are deferred, load schemas first (e.g. ToolSearch
-`select:mcp__horizon3__run_h3_graphql_query`). **`run_h3_graphql_request` is deprecated and
-no-ops — use `run_h3_graphql_query` for every read.** Read-only: never call `run_pentest` or any
-mutation. **The query argument is `graphql_query`, not `query`** — passing `query` is rejected.
+at `mcp.horizon3ai.com`. **`run_h3_graphql_request` is deprecated and no-ops — use
+`run_h3_graphql_query` for every read.** Read-only: never call `run_pentest` or any mutation.
+**The query argument is `graphql_query`, not `query`** — passing `query` is rejected.
 
 ## An expired token registers ZERO tools — it never surfaces as a tool error
 
@@ -52,17 +51,16 @@ Horizon3 section is silently empty.
   `impacts_page` and NO `fix_actions_page`** — the `Query` type has neither (the "Did you mean"
   error confirms it). Read impacts via the pentest's `impacts_count` plus the attack-path
   objects, not a standalone page.
-- **A pentest has no console URL, but `Weakness.portal_url` is real and populated** — this
-  corrects an earlier note here that no API field returns a portal link: true of `pentests_page`
-  / `get_pentest_details`, false of the weakness record. Select it on `weaknesses_page` and every
-  finding in a deliverable can be clickable; hand a *pentest* over by `op_id` with "open it in
-  the NodeZero Portal", never a guessed console URL. No field says whether a human ever opened a
-  pentest.
+- **A pentest has no console URL, but `Weakness.portal_url` is real and populated.**
+  `pentests_page` / `get_pentest_details` return no portal link; the weakness record does. Select
+  it on `weaknesses_page` and every finding in a deliverable can be clickable; hand a *pentest*
+  over by `op_id` with "open it in the NodeZero Portal", never a guessed console URL. No field
+  says whether a human ever opened a pentest.
 
 ## Loot and proof artifacts do NOT expire in ~5 days
 
-**This corrects a claim this skill used to carry**, and which is widely repeated elsewhere. It is
-wrong, and acting on it produces a false urgency claim to the operator.
+The five-day expiry is a widely repeated claim with no basis in the API, and acting on it
+produces a false urgency claim to the operator.
 
 Measured against a live account: a complete `CommandOutputProofResource` — the command string plus
 its full stdout — came back **intact 25 days after the pentest completed**, with every report
@@ -153,8 +151,7 @@ cross-reference the action log (above) before reporting a host as unexposed.
   field-discovery path available** — e.g. `Cannot query field 'first_seen' on type
   'WeaknessSeries'. Did you mean 'first_seen_at', 'first_seen_date', or 'is_open'?` names three
   real fields in one failed call.
-- **`fetch_h3_graphql_docs` DOES work — fetch a specific type, never `Query`.** (This corrects
-  an earlier note here that said it errors server-side alongside `__type`.) `id: "Query"`
+- **`fetch_h3_graphql_docs` DOES work — fetch a specific type, never `Query`.** `id: "Query"`
   returns roughly 133,000 characters and spills to a tool-results file; naming the type you
   actually need (`Schedule`, `PageInput`, `FilterByInput`, `WeaknessSeriesFacets`) returns
   inline and small. In-band `__type` introspection does still error ("An unexpected error
@@ -198,7 +195,7 @@ the Remediation Hub route here.
 - **`WeaknessSeries` field traps:** `Cannot query field 'context_score' on type
   'WeaknessSeries'.` — context_score is a per-op weakness concept, not a series one. There is
   no `first_seen` either; the real names come back in the "Did you mean" hint (see
-  "Introspection is broken" below).
+  "Introspection is broken" above).
 - **`PageInput.page_num` is 1-indexed.** `page_num: 0` is rejected outright with
   `[400] Minimum allowed page number is 1.`
 

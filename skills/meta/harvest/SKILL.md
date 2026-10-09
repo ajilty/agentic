@@ -2,7 +2,7 @@
 name: harvest
 description: Harvest this session's tool-call learnings into the edges library. Extracts candidates here, confirms them with you, then hands authoring and review to forked subagents so this session keeps its context.
 disable-model-invocation: true
-argument-hint: "[tool] [: observation or direction, e.g. 'new skill' / 'fold into existing'] | diet <tool>"
+argument-hint: "[tool] [: observation or direction, e.g. 'new skill' / 'fold into existing'] | diet <tool> [: direction]"
 ---
 
 # Harvest
@@ -24,7 +24,9 @@ With no arguments, sweep the whole session. An argument names the tool to
 focus on; prose after it is the observation itself or direction ("new skill",
 "fold into the existing one"), and the user's direction binds. `diet <tool>`
 skips extraction and sends the named skill straight to the author for a
-compression pass (step 4, diet mode).
+compression pass (step 4, diet mode); prose after it narrows the pass. You
+rarely need to type it: the author diets a skill it is already touching when
+that skill is over 16 KiB or the audit flags it (its "diet on touch" rule).
 
 Redact as you collect: no user, company, tenant, or dated incident specifics;
 keep error strings otherwise verbatim.
@@ -56,6 +58,16 @@ Present the candidates in one message: for each, the observation (one or two
 lines), the likely target skill, and whether it reads as vendor-specific or as
 a generic connector pattern (those belong in `working-with-mcp-connectors`,
 with at most a one-line pointer in the vendor skill). Ask which to submit.
+
+**A candidate an existing bullet already covers is a repeat hit, not noise.**
+It is the one measurement of whether that edge works, so keep it as its own
+candidate kind. Before presenting it, check the transcript for whether the
+`working-with-<tool>` skill had loaded before the failing call (grep the
+transcript for the skill name). Present it as `repeat hit, skill not loaded`
+(the description missed the surface) or `repeat hit, skill loaded` (the bullet
+did not prevent the failure), with the count. Either way it goes to the author
+as a fix to the description or the bullet, never as a new line, and never
+gets dropped as redundant.
 Nothing is written before the answer, except the cursor: once the candidates
 are on screen, write the current UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)
 to `journal.cursor` so dismissed rows do not resurface next session.
@@ -63,8 +75,9 @@ to `journal.cursor` so dismissed rows do not resurface next session.
 ## 3. Hand off
 
 Invoke `edges:harvest-author` with the confirmed candidates as its argument:
-one block per candidate carrying observation, target skill, and any user
-direction. For a diet, skip steps 1 and 2 and invoke it with `diet <skill>`.
+one block per candidate carrying observation, target skill, any user
+direction, and for a repeat hit its kind and count. For a diet, skip steps 1
+and 2 and invoke it with `diet <skill>`, plus `: <direction>` when given.
 Do not clone, edit, or open PRs from this session.
 
 Both forked skills run in the **background**: the invocation returns at once

@@ -20,9 +20,8 @@ failure.** Four things hold at once, which is what makes it easy to miss:
 - it simply contributes no tools, loaded or deferred.
 
 Nothing announces it. The run proceeds, that surface contributes nothing, and the output reads as
-"clean" for a system nobody actually queried. This has cost a real window of unread data more
-than once, and the damage is time-boxed whenever the data behind it expires (pentest loot,
-short-retention logs, ephemeral artifacts).
+"clean" for a system nobody actually queried; the damage is time-boxed whenever the data behind
+it expires (pentest loot, short-retention logs, ephemeral artifacts).
 
 **Probe by presence, not by absence of error.** A preflight that only watches for failures is
 blind to this class:
