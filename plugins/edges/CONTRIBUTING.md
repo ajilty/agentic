@@ -56,12 +56,30 @@ incantation over a description of it.
   return `compress` with a shorter proposal. Two smells it looks for: framing
   repeated across bullets ("silently, with no error") and a new bullet where a
   measurement in an existing one would do. There is no line cap; a skill that
-  keeps growing gets a `diet` pass (`/edges:harvest diet <tool>`) instead. A
-  diet compresses, and may also **prune** bullets that fail the edge test
-  (documented behavior, tradecraft without a failure behind it); every prune
-  is listed in the PR body and a human confirms the list before merge. The
-  author proves nothing operational was lost by diffing the set of
-  backtick-quoted tokens and every number between old and new.
+  keeps growing gets a `diet` pass instead. A diet compresses, and may also
+  **prune** bullets that fail the edge test (documented behavior, tradecraft
+  without a failure behind it); every prune is listed in the PR body and a
+  human confirms the list before merge. The author proves nothing operational
+  was lost by diffing the set of backtick-quoted tokens and every number
+  between old and new. Nobody schedules a diet: the author runs one in the
+  same branch whenever a skill it is touching is over 16 KiB or the prompt
+  audit flags it, and `tests/test_descriptions.sh` prints a `NOTE` for any
+  body over 16 KiB so the size is visible on every PR. `/edges:harvest diet
+  <tool> [: direction]` still runs one by hand.
+- **Every touched skill is audited.** The author runs the bundled prompt
+  audit on each skill directory it changes (`/claude-api prompt-audit
+  skills/knowledge/<skill>`, path required) and folds high- and
+  medium-confidence findings into the same PR. The audit finds process debt
+  rather than model drift here: relative phrasing about the file's own past,
+  harness mechanics the model already has, a rule stated twice. So a bullet
+  never refers to its own history. A correction states the current fact (and,
+  where the wrong claim is widely repeated, the negative with its evidence);
+  "corrects" goes in the commit message.
+- **A repeat hit is a measurement.** A harvested failure that an existing
+  bullet already covers is not dropped as redundant: it says the edge did not
+  work. If the skill had not loaded in that session, the description missed
+  the surface; if it had, the bullet did not prevent the failure. Harvest
+  records which, and the fix is to the description or the bullet.
 - Every skill ends with the report-link footer:
 
   ```

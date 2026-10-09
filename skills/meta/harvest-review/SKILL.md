@@ -40,7 +40,11 @@ scope (see Verdict). Round 1 has no prior.
    `working-with-mcp-connectors` for anything tool-agnostic (silent empties,
    dead-token servers, serialization limits, filter probes). Name the covering
    bullet. If the new text adds only a measurement or a verbatim string, the
-   verdict is `compress` into that bullet, not a new one.
+   verdict is `compress` into that bullet, not a new one. A candidate the
+   argument marks as a repeat hit is judged on its fix, not on coverage: a
+   `not loaded` hit must have widened the description, a `loaded` hit must
+   have changed the covering bullet; one that only added a count to the
+   bullet is `compress` with the fix as your text.
 3. **Is it the minimum viable edge?** Write the shortest version that keeps
    every incantation, verbatim string, and correction. If yours is materially
    shorter, the verdict is `compress` and your text is the proposal. Repeated
@@ -53,7 +57,10 @@ scope (see Verdict). Round 1 has no prior.
 
 Also check, in your file: redaction (any org, person, tenant, hostname,
 dated incident), a correction that left the old claim standing anywhere in
-the file, and a generic pattern written only in the vendor skill.
+the file, a bullet that refers to the file's own past ("this corrects",
+"an earlier note here": the fact goes in the bullet, "corrects" in the
+commit), harness mechanics the model already has (how to load a deferred
+tool), and a generic pattern written only in the vendor skill.
 
 ## Branch scope
 

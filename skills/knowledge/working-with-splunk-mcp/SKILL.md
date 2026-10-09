@@ -18,16 +18,13 @@ Splunk MCP surface, not one server.
   server-side (token/JWT auth, or upgrading the connector), so do **not** try to fix it from the
   query side.
 - **Re-prime, then send exactly one search.** A `splunk_get_*` metadata call (`splunk_get_info`,
-  `splunk_get_user_info`) re-establishes the session. Follow it with the search.
-- **Only one `splunk_run_query` reliably lands per re-prime, and it degrades over a long
-  session** — later re-primes stop holding, until every call returns `Session is not logged
-  in` (54 identical repeats in one run, none recovering): stop and hand the reconnect to the
-  operator.
-- **Never batch multiple `splunk_run_query` calls in one message.** They serialize through a
-  single session and every call after the first fails with the session error. Issue them one per
-  turn.
-- On the error, re-run a `get_*` call and resend a single search — don't blind-retry the same
-  query as if it were malformed.
+  `splunk_get_user_info`) re-establishes the session, and only one `splunk_run_query` reliably
+  lands per re-prime: calls batched in one message serialize through the single session and every
+  call after the first fails with the session error. Issue searches one per turn, and on the
+  error re-prime and resend one search rather than retrying the query as malformed.
+- **Re-priming degrades over a long session** — later re-primes stop holding, until every call
+  returns `Session is not logged in` (54 identical repeats in one run, none recovering): stop and
+  hand the reconnect to the operator.
 - **The `saia_*` assistant tools can go dead for a whole session.** `saia_find_data_source`
   returned `Session terminated` and never recovered, while `splunk_run_query` and the `get_*`
   tools worked normally throughout. The substitute is `splunk_get_indexes` plus a

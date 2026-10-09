@@ -14,8 +14,7 @@ are your environment's facts — confirm them live, don't assume.
   Add `--use-device-code` if the browser flow doesn't open. The login is interactive — the user
   completes it.
 - Know which config is active: `AWS_CONFIG_FILE` may point somewhere other than `~/.aws/config`,
-  and a stale default file can shadow the real one. Confirm the target account with
-  `aws sts get-caller-identity --profile <p>` before acting.
+  and a stale default file can shadow the real one (identity check below).
 
 ## Profile / identity discipline
 
