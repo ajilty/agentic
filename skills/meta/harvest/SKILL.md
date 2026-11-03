@@ -43,8 +43,10 @@ you are the harvester and identity redaction happens here, before anything
 leaves the machine.
 Rows newer than the timestamp in the sibling `journal.cursor` file are
 unharvested; group them by `tool` and `fp`, so a failure that hit five times
-shows as one candidate with a count. Each row carries `transcript_path` and
-`tool_use_id`: when a candidate needs the retries and the variant that worked,
+shows as one candidate with a count. Note how many rows were in scope and how
+many you actually reviewed (built-in tool failures excluded, singletons not
+read, and so on); step 2 needs both numbers. Each row carries
+`transcript_path` and `tool_use_id`: when a candidate needs the retries and the variant that worked,
 `grep` the id in that transcript rather than asking the user to remember. The
 journal captures what errored; the silent incomplete answers that make up
 most edges still come from your own read of this session. Journal rows are
@@ -55,9 +57,13 @@ vendor (`mcp__wiz__...`) before anything reaches a candidate.
 ## 2. Confirm
 
 Present the candidates in one message: for each, the observation (one or two
-lines), the likely target skill, and whether it reads as vendor-specific or as
-a generic connector pattern (those belong in `working-with-mcp-connectors`,
-with at most a one-line pointer in the vendor skill). Ask which to submit.
+lines), its hit and session count from the journal grouping (`65 hits across
+3 sessions`), the likely target skill, and whether it reads as vendor-specific
+or as a generic connector pattern (those belong in
+`working-with-mcp-connectors`, with at most a one-line pointer in the vendor
+skill). A candidate with no journal row says so instead of leaving the count
+blank: `no journal row: silent` for a wrong answer that never errored, `n/a:
+technique` for a variant that worked. Ask which to submit.
 
 **A candidate an existing bullet already covers is a repeat hit, not noise.**
 It is the one measurement of whether that edge works, so keep it as its own
@@ -74,7 +80,7 @@ candidate is one of three kinds: `new` (nothing covered it), `repeat` (a
 bullet covered it, loaded or not), or `correction` (a bullet covered it
 wrongly). Count them per skill:
 
-```
+```text
 working-with-<tool>   new 5   repeat 2 (1 loaded, 1 not)   correction 1
 ```
 
@@ -88,15 +94,18 @@ with the candidates so it lands in the PR body, which is how the trend
 accumulates in git history.
 Nothing is written before the answer, except the cursor: once the candidates
 are on screen, write the current UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)
-to `journal.cursor` so dismissed rows do not resurface next session.
+to `journal.cursor` so dismissed rows do not resurface next session. Rows
+behind the cursor never resurface, so advance it only past rows you reviewed;
+where in-scope rows went unreviewed, tell the user how many before writing
+it.
 
 ## 3. Hand off
 
 Invoke `edges:harvest-author` with the confirmed candidates as its argument:
 one block per candidate carrying observation, target skill, any user
-direction, and for a repeat hit its kind and count, followed by the scorecard
-verbatim. For a diet, skip steps 1
-and 2 and invoke it with `diet <skill>`, plus `: <direction>` when given.
+direction, its kind (`new`, `repeat` with loaded or not, `correction`) and its
+count or no-row label from step 2, followed by the scorecard verbatim. For a
+diet, skip steps 1 and 2 and invoke it with `diet <skill>`, plus `: <direction>` when given.
 Do not clone, edit, or open PRs from this session.
 
 Both forked skills run in the **background**: the invocation returns at once
