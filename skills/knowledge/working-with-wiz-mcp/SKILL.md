@@ -1,6 +1,6 @@
 ---
 name: working-with-wiz-mcp
-description: "Wiz MCP (list_issues, graph_search, list_cloud_resources, multi-tenant servers). Load before the first Wiz call in a session; covers tenant control probes, schema probes, query shapes, synthetic entities, paging caps, missing console links. Also for blast-radius or package hunts, IAM trust-policy questions, or clickable finding links."
+description: "Wiz MCP (discover and execute: list_issues, graph_search, list_cloud_resources; multi-tenant servers). Load before the first Wiz call in a session; covers tenant control probes, schema probes, query shapes, synthetic entities, paging caps, missing console links. Also for blast-radius or package hunts, IAM trust-policy questions, natural-language graph queries, or clickable finding links."
 ---
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)

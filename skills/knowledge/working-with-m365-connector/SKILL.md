@@ -132,11 +132,10 @@ visually** instead of trusting the broken text layer.
   query string (cut at `…/j/<id>?`, dropping the `pwd` parameter). For Teams-hosted events take
   `onlineMeeting.joinUrl` from a full `read_resource` event read; for other providers report a
   truncated body URL as null, never complete it.
-- **Sent Items is ~a third RSVP auto-receipts.** Of 80
-  sent messages over 7 days, roughly 20 were `Accepted:` / `Tentative:` / `Canceled:` /
-  `New Time Proposed:` receipts and ~6 were file-share/comment notifications, so a naive sent
-  count overstates real correspondence by about a third — filter them out of any "who did I
-  write to" measure.
+- **Sent Items is ~a third RSVP auto-receipts.** Of 80 sent messages over 7 days, roughly 20
+  were `Accepted:` / `Tentative:` / `Canceled:` / `New Time Proposed:` receipts and ~6 were
+  file-share/comment notifications, so a naive sent count overstates real correspondence by about
+  a third — filter them out of any "who did I write to" measure.
 
 ## No headers, and no admin surface at all
 

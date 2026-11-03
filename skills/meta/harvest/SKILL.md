@@ -62,9 +62,8 @@ lines), its journal counts (`65 hits across 3 sessions`, or
 `no journal row: silent` for a wrong answer that never errored,
 `no journal row: technique` for a variant that worked), the likely target
 skill, and whether it reads as vendor-specific or as a generic connector
-pattern (those belong in
-`working-with-mcp-connectors`, with at most a one-line pointer in the vendor
-skill). Ask which to submit.
+pattern (those belong in `working-with-mcp-connectors`, with at most a
+one-line pointer in the vendor skill). Ask which to submit.
 
 **A candidate an existing bullet already covers is a repeat hit, not noise.**
 It is the one measurement of whether that edge works, so keep it as its own
