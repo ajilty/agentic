@@ -32,8 +32,12 @@ third party from an unregistered affiliate. Wiz cannot make that correlation its
   against the uppercase-value trap. A parameter that does NOT error is in the schema; whether it
   is *applied* still needs the both-polarities probe in `working-with-mcp-connectors`.
 - **`graph_search` takes a free-text STRING, not an object.** Passing a query object returns
-  `expected string, but got object`, and a string it cannot parse returns `Failed to convert free
-  text to graph query`.
+  `expected string, but got object`. A string it cannot parse fails as
+  `{"extensions":{"code":"INTERNAL"},...,"message":"Failed to convert free text to graph
+  query","path":["aiGraphQuery"]}`: the free-text translator refusing, not an outage, and
+  resending the same text fails again (3 hits across sessions). Write the structured form
+  instead: `execute_graph_query` takes a `GraphEntityQueryInput` object (`type`, `where`,
+  `relationships`) in `query`.
 
 ## Package / SBOM presence (the "are we affected" question)
 

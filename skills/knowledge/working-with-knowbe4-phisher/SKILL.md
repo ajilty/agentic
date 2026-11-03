@@ -1,6 +1,6 @@
 ---
 name: working-with-knowbe4-phisher
-description: "KnowBe4 PhishER MCP (get_phisher_message* tools). Load before the first PhishER call in a session; covers which filters are real, paging versus filtering, status polarity, simulation tagging. Also when asked whether an empty reported-phish result is a real zero or to separate a simulation from a live phish."
+description: "KnowBe4 PhishER MCP (get_phisher_messages, get_phisher_message, _raw, _eml, get_phisher_attachment). Load before the first PhishER call in a session and before any parallel batch; covers serialization, which filters are real, paging versus filtering, status polarity, simulation tagging. Also when asked to triage the reported-phish queue or separate a simulation from a live phish."
 ---
 
 # Working with the KnowBe4 PhishER MCP — sharp edges

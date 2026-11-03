@@ -88,6 +88,14 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   `reg query` is the other route, and a vendor key may hold no version value). `AsepValueUpdate`
   (`investigate_view`) has no `ImageFileName`; its writer is `ContextProcessId`, which equals the
   detection's `process_id` exactly: the alert-to-registry join.
+- **An automated lead's `threatgraph_indicators[].process_id` is `TargetProcessId` on
+  `ProcessRollup2`** (`investigate_view`): one query over the signal window resolves every
+  indicator to binary, command line, user and parent (3 of 3 rows):
+  `aid=<aid> #event_simpleName=ProcessRollup2 TargetProcessId=/^(<pid1>|<pid2>|<pid3>)$/ |
+  select([@timestamp, TargetProcessId, ParentProcessId, UserName, FileName, CommandLine,
+  ParentBaseFileName, SHA256HashData])`. Then `SHA256HashData=<hash> | count(aid,
+  distinct=true)` is the false-positive check: a "ProcRansomware" indicator resolved to a
+  signed sync client on hundreds of hosts.
 
 ## search_* / aggregate_* FQL tools, and other filtered reads (detections, hosts, cases, ...)
 

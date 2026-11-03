@@ -1,6 +1,6 @@
 ---
 name: working-with-splunk-mcp
-description: "Splunk MCP (splunk_run_query, saia_* assistants, index tools). Load before the first Splunk call in a session and before firing more than one search; covers session expiry, lookup aborts and fallbacks, doubled counts, time formats, multivalue fields. Also when asked to pick an index."
+description: "Splunk MCP (splunk_run_query, splunk_get_* index and metadata tools, saia_* assistants). Load before the first Splunk call in a session, a subagent sweep included, and before writing SPL or firing more than one search; covers session expiry, lookup aborts and fallbacks, doubled counts, time formats, multivalue fields. Also when asked to search Splunk logs or pick an index."
 ---
 
 # Working with the Splunk MCP — sharp edges

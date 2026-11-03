@@ -8,17 +8,10 @@ description: "Microsoft 365 connector (Outlook mail and calendar, Teams chat, Sh
 What the M365 connector can and, more importantly, **cannot** do — so a request to read a
 document's contents resolves into a working fallback rather than a stall or a guess.
 
-## What it can do
-
-- **Reads METADATA across mail, calendar, and SharePoint** — message and event names, senders,
-  recipients, dates, sizes, folder/path structure, and the **thread text** of email bodies and
-  calendar event descriptions. Searching and listing work well.
-- Right tool for "find the thread about X", "who was on this meeting", "what's the subject/size
-  of the attachment", "what files are in this SharePoint folder".
-
 ## What it cannot do — and the fallback
 
-The connector is **metadata-and-text only**, with **no binary download** path:
+The connector is **metadata-and-text only** (names, senders, sizes, paths, and the thread text
+of mail bodies and event descriptions), with **no binary download** path:
 
 - **It cannot render `.doc` / `.docx` contents.** It surfaces that a Word attachment exists, its
   name and size — not the document text inside it.
@@ -161,10 +154,10 @@ visually** instead of trusting the broken text layer.
   stream instead**; that pivot turns a dead end into a single query, and is usually the only way
   to establish who did what to which mailbox.
 
-## Two 403s that look like outages and are not
+## 403s that look like outages and are not
 
 `get_me` succeeding while another call 403s is the tell: the connector is live and the problem is
-an unconsented scope, not connectivity. Both of these need an admin grant, so surface them as an
+an unconsented scope, not connectivity. Each of these needs an admin grant, so surface it as an
 operator action rather than retrying.
 
 - **Shared / other-mailbox reads need `Mail.Read.Shared`.** `outlook_email_search` with
@@ -178,6 +171,12 @@ operator action rather than retrying.
   admin-consented on the confidential client app registration`. With this dark there is no
   authoritative identity or group read at all — resist inferring membership from other surfaces
   without labelling it.
+- **Team enumeration needs `Team.ReadBasic.All`.** `teams_list_teams` returns, verbatim:
+  `FORBIDDEN: Missing scope 'Team.ReadBasic.All': Microsoft Entra has not granted this
+  connector the 'Team.ReadBasic.All' ...` while chat search and listing work in the same
+  session. `teams_list_channels` and `teams_list_channel_messages` both require a `teamId`, so
+  take one from elsewhere (the group GUID in a channel link) instead of retrying; whether those
+  reads pass without the scope is untested. Otherwise name channel coverage as a gap.
 
 ---
 Wrong, stale, or missing edge? File it: https://github.com/ajilty/agentic/issues/new?template=edge-report.yml
