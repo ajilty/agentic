@@ -1,6 +1,6 @@
 ---
 name: working-with-mcp-connectors
-description: "Any MCP connector (mcp__* tools), tool-agnostic health and answer-shape rules. Load before the first connector call in a session and before reporting any absence, zero, or coverage claim as a finding; covers confident-but-incomplete answers, dead-token servers, serialization, silently ignored filters, spill-file parsing."
+description: "Any MCP connector (mcp__* tools), tool-agnostic health and answer-shape rules. Load before the first connector call in a session, before any parallel batch, and before reporting any absence, zero, or coverage claim as a finding; covers confident-but-incomplete answers, dead-token servers, serialization, silently ignored filters, spill-file parsing."
 ---
 
 # Working with MCP connectors — health and preflight
@@ -50,14 +50,12 @@ blind to this class:
   writing any coverage claim.
 - An auth-expired server fails every call with one identical string; probe once (one attempt
   of a documented re-prime counts), stop, and report the reconnect as the operator's action.
-- **A connector verdict does not cross sessions.** A headless child (`claude -p`, a background
-  or scheduled run) opens its own MCP connections at its own start: two stdio servers behind a
-  credential wrapper failed there with `CONNECTION_CLOSED` (no tools registered) while the
-  parent had the same servers connected and answering. The parent relayed the child's "dark"
-  and a full queue went unreviewed. Before carrying "unavailable" forward, probe with one cheap
-  call (a connectivity or whoami tool) in the session that will report. Nor does a start-of-run
-  probe hold for the run: a server connected mid-session can drop to `CONNECTION_CLOSED` later
-  in it.
+- **A connector verdict does not cross sessions.** A headless child (`claude -p`, a scheduled
+  run) opens its own MCP connections: two stdio servers behind a credential wrapper failed there
+  with `CONNECTION_CLOSED` while the parent had them connected and answering, and the parent
+  relayed the child's "dark" without re-probing. Before carrying "unavailable" forward, make the
+  live read-only call above in the session that will report. A start-of-run probe does not hold
+  for the run either: a connected server can drop to `CONNECTION_CLOSED` mid-session.
 
 ## The credential CLI is not the arbiter, in either direction
 

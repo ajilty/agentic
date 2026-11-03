@@ -1,6 +1,6 @@
 ---
 name: working-with-splunk-mcp
-description: "Splunk MCP (splunk_run_query, splunk_get_* index and metadata tools, saia_* assistants). Load before the first Splunk call in a session, a subagent sweep included, and before writing SPL or firing more than one search; covers session expiry, lookup aborts and fallbacks, doubled counts, time formats, multivalue fields. Also when asked to search Splunk logs or pick an index."
+description: "Splunk MCP (splunk_run_query, splunk_get_*, saia_* assistants). Load before the first Splunk call in any session or subagent, and before writing SPL or firing more than one search; covers session expiry, lookup aborts and fallbacks, doubled counts, time formats, multivalue fields. Also when asked to search Splunk logs or pick an index, or before delegating a Splunk sweep."
 ---
 
 # Working with the Splunk MCP — sharp edges
@@ -23,8 +23,8 @@ Splunk MCP surface, not one server.
   call after the first fails with the session error. Issue searches one per turn, and on the
   error re-prime and resend one search rather than retrying the query as malformed.
 - **Re-priming degrades over a long session** — later re-primes stop holding, until every call
-  returns `Session is not logged in` (54 identical repeats in one run, none recovering): stop and
-  hand the reconnect to the operator.
+  returns `Session is not logged in` (54 identical repeats in one run, none recovering). Stop: it
+  does not recover in-session.
 - **The `saia_*` assistant tools can go dead for a whole session.** `saia_find_data_source`
   returned `Session terminated` and never recovered, while `splunk_run_query` and the `get_*`
   tools worked normally throughout. The substitute is `splunk_get_indexes` plus a
@@ -78,7 +78,6 @@ Splunk MCP surface, not one server.
   failed (sid: <n>.<n>)` (six in a row while `splunk_get_info` succeeded between attempts, so
   not session expiry); the same SPL passed once the bounds moved to the parameters. `Search job
   failed` on a healthy server is a query-shape problem, not a server one.
-
 - **Numbers come back as strings** (`"count": "28"`). Cast before doing math or comparisons.
 - **A raw-event `| table ...` dump overflows the response cap and spills to a
   `tool-results/*.txt` file** — the tool hands you the path, not the rows. Aggregate in-query

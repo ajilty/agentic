@@ -31,13 +31,12 @@ third party from an unregistered affiliate. Wiz cannot make that correlation its
   array, but got string`; `properties/tech_name/type`). That enum read is the cheapest guard
   against the uppercase-value trap. A parameter that does NOT error is in the schema; whether it
   is *applied* still needs the both-polarities probe in `working-with-mcp-connectors`.
-- **`graph_search` takes a free-text STRING, not an object.** Passing a query object returns
-  `expected string, but got object`. A string it cannot parse fails as
-  `{"extensions":{"code":"INTERNAL"},...,"message":"Failed to convert free text to graph
-  query","path":["aiGraphQuery"]}`: the free-text translator refusing, not an outage, and
-  resending the same text fails again (3 hits across sessions). Write the structured form
-  instead: `execute_graph_query` takes a `GraphEntityQueryInput` object (`type`, `where`,
-  `relationships`) in `query`.
+- **`graph_search` takes a free-text STRING; a structured query goes to `execute_graph_query`.**
+  An object passed to `graph_search` returns `expected string, but got object`. Free text it
+  cannot translate fails as `{"extensions":{"code":"INTERNAL"},...,"message":"Failed to convert
+  free text to graph query","path":["aiGraphQuery"]}`. It is not an outage, and sending the same
+  text again fails the same way. Rewrite it as a `GraphEntityQueryInput` object (`type`, `where`,
+  `relationships`) in `execute_graph_query`'s `query`.
 
 ## Package / SBOM presence (the "are we affected" question)
 

@@ -5,9 +5,9 @@ description: "CrowdStrike Falcon MCP (any falcon_* tool: NGSIEM/CQL search, dete
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
 
-Operating the tool. Vendor field meanings appear only where a correlation edge turns on them
-(last section). Zero rows, a dropped column or a truncated list come back with no error unless a
-bullet says otherwise.
+Operating the tool. Vendor field meanings appear only where a join turns on them. Unless a bullet
+quotes an error, every failure below comes back as clean output: zero rows, dropped columns or
+records, wrong counts, truncated lists.
 
 ## falcon_search_ngsiem (CQL / LogScale)
 
@@ -47,8 +47,7 @@ bullet says otherwise.
 
 ### Reading results
 
-- Numbers are strings (`"_count": "2773932"`): cast before math. Spilled results carry no
-  `total`; re-run with an in-query `count()` if it matters.
+- Spilled results carry no `total`; re-run with an in-query `count()` if it matters.
 - **Zero rows with `job.processed_events: 0` is not a negative**: nothing was scanned; a real
   negative has `processed_events > 0`, and for a query ending in `top()` or `groupBy()` not even
   that (above). The tool flags a zero scan by appending a hint plus the whole inline CQL guide,
@@ -65,8 +64,8 @@ bullet says otherwise.
 - **Spills** (`tool-results/*.txt`): a wide `head(N)` spills; aggregate in-query.
   `falcon_search_applications` `name:'*Product*'` over a widely-installed product also spills,
   and `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16 records and
-  still spilled (100,500 chars, 2,156 lines), so lowering `limit` does not help: plan to parse
-  (`python3 json.load`). For raw evidence, `… | select([@timestamp, @rawstring])`: a free-text
+  still spilled (100,500 chars, 2,156 lines; parse per working-with-mcp-connectors). For raw
+  evidence, `… | select([@timestamp, @rawstring])`: a free-text
   search plus `head(20)` on mail-gateway rows spilled at 74,725 chars; `select()` returned the
   same at a fraction.
 
@@ -82,17 +81,15 @@ bullet says otherwise.
 - `groupBy` drops a column whose field is absent on the rows. `ProcessRollup2` does not
   reliably populate `FileVersion`: pin a build by `SHA256HashData` mapped via
   `falcon_search_applications` or RTR `filehash` (read-only RTR has no PE-version command;
-  `reg query` is the other route, and a vendor key may hold no version value). `AsepValueUpdate`
-  (`investigate_view`) has no `ImageFileName`; its writer is `ContextProcessId`, which equals the
-  detection's `process_id` exactly: the alert-to-registry join.
-- **An automated lead's `threatgraph_indicators[].process_id` is `TargetProcessId` on
-  `ProcessRollup2`** (`investigate_view`): one query over the signal window resolves every
-  indicator to binary, command line, user and parent (3 of 3 rows):
+  `reg query` is the other route, and a vendor key may hold no version value).
+- **Detection process ids join to sensor events** (`repository: 'investigate_view'`, `aid=<aid>`):
+  an automated lead's `threatgraph_indicators[].process_id` is `TargetProcessId` on
+  `ProcessRollup2` (3 of 3 indicators resolved over the signal window):
   `aid=<aid> #event_simpleName=ProcessRollup2 TargetProcessId=/^(<pid1>|<pid2>|<pid3>)$/ |
   select([@timestamp, TargetProcessId, ParentProcessId, UserName, FileName, CommandLine,
-  ParentBaseFileName, SHA256HashData])`. Then `SHA256HashData=<hash> | count(aid,
-  distinct=true)` is the false-positive check: a "ProcRansomware" indicator resolved to a
-  signed sync client on hundreds of hosts.
+  ParentBaseFileName, SHA256HashData])`. `AsepValueUpdate` has no `ImageFileName`; its writer
+  is `ContextProcessId`, equal to the detection's `process_id`. False-positive check is fleet
+  prevalence: `SHA256HashData=<hash> | count(aid, distinct=true)`.
 
 ## search_* / aggregate_* FQL tools, and other filtered reads (detections, hosts, cases, ...)
 

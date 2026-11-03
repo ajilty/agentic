@@ -5,8 +5,8 @@ description: "Microsoft 365 connector (Outlook mail and calendar, Teams chat, Sh
 
 # Working with the Microsoft 365 connector — sharp edges
 
-What the M365 connector can and, more importantly, **cannot** do — so a request to read a
-document's contents resolves into a working fallback rather than a stall or a guess.
+What the M365 connector cannot do, where it answers confidently but incompletely, and the
+fallback for each.
 
 ## What it cannot do — and the fallback
 
@@ -89,7 +89,7 @@ visually** instead of trusting the broken text layer.
 - **SharePoint share-notification mails carry no document URL.** Report the item as a named
   gap; never construct a link.
 
-## The tenant's Graph quota is shared across every surface
+## Teams chat search and the shared Graph quota
 
 - **`chat_message_search` covers group and 1:1 chats ONLY, never channel messages**, and says
   nothing about the gap — its coverage counters are chats-scanned over chats-listed, so a run can
@@ -113,7 +113,6 @@ visually** instead of trusting the broken text layer.
   `searchInfo` with no banner and no `stoppedBy` field while still reporting `chatsFailed: 10`.
   `coverage.chatsScanned` against `coverage.chatsListed` is the only honest measure **of the
   chat corpus** — read the ratio every time and report it rather than the absence of a warning.
-  It says nothing about channels, which the tool does not search at all (first bullet).
 
 ## Calendar reading
 
@@ -133,12 +132,11 @@ visually** instead of trusting the broken text layer.
   query string (cut at `…/j/<id>?`, dropping the `pwd` parameter). For Teams-hosted events take
   `onlineMeeting.joinUrl` from a full `read_resource` event read; for other providers report a
   truncated body URL as null, never complete it.
-- **Sent Items is ~a third RSVP auto-receipts, and they are noise and signal at once.** Of 80
+- **Sent Items is ~a third RSVP auto-receipts.** Of 80
   sent messages over 7 days, roughly 20 were `Accepted:` / `Tentative:` / `Canceled:` /
   `New Time Proposed:` receipts and ~6 were file-share/comment notifications, so a naive sent
   count overstates real correspondence by about a third — filter them out of any "who did I
-  write to" measure. They are simultaneously **the only cheap bulk source of RSVP truth**, which
-  is what the per-event `responseStatus` read above does not scale to.
+  write to" measure.
 
 ## No headers, and no admin surface at all
 
@@ -173,10 +171,8 @@ operator action rather than retrying.
   without labelling it.
 - **Team enumeration needs `Team.ReadBasic.All`.** `teams_list_teams` returns, verbatim:
   `FORBIDDEN: Missing scope 'Team.ReadBasic.All': Microsoft Entra has not granted this
-  connector the 'Team.ReadBasic.All' ...` while chat search and listing work in the same
-  session. `teams_list_channels` and `teams_list_channel_messages` both require a `teamId`, so
-  take one from elsewhere (the group GUID in a channel link) instead of retrying; whether those
-  reads pass without the scope is untested. Otherwise name channel coverage as a gap.
+  connector the 'Team.ReadBasic.All' ...` while Teams chat calls work. Channel reads then
+  need a `teamId` from another source; without one, name channel coverage as a gap.
 
 ---
 Wrong, stale, or missing edge? File it: https://github.com/ajilty/agentic/issues/new?template=edge-report.yml
