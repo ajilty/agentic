@@ -42,9 +42,14 @@ journal rows the same as to anything else you pull from this session, since
 you are the harvester and identity redaction happens here, before anything
 leaves the machine.
 Rows newer than the timestamp in the sibling `journal.cursor` file are
-unharvested; group them by `tool` and `fp`, counting rows and distinct
-`session_id`s, so a failure that hit five times shows as one candidate with
-its counts. Count the rows in scope (every row past the cursor, whatever tool
+unharvested; group them with the `count.jq` beside this file, never an
+ad-hoc script, so every harvest counts the same way:
+`jq -s --arg since "$(cat <cursor>)" -f count.jq <journal>`. It keys on the
+tool's own name (one quirk on two servers is one row) and the error with
+numbers masked (errors differing only in a size collapse), and gives hits,
+distinct sessions, servers, and first and last seen per group. Built-in tool
+rows (`Bash`) group poorly but carry CLI edges: skim them too. Read the whole
+sorted list; no hit-count cutoff. Count the rows in scope (every row past the cursor, whatever tool
 the argument names) and the rows you actually reviewed. Each row carries
 `transcript_path` and `tool_use_id`: when a candidate needs the retries and
 the variant that worked, `grep` the id in that transcript rather than asking
