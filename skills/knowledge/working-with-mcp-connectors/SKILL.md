@@ -1,6 +1,6 @@
 ---
 name: working-with-mcp-connectors
-description: "Any MCP connector (mcp__* tools), tool-agnostic health and answer-shape rules. Load before the first connector call in a session and before reporting any absence, zero, or coverage claim as a finding; covers confident-but-incomplete answers, dead-token servers, serialization, silently ignored filters, spill-file parsing."
+description: "Any MCP connector (mcp__* tools), tool-agnostic health and answer-shape rules. Load before the first connector call in a session, before any parallel batch, and before reporting any absence, zero, or coverage claim as a finding; covers confident-but-incomplete answers, dead-token servers, serialization, silently ignored filters, spill-file parsing."
 ---
 
 # Working with MCP connectors — health and preflight
@@ -39,9 +39,6 @@ blind to this class:
 - **Name the surfaces that contributed nothing** in the output. An unswept surface is a declared
   blind spot, not an omission, and a reader cannot tell a clean result from an unasked question
   unless you write it down.
-- **A re-auth may not fix every server on the same credential.** Servers sharing one credential
-  preset can recover independently — re-probe each after a reconnect rather than assuming the fix
-  was global.
 
 ## A failed server stays failed; an expired one fails identically
 
@@ -53,6 +50,12 @@ blind to this class:
   writing any coverage claim.
 - An auth-expired server fails every call with one identical string; probe once (one attempt
   of a documented re-prime counts), stop, and report the reconnect as the operator's action.
+- **A connector verdict does not cross sessions.** A headless child (`claude -p`, a scheduled
+  run) opens its own MCP connections: two stdio servers behind a credential wrapper failed there
+  with `CONNECTION_CLOSED` while the parent had them connected and answering, and the parent
+  relayed the child's "dark" without re-probing. Before carrying "unavailable" forward, make the
+  live read-only call above in the session that will report. A start-of-run probe does not hold
+  for the run either: a connected server can drop to `CONNECTION_CLOSED` mid-session.
 
 ## The credential CLI is not the arbiter, in either direction
 
@@ -76,7 +79,8 @@ background context, never as a verdict, and never gate a run on it alone.
 Observed in one session: two servers fronting the same vendor, one answering normally and the
 other dead with `CONNECTION_CLOSED`. A question needing the dead half was unanswerable while a
 tool bearing that vendor's name sat right there, responding. Name the *server*, not the vendor,
-when you record what you swept.
+when you record what you swept. Recovery is independent too: a re-auth on a shared credential
+preset can fix one server and not another, so re-probe each after a reconnect.
 
 ## Strict serialization looks like a transport bug
 

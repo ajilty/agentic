@@ -42,22 +42,28 @@ journal rows the same as to anything else you pull from this session, since
 you are the harvester and identity redaction happens here, before anything
 leaves the machine.
 Rows newer than the timestamp in the sibling `journal.cursor` file are
-unharvested; group them by `tool` and `fp`, so a failure that hit five times
-shows as one candidate with a count. Each row carries `transcript_path` and
-`tool_use_id`: when a candidate needs the retries and the variant that worked,
-`grep` the id in that transcript rather than asking the user to remember. The
-journal captures what errored; the silent incomplete answers that make up
-most edges still come from your own read of this session. Journal rows are
-local-only and their `tool` field carries the user's MCP server alias
-(`mcp__<alias>__<tool>`); an alias may name an entity, so normalize it to the
-vendor (`mcp__wiz__...`) before anything reaches a candidate.
+unharvested; group them by `tool` and `fp`, counting rows and distinct
+`session_id`s, so a failure that hit five times shows as one candidate with
+its counts. Count the rows in scope (every row past the cursor, whatever tool
+the argument names) and the rows you actually reviewed. Each row carries
+`transcript_path` and `tool_use_id`: when a candidate needs the retries and
+the variant that worked, `grep` the id in that transcript rather than asking
+the user to remember. The journal captures what errored; the silent incomplete
+answers that make up most edges still come from your own read of this session.
+Journal rows are local-only and their `tool` field carries the user's MCP
+server alias (`mcp__<alias>__<tool>`); an alias may name an entity, so
+normalize it to the vendor (`mcp__wiz__...`) before anything reaches a
+candidate.
 
 ## 2. Confirm
 
 Present the candidates in one message: for each, the observation (one or two
-lines), the likely target skill, and whether it reads as vendor-specific or as
-a generic connector pattern (those belong in `working-with-mcp-connectors`,
-with at most a one-line pointer in the vendor skill). Ask which to submit.
+lines), its journal counts (`65 hits across 3 sessions`, or
+`no journal row: silent` for a wrong answer that never errored,
+`no journal row: technique` for a variant that worked), the likely target
+skill, and whether it reads as vendor-specific or as a generic connector
+pattern (those belong in `working-with-mcp-connectors`, with at most a
+one-line pointer in the vendor skill). Ask which to submit.
 
 **A candidate an existing bullet already covers is a repeat hit, not noise.**
 It is the one measurement of whether that edge works, so keep it as its own
@@ -65,16 +71,16 @@ candidate kind. Before presenting it, check the transcript for whether the
 `working-with-<tool>` skill had loaded before the failing call (grep the
 transcript for the skill name). Present it as `repeat hit, skill not loaded`
 (the description missed the surface) or `repeat hit, skill loaded` (the bullet
-did not prevent the failure), with the count. Either way it goes to the author
-as a fix to the description or the bullet, never as a new line, and never
-gets dropped as redundant.
+did not prevent the failure). Either way it goes to the author as a fix to the
+description or the bullet, never as a new line, and never gets dropped as
+redundant.
 
 **End the message with a scorecard, one row per target skill.** Each
 candidate is one of three kinds: `new` (nothing covered it), `repeat` (a
 bullet covered it, loaded or not), or `correction` (a bullet covered it
 wrongly). Count them per skill:
 
-```
+```text
 working-with-<tool>   new 5   repeat 2 (1 loaded, 1 not)   correction 1
 ```
 
@@ -88,16 +94,18 @@ with the candidates so it lands in the PR body, which is how the trend
 accumulates in git history.
 Nothing is written before the answer, except the cursor: once the candidates
 are on screen, write the current UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)
-to `journal.cursor` so dismissed rows do not resurface next session.
+to `journal.cursor` so dismissed rows do not resurface next session. Rows
+behind it never come back, so when you reviewed fewer rows than were in scope,
+the message says `reviewed <r> of <n> journal rows` before you write it.
 
 ## 3. Hand off
 
 Invoke `edges:harvest-author` with the confirmed candidates as its argument:
 one block per candidate carrying observation, target skill, any user
-direction, and for a repeat hit its kind and count, followed by the scorecard
-verbatim. For a diet, skip steps 1
-and 2 and invoke it with `diet <skill>`, plus `: <direction>` when given.
-Do not clone, edit, or open PRs from this session.
+direction, its kind and its count or no-row label from step 2, followed by the
+scorecard verbatim. For a diet, skip steps 1 and 2 and invoke it with
+`diet <skill>`, plus `: <direction>` when given. Do not clone, edit, or open
+PRs from this session.
 
 Both forked skills run in the **background**: the invocation returns at once
 and the result arrives later as a task notification. Give the user a

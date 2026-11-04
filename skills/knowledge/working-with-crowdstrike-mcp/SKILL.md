@@ -5,21 +5,23 @@ description: "CrowdStrike Falcon MCP (any falcon_* tool: NGSIEM/CQL search, dete
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
 
-Operating the tool. Vendor field meanings appear only where a correlation edge turns on them
-(last section); keep the rest in your own per-source notes.
+Operating the tool. Vendor field meanings appear only where a join turns on them. Unless a bullet
+quotes an error, every failure below comes back as clean output: zero rows, dropped columns or
+records, wrong counts, truncated lists.
 
 ## falcon_search_ngsiem (CQL / LogScale)
 
-- **The CQL argument is `query_string`, not `query`.** Passing `query` fails pydantic
-  validation, `Field required` for `query_string` — a call-shape error that reads like a missing
-  query rather than a wrong parameter name; `start`/`end` are ISO-8601 only
-  (`Invalid isoformat string: '7d'`).
-- **A `field := formatTime(...)` assignment stage drops every later `select()` / `head()`**
-  with no error. Put formatting last and check the result shape.
+- **The CQL argument is `query_string`, not `query`.** Passing `query` fails as `Field
+  required` for `query_string`, which reads like a missing query; `start`/`end` are ISO-8601
+  only (`Invalid isoformat string: '7d'`).
+- **A `field := formatTime(...)` assignment stage drops every later `select()` / `head()`.**
+  Put formatting last and check the result shape.
 - **Sample before you aggregate**: `<filter> | head(3)`, read the real field names, then
-  `top()`/`count()`. `top(missing_field)` returns empty with no error — and so does a field that
-  is real but lives inside `@rawstring` on an unparsed dataset: `groupBy` on one returned 0 rows
-  against 136 with the grouping removed, and the tool's hint called the negative genuine.
+  `top()`/`count()`. `top(missing_field)` returns empty, and so does a real field still inside
+  `@rawstring` on an unparsed dataset (`groupBy` on one returned 0 rows against 136 with the
+  grouping removed; the tool's hint called the negative genuine). `processed_events` passes
+  either way (three such queries), so validate a negative on the filter alone (`<filter> |
+  head(3)` or `| count()`), then aggregate.
 - **`repository`** scopes and speeds the search: `search-all` (default, slowest), `third-party`
   (connector feeds), `investigate_view` (endpoint), `falcon_for_it_view`, `forensics_view`. **It
   is a different namespace from the `#repo` tag**: `#repo=third-party` with
@@ -33,42 +35,37 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   org is onboarded before reporting the zero: `#repo=<repo> | top(<org field>)`.
 - **`groupBy(field, limit=N)` keeps the lexicographically-first N groups, not the top N by
   count**, and a trailing `sort()` ranks only that subset:
-  `groupBy(user.name, limit=25) | sort(_count, order=desc)` silently drops the true maximum. Use
+  `groupBy(user.name, limit=25) | sort(_count, order=desc)` drops the true maximum. Use
   `top(field, limit=N)` for "most"; use `groupBy(…limit…)` only with the limit above
   cardinality.
 - `OR` across two `regex()` calls is HTTP 400; write `field=/.../i or field=/.../i`.
 - **`table(limit=N)` truncates from the END of the query window, not the start.** Raising the
   limit never surfaces an early event; narrow the time range instead.
 - **A `groupBy` after a loose case-insensitive regex filter (`CommandLine=/pattern/i`) can return
-  implausible fleet-wide counts** — no error, just a plausible wrong number. An exact-match
-  filter plus an explicit `case {}` control returns the correct ones; reserve the loose regex for
-  discovery, not for counting.
+  implausible fleet-wide counts.** Count on an exact-match filter plus an explicit `case {}`
+  control; keep the loose regex for discovery.
 
 ### Reading results
 
-- Numbers are strings (`"_count": "2773932"`): cast before math. Spilled results carry no
-  `total`; re-run with an in-query `count()` if it matters.
+- Spilled results carry no `total`; re-run with an in-query `count()` if it matters.
 - **Zero rows with `job.processed_events: 0` is not a negative**: nothing was scanned; a real
-  negative has `processed_events > 0`. The tool flags this by appending a hint plus the whole
-  inline CQL guide, which is easy to skim past. Read `processed_events` before reporting
-  "nothing found" — **and the guard stops holding once the query ends in `top()` or
-  `groupBy()`**: three such queries returned zero rows with it passing. Validate the negative on
-  the filter alone (`<filter> | head(3)` or `| count()`), then aggregate.
+  negative has `processed_events > 0`, and for a query ending in `top()` or `groupBy()` not even
+  that (above). The tool flags a zero scan by appending a hint plus the whole inline CQL guide,
+  which is easy to skim past.
 - **A short free-text token is not a filter.** A two-character token into `groupBy` scanned
-  215,686,423 events and returned lexicographically-first groups unrelated to the token (192
-  groups where 128 mentioned it); a distinctive phrase is precise and cheap over `search-all`
-  (six months, ~18TB, ~100s): `groupBy([#repo, #event.dataset])`, then drill the repos that
-  hit. Compare `job.event_count`
-  against `job.processed_events` before trusting any free-text aggregation, and anchor to fields
-  (`Vendor.actor.alternateId=/x/i`) or tags: `#repo`, `#Vendor`, `#type`, `#event.dataset`,
-  `#event.module`, `#event.kind`.
+  215,686,423 events and returned lexicographically-first groups unrelated to it (192 groups
+  where 128 mentioned it). A distinctive phrase is precise and cheap over `search-all` (six
+  months, ~18TB, ~100s): `groupBy([#repo, #event.dataset])`, then drill the repos that hit.
+  Compare `job.event_count` against `job.processed_events` before trusting a free-text
+  aggregation; anchor to fields (`Vendor.actor.alternateId=/x/i`) or tags: `#repo`, `#Vendor`,
+  `#type`, `#event.dataset`, `#event.module`, `#event.kind`.
 - **`job.parsed_query` omits trailing `groupBy`/`sort` stages that demonstrably ran**; confirm
   aggregation from the result shape.
-- **Spills**: a wide `head(N)` spills to `tool-results/*.txt`; aggregate in-query.
-  `falcon_search_applications` `name:'*Product*'` over a widely-installed product also spills.
-  Calibration: `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16
-  records and still spilled (100,500 chars, 2,156 lines); lowering `limit` will not save you, plan to parse
-  (`python3 json.load`). For raw evidence, `… | select([@timestamp, @rawstring])`: a free-text
+- **Spills** (`tool-results/*.txt`): a wide `head(N)` spills; aggregate in-query.
+  `falcon_search_applications` `name:'*Product*'` over a widely-installed product also spills,
+  and `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16 records and
+  still spilled (100,500 chars, 2,156 lines; parse per working-with-mcp-connectors). For raw
+  evidence, `… | select([@timestamp, @rawstring])`: a free-text
   search plus `head(20)` on mail-gateway rows spilled at 74,725 chars; `select()` returned the
   same at a fraction.
 
@@ -78,24 +75,29 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   `ImageFileName`, `ParentBaseFileName`), not `ProcessRollup2`: zero `ProcessRollup2` children of
   a parent is not "no telemetry" when the detection shows prevention.
 - **For "what is listening / what connected inbound", use `NetworkReceiveAcceptIP4`, not
-  `NetworkListenIP4`.** `#event_simpleName=NetworkListenIP4` is unreliable — it returned zero rows
-  for a port that was provably listening; the inbound-accept event caught it. A wildcard-bound
-  socket (`:::<port>`) also needs `NetworkReceiveAcceptIP6` checked separately, or the IPv6 half
-  of the exposure is missed.
-- `groupBy` silently drops a column whose field is absent on the rows. `ProcessRollup2` does not
+  `NetworkListenIP4`**: `#event_simpleName=NetworkListenIP4` returned zero rows for a provably
+  listening port that the inbound-accept event caught. A wildcard-bound socket (`:::<port>`)
+  also needs `NetworkReceiveAcceptIP6`, or the IPv6 half of the exposure is missed.
+- `groupBy` drops a column whose field is absent on the rows. `ProcessRollup2` does not
   reliably populate `FileVersion`: pin a build by `SHA256HashData` mapped via
   `falcon_search_applications` or RTR `filehash` (read-only RTR has no PE-version command;
-  `reg query` is the other route, and a vendor key may hold no version value). `AsepValueUpdate`
-  (`investigate_view`) has no `ImageFileName`; its writer is `ContextProcessId`, which equals the
-  detection's `process_id` exactly: the alert-to-registry join.
+  `reg query` is the other route, and a vendor key may hold no version value).
+- **Detection process ids join to sensor events** (`repository: 'investigate_view'`, `aid=<aid>`):
+  an automated lead's `threatgraph_indicators[].process_id` is `TargetProcessId` on
+  `ProcessRollup2` (3 of 3 indicators resolved over the signal window):
+  `aid=<aid> #event_simpleName=ProcessRollup2 TargetProcessId=/^(<pid1>|<pid2>|<pid3>)$/ |
+  select([@timestamp, TargetProcessId, ParentProcessId, UserName, FileName, CommandLine,
+  ParentBaseFileName, SHA256HashData])`. `AsepValueUpdate` has no `ImageFileName`; its writer
+  is `ContextProcessId`, equal to the detection's `process_id`. False-positive check is fleet
+  prevalence: `SHA256HashData=<hash> | count(aid, distinct=true)`.
 
 ## search_* / aggregate_* FQL tools, and other filtered reads (detections, hosts, cases, ...)
 
 - FQL, not CQL (`falcon://<domain>/.../fql-guide`). Unknown fields split: some are HTTP 400 (bare
-  `cve:'…'`, write `cve.id:'…'`; `host_info.hostname`), others return empty silently (`cmdline`),
-  so an empty set never proves the filter was evaluated.
+  `cve:'…'`, write `cve.id:'…'`; `host_info.hostname`), others return empty (`cmdline`), so an
+  empty set never proves the filter was evaluated.
 - **Neither a severity filter nor an open-items filter is a safe default on the endpoint
-  detection queue**; each alone silently zeroes it. (1) A tenant emitting no `product: epp`
+  detection queue**; each alone zeroes it. (1) A tenant emitting no `product: epp`
   alerts carries endpoint signal as `automated-lead` / `automated-lead-context` rows with a
   numeric `score` and no `severity_name`, so `severity:>70`, `severity_name:'high'` and a
   `severity.desc` sort drop the whole queue. (2) `is_closed` can be a schema artifact: every
@@ -103,11 +105,11 @@ Operating the tool. Vendor field meanings appear only where a correlation edge t
   `seconds_to_resolved: 0`, `show_in_ui: true`, so `is_closed:false` also returns zero and says
   nothing about triage. Establish the population first with `falcon_aggregate_detections`
   faceted on `product` and `source_vendors`; build triage on `product` + `created_timestamp`.
-- **`falcon_aggregate_detections` drops records lacking the faceted field** with no flag: a
+- **`falcon_aggregate_detections` drops records lacking the faceted field**: a
   `severity_name` facet summed to 237 against `pagination.total` 253 with `sum_other_doc_count`
   0. Pass `missing` to bucket them and cross-check facet sum against `pagination.total` every time.
 - `cmdline:'*substring*'` on `falcon_search_detections` / `falcon_aggregate_detections` returns
-  empty silently (unsupported field). Pivot to `pattern_id:`, `technique_id:`, `tags:`, or a
+  empty (unsupported field). Pivot to `pattern_id:`, `technique_id:`, `tags:`, or a
   time-boxed `created_timestamp:`.
 - **`falcon_search_detections` `q` is a fuzzy multi-token OR match.** Single-token `q` is usable
   (positive control: 225 rows); multi-token returns unrelated rows. Prefer `sha256:`,
@@ -138,16 +140,15 @@ telemetry) for "where is X installed", within these limits.
   Transport) reports `name: "Veeam Backup & Replication"`; 263 distinct hosts where 5 ran the
   server role. Filter `host.product_type_desc`, read component-level names, and diff Discover
   against running-process telemetry: the disagreement is the finding.
-- **No row is ever retired**: one host listed three major versions long after two were
-  uninstalled. No removal event, no last-seen decay, so it cannot answer "are we still running the
-  vulnerable version" and a patched host is indistinguishable from an unpatched one. The oldest
-  version is a risk flag to check on-host (RTR `filehash`, process telemetry); never open or
-  close a remediation ticket on Discover alone.
+- **No row is ever retired** (no removal event, no last-seen decay): one host listed three
+  major versions long after two were uninstalled, so a patched host is indistinguishable from an
+  unpatched one. Treat the oldest version as a flag to check on-host (RTR `filehash`, process
+  telemetry); never open or close a remediation ticket on Discover alone.
 
 ## falcon_search_managed_assets (application row to host)
 
 - An application row's `host.id` is an opaque asset id, not the 32-hex device id; handing it to
-  a host-scoped call returns empty silently. Join via `id:'<cid>_<assetid>'`.
+  a host-scoped call returns empty. Join via `id:'<cid>_<assetid>'`.
 - `id` rejects list syntax (`id:[...]`) with a hard error,
   `invalid filter; operator in not allowed for property id`; use comma-OR equality,
   `id:'<a>',id:'<b>'`, several per call.
@@ -170,16 +171,14 @@ telemetry) for "where is X installed", within these limits.
 ## Firewall Management (NG-SIEM `FirewallMatchEvent` + rule-group writes)
 
 - **`FirewallMatchEvent` returns zero rows AND zero `processed_events` tenant-wide when Falcon
-  Firewall Management has never enforced on the estate** — the event type does not exist here,
-  but the tool hint reads like a syntax complaint rather than "this event is absent." Confirm
-  Firewall Management is enforcing before reading a `FirewallMatchEvent` zero as "no blocked
-  traffic."
+  Firewall Management has never enforced on the estate**, and the tool hint reads like a syntax
+  complaint, not "this event is absent." Confirm enforcement before reading the zero as "no
+  blocked traffic."
 - A fleet-wide `groupBy` on a specific `RemotePort` hits the same `limit=` truncation (empty
   `warnings`) and is dominated by Zscaler tunnel noise — pin the destination address, not the port.
 - **The Firewall Management MCP surface exposes create/delete on rule GROUPS but nothing to
   attach a group to a POLICY.** A rule group created via `falcon_create_firewall_rule_group` sits
-  `enabled: false` with `policy_ids` empty and enforces nothing; policy attachment has no MCP
-  tool, so a group built here is inert until wired up in the console.
+  `enabled: false` with `policy_ids` empty, inert until wired up in the console.
 
 ## Real Time Response (read-only tier)
 
@@ -189,13 +188,10 @@ telemetry) for "where is X installed", within these limits.
   `falcon_init_rtr_session` first (it returns the host's command schema and `offline_queued: false`
   when live), carry `session_id` into every command, `falcon_delete_rtr_session` when done.
 - **A session expires mid-use and the failure reads as a missing session, not an expired one**:
-  `Could not find existing session` (code `40002`). Re-init on that error and resume; do not
-  treat it as a bad `session_id` you passed.
+  `Could not find existing session` (code `40002`). Re-init and resume.
 - **`rtr_state: enabled` is policy, not liveness**: init against a host not checked in returns
   HTTP 404, `errors[0].code` `40401`, `Could not establish sensor comms`. Compare `last_seen` to
   now before planning RTR; laptops are unreachable off-hours.
-- The read-only tier has no PE-version command: `filehash` then map via inventory, or `reg query`
-  (see the endpoint telemetry bullet under NG-SIEM for the `FileVersion` route and its gaps).
 
 ## Console deep-links and writes
 
@@ -220,23 +216,22 @@ Worked examples; they apply only where your estate ingests the same sources.
 
 - **M365 / Exchange audit**: Defender-passthrough detections carry no target mailbox or
   operation; the NG-SIEM pivot into M365 audit rows is mandatory.
-- **A journaled message's alert names the envelope, not the author**: `falcon_get_detection_details`
-  gives `sender` = the SMTP envelope and `message_id` = the synthetic `…@journal.report.generator`
-  id. The discriminating field, `senderHeader`, is absent from the alert and lives only in the
-  NG-SIEM row's `@rawstring`; reading direction off the alert alone turns an inbound phish into
-  an outbound lure from your own user.
+- **An alert's `sender` is not the author.** On a journaled message
+  `falcon_get_detection_details` gives `sender` = the SMTP envelope and `message_id` = the
+  synthetic `…@journal.report.generator` id; the discriminating `senderHeader` lives only in the
+  NG-SIEM row's `@rawstring`, and reading direction off the alert turns an inbound phish into an
+  outbound lure from your own user. Spearphish detections can carry an empty `sender` with
+  `header_from` populated (all 24 rows of one campaign): key a sweep on `header_from` too.
 - **Mail-gateway process rows (Mimecast `emailsecurity.process`) carry `Vendor.attachments` and
   `email.subject` but no sender or recipient**: a sender + attachment filter returns zero with
   `processed_events: 0`. Join through subject or messageId / `aggregateId`. `Vendor.route`
   exists on dlp/spam rows but not receipt rows (drops from `groupBy`, above); classify receipt
   direction by recipient-domain regex.
-- **Spearphish detections can carry an empty `sender` with `header_from` populated** (all 24
-  rows of one campaign), so a sender-keyed sweep misses the campaign; key on `header_from` too.
-- **Message-ID is not a dedupe key across journal legs**: two journal forks of one message carry
-  different synthetic Message-IDs and `aggregateId`s, so a Message-ID dedupe over-counts. The
-  journal fork shows three markers together (Message-ID ending `@journal.report.generator`, a
-  recipient at the archiver's ingest domain, `senderEnvelope` equal to the journaling address);
-  dedupe on sender header + subject + attachment hash.
+- **Message-ID is not a dedupe key across journal legs**: two forks of one message carry
+  different synthetic Message-IDs and `aggregateId`s. A fork shows three markers together
+  (Message-ID ending `@journal.report.generator`, a recipient at the archiver's ingest domain,
+  `senderEnvelope` equal to the journaling address); dedupe on sender header + subject +
+  attachment hash.
 - **Zscaler ZIA to sensor**: `zia.web` `source.Id` / `client.Id` *is* the Falcon `aid` (exact
   join). On tunnel-client hosts, endpoint DNS/NetworkConnect attributes egress to `ZSATunnel.exe`,
   not the browser; naming the originating process needs live RTR.

@@ -1,20 +1,20 @@
 ---
 name: working-with-knowbe4-phisher
-description: "KnowBe4 PhishER MCP (get_phisher_message* tools). Load before the first PhishER call in a session; covers which filters are real, paging versus filtering, status polarity, simulation tagging. Also when asked whether an empty reported-phish result is a real zero or to separate a simulation from a live phish."
+description: "KnowBe4 PhishER MCP (get_phisher_message*, get_phisher_attachment). Load before the first PhishER call in a session and before any parallel batch; covers serialization, which filters are real, paging versus filtering, status polarity, simulation tagging. Also when asked to triage the reported-phish queue, whether an empty result is a real zero, or to separate a simulation from a live phish."
 ---
 
 # Working with the KnowBe4 PhishER MCP — sharp edges
 
-Reading the user-reported phish queue via `get_phisher_messages` /
-`get_phisher_message` / `get_phisher_message_raw` / `get_phisher_message_eml`. Which
-mailboxes and campaigns exist is your environment's fact, not this skill's.
+Reading the user-reported phish queue. Which mailboxes and campaigns exist is your
+environment's fact, not this skill's. Campaign and awareness-training data live on a separate
+KnowBe4 server that fails independently of this one.
 
 ## Only three filters are real, and the other two fail silently
 
 - **`subject:`, `status:` and `id:` are evaluated. `from:` and `reportedBy:` are not.**
   Both return `{"result":[]}` for values that are **verbatim present** on a row you can
-  fetch by id — no error, no warning. Any reporter- or sender-scoped question has to be
-  answered by paging the corpus and filtering client-side.
+  fetch by id. Any reporter- or sender-scoped question has to be answered by paging the
+  corpus and filtering client-side.
 - **Prove a filter before trusting its zero.** Pin one row by id, then probe the field in
   both polarities against a deliberately bogus value:
 
@@ -22,13 +22,9 @@ mailboxes and campaigns exist is your environment's fact, not this skill's.
   id:<known-id> status:zzzbogusstatus     -> []          the field IS evaluated
   id:<known-id> -status:zzzbogusstatus    -> the row     negation IS honoured
   ```
-
-  Both holding is what makes an empty result from that field a real zero. This is the
-  only cheap way to tell a true zero from a mis-scoped query here.
 - **`subject:` matches word STEMS, not exact tokens** — `subject:update` returns rows
   titled Update, Updates and Updated. Run a stem control before trusting any empty
-  `subject:` probe; a filter that returns inflections is working, which is what makes its
-  silence meaningful.
+  `subject:` probe.
 
 ## Rows carry no status field — run the query twice
 
@@ -39,32 +35,21 @@ read off a row. Establish queue state by running the query in both polarities:
 
 ## Paging and filtering return DISJOINT sets
 
-Twelve pages of 25 with an empty query returned 300 messages; `subject:<term>` then
-surfaced **18 messages that appeared on none of those pages**. The paged listing behaves
-as a recency window, the API returns **no total**, and the last page still came back full.
-So **"not on any page" is never "not in the corpus"** — a corpus-absence claim needs a
-filtered probe as well as exhausted paging, and even then should be labelled.
+The paged listing is a recency window with no total, and the last page still comes back full:
+`subject:<term>` surfaced messages that appeared on none of the pages already read. "Not on any
+page" is never "not in the corpus"; a corpus-absence claim needs a filtered probe plus exhausted
+paging, and is labelled.
 
 ## Serialize every call
 
-Parallel calls to this server fail with
-`Error calling tool 'get_phisher_messages': Transport is already connected`. **Only the
-first of a concurrent batch lands.** Issue every call to this server one at a time.
+This server is strictly one-at-a-time: in a parallel batch only the first call lands and the
+rest fail with `Error calling tool '<tool>': Transport is already connected`.
 
 ## Telling a reported simulation from a reported live phish
 
-A KnowBe4 **simulated** phish that a user reports through the Phish Alert Button carries
-the tag **`KB4:KMSAT_HEADERS`** on its PhishER row. That tag is the cheapest way to
-separate a reported simulation from a reported live phish without touching the awareness-
-training console — which matters, because the two are otherwise indistinguishable in the
-queue and inflate any "users are reporting phish" count.
-
-## Sibling servers fail independently
-
-A separate KnowBe4 server (the awareness-training/campaign surface) can be dead with
-`CONNECTION_CLOSED` while this one answers normally. A KnowBe4 question that needs
-campaign data is then unanswerable even though a KnowBe4 tool is present and responding —
-name the server you actually swept, not the vendor.
+A reported KnowBe4 simulation carries the tag `KB4:KMSAT_HEADERS` on its PhishER row. Filter on
+it to keep simulations out of any "users are reporting phish" count without opening the
+awareness-training console.
 
 ---
 Wrong, stale, or missing edge? File it: https://github.com/ajilty/agentic/issues/new?template=edge-report.yml

@@ -5,20 +5,13 @@ description: "Microsoft 365 connector (Outlook mail and calendar, Teams chat, Sh
 
 # Working with the Microsoft 365 connector — sharp edges
 
-What the M365 connector can and, more importantly, **cannot** do — so a request to read a
-document's contents resolves into a working fallback rather than a stall or a guess.
-
-## What it can do
-
-- **Reads METADATA across mail, calendar, and SharePoint** — message and event names, senders,
-  recipients, dates, sizes, folder/path structure, and the **thread text** of email bodies and
-  calendar event descriptions. Searching and listing work well.
-- Right tool for "find the thread about X", "who was on this meeting", "what's the subject/size
-  of the attachment", "what files are in this SharePoint folder".
+What the M365 connector cannot do, where it answers confidently but incompletely, and the
+fallback for each.
 
 ## What it cannot do — and the fallback
 
-The connector is **metadata-and-text only**, with **no binary download** path:
+The connector is **metadata-and-text only** (names, senders, sizes, paths, and the thread text
+of mail bodies and event descriptions), with **no binary download** path:
 
 - **It cannot render `.doc` / `.docx` contents.** It surfaces that a Word attachment exists, its
   name and size — not the document text inside it.
@@ -96,7 +89,7 @@ visually** instead of trusting the broken text layer.
 - **SharePoint share-notification mails carry no document URL.** Report the item as a named
   gap; never construct a link.
 
-## The tenant's Graph quota is shared across every surface
+## Teams chat search and the shared Graph quota
 
 - **`chat_message_search` covers group and 1:1 chats ONLY, never channel messages**, and says
   nothing about the gap — its coverage counters are chats-scanned over chats-listed, so a run can
@@ -120,7 +113,6 @@ visually** instead of trusting the broken text layer.
   `searchInfo` with no banner and no `stoppedBy` field while still reporting `chatsFailed: 10`.
   `coverage.chatsScanned` against `coverage.chatsListed` is the only honest measure **of the
   chat corpus** — read the ratio every time and report it rather than the absence of a warning.
-  It says nothing about channels, which the tool does not search at all (first bullet).
 
 ## Calendar reading
 
@@ -140,12 +132,10 @@ visually** instead of trusting the broken text layer.
   query string (cut at `…/j/<id>?`, dropping the `pwd` parameter). For Teams-hosted events take
   `onlineMeeting.joinUrl` from a full `read_resource` event read; for other providers report a
   truncated body URL as null, never complete it.
-- **Sent Items is ~a third RSVP auto-receipts, and they are noise and signal at once.** Of 80
-  sent messages over 7 days, roughly 20 were `Accepted:` / `Tentative:` / `Canceled:` /
-  `New Time Proposed:` receipts and ~6 were file-share/comment notifications, so a naive sent
-  count overstates real correspondence by about a third — filter them out of any "who did I
-  write to" measure. They are simultaneously **the only cheap bulk source of RSVP truth**, which
-  is what the per-event `responseStatus` read above does not scale to.
+- **Sent Items is ~a third RSVP auto-receipts.** Of 80 sent messages over 7 days, roughly 20
+  were `Accepted:` / `Tentative:` / `Canceled:` / `New Time Proposed:` receipts and ~6 were
+  file-share/comment notifications, so a naive sent count overstates real correspondence by about
+  a third — filter them out of any "who did I write to" measure.
 
 ## No headers, and no admin surface at all
 
@@ -161,10 +151,10 @@ visually** instead of trusting the broken text layer.
   stream instead**; that pivot turns a dead end into a single query, and is usually the only way
   to establish who did what to which mailbox.
 
-## Two 403s that look like outages and are not
+## 403s that look like outages and are not
 
 `get_me` succeeding while another call 403s is the tell: the connector is live and the problem is
-an unconsented scope, not connectivity. Both of these need an admin grant, so surface them as an
+an unconsented scope, not connectivity. Each of these needs an admin grant, so surface it as an
 operator action rather than retrying.
 
 - **Shared / other-mailbox reads need `Mail.Read.Shared`.** `outlook_email_search` with
@@ -178,6 +168,10 @@ operator action rather than retrying.
   admin-consented on the confidential client app registration`. With this dark there is no
   authoritative identity or group read at all — resist inferring membership from other surfaces
   without labelling it.
+- **Team enumeration needs `Team.ReadBasic.All`.** `teams_list_teams` returns, verbatim:
+  `FORBIDDEN: Missing scope 'Team.ReadBasic.All': Microsoft Entra has not granted this
+  connector the 'Team.ReadBasic.All' ...` while Teams chat calls work. Channel reads then
+  need a `teamId` from another source; without one, name channel coverage as a gap.
 
 ---
 Wrong, stale, or missing edge? File it: https://github.com/ajilty/agentic/issues/new?template=edge-report.yml

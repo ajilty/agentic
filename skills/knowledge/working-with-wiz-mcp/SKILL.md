@@ -1,6 +1,6 @@
 ---
 name: working-with-wiz-mcp
-description: "Wiz MCP (list_issues, graph_search, list_cloud_resources, multi-tenant servers). Load before the first Wiz call in a session; covers tenant control probes, schema probes, query shapes, synthetic entities, paging caps, missing console links. Also for blast-radius or package hunts, IAM trust-policy questions, or clickable finding links."
+description: "Wiz MCP (discover and execute: list_issues, graph_search, list_cloud_resources; multi-tenant servers). Load before the first Wiz call in a session; covers tenant control probes, schema probes, query shapes, synthetic entities, paging caps, missing console links. Also for blast-radius or package hunts, IAM trust-policy questions, natural-language graph queries, or clickable finding links."
 ---
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
@@ -31,9 +31,12 @@ third party from an unregistered affiliate. Wiz cannot make that correlation its
   array, but got string`; `properties/tech_name/type`). That enum read is the cheapest guard
   against the uppercase-value trap. A parameter that does NOT error is in the schema; whether it
   is *applied* still needs the both-polarities probe in `working-with-mcp-connectors`.
-- **`graph_search` takes a free-text STRING, not an object.** Passing a query object returns
-  `expected string, but got object`, and a string it cannot parse returns `Failed to convert free
-  text to graph query`.
+- **`graph_search` takes a free-text STRING; a structured query goes to `execute_graph_query`.**
+  An object passed to `graph_search` returns `expected string, but got object`. Free text it
+  cannot translate fails as `{"extensions":{"code":"INTERNAL"},...,"message":"Failed to convert
+  free text to graph query","path":["aiGraphQuery"]}`. It is not an outage, and sending the same
+  text again fails the same way. Rewrite it as a `GraphEntityQueryInput` object (`type`, `where`,
+  `relationships`) in `execute_graph_query`'s `query`.
 
 ## Package / SBOM presence (the "are we affected" question)
 
