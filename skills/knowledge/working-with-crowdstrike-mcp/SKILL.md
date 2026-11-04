@@ -5,9 +5,8 @@ description: "CrowdStrike Falcon MCP (any falcon_* tool: NGSIEM/CQL search, dete
 
 # Working with the CrowdStrike Falcon MCP — sharp edges
 
-Operating the tool. Vendor field meanings appear only where a join turns on them. Unless a bullet
-quotes an error, every failure below comes back as clean output: zero rows, dropped columns or
-records, wrong counts, truncated lists.
+Unless a bullet quotes an error, every failure below comes back as clean output: zero rows,
+dropped columns or records, wrong counts, truncated lists.
 
 ## falcon_search_ngsiem (CQL / LogScale)
 
@@ -50,8 +49,8 @@ records, wrong counts, truncated lists.
 - Spilled results carry no `total`; re-run with an in-query `count()` if it matters.
 - **Zero rows with `job.processed_events: 0` is not a negative**: nothing was scanned; a real
   negative has `processed_events > 0`, and for a query ending in `top()` or `groupBy()` not even
-  that (above). The tool flags a zero scan by appending a hint plus the whole inline CQL guide,
-  which is easy to skim past.
+  that (above). The tool's zero-scan hint (the whole inline CQL guide appended) is easy to skim
+  past.
 - **A short free-text token is not a filter.** A two-character token into `groupBy` scanned
   215,686,423 events and returned lexicographically-first groups unrelated to it (192 groups
   where 128 mentioned it). A distinctive phrase is precise and cheap over `search-all` (six
@@ -61,13 +60,10 @@ records, wrong counts, truncated lists.
   `#type`, `#event.dataset`, `#event.module`, `#event.kind`.
 - **`job.parsed_query` omits trailing `groupBy`/`sort` stages that demonstrably ran**; confirm
   aggregation from the result shape.
-- **Spills** (`tool-results/*.txt`): a wide `head(N)` spills; aggregate in-query.
-  `falcon_search_applications` `name:'*Product*'` over a widely-installed product also spills,
-  and `falcon_search_detections` `product:'automated-lead'`, `limit: 50` returned 16 records and
-  still spilled (100,500 chars, 2,156 lines; parse per working-with-mcp-connectors). For raw
-  evidence, `… | select([@timestamp, @rawstring])`: a free-text
-  search plus `head(20)` on mail-gateway rows spilled at 74,725 chars; `select()` returned the
-  same at a fraction.
+- **`select()` drops columns, not `@rawstring` weight; aggregate in-query.**
+  `select([@timestamp, @rawstring])` cut a mail-gateway `head(20)` from 74,725 chars to a
+  fraction, but two user-activity audit rows were 156K and one Entra sign-in ~25K (`head(2)`
+  spills): `groupBy` named fields, or `regex("(?<name>...)", field=@rawstring)`.
 
 ### Endpoint telemetry fields
 
@@ -115,16 +111,22 @@ records, wrong counts, truncated lists.
   (positive control: 225 rows); multi-token returns unrelated rows. Prefer `sha256:`,
   `device.hostname:`, `pattern_id:`; validate any empty `q` against a positive control before
   reporting a negative.
+- **Spills** (`tool-results/*.txt`), weight per record: host ~6-7.5K chars (`falcon_search_hosts`
+  `limit: 500` returned 74 hosts, 453K; `limit: 1` still returns `pagination.total`: count from
+  that); `falcon_get_detection_details` ~15-30K per id (count via
+  `falcon_aggregate_detections`); `falcon_search_detections` `product:'automated-lead'`,
+  `limit: 50`: 16 records, 100,500 chars, 2,156 lines; `falcon_search_applications`
+  `name:'*Product*'` on a widely-installed product spills too.
 - **`falcon_search_report_executions` cannot say whether a report was read** (Falcon exposes no
   read/download state; the delivery notification only proves generation) and is a token trap:
-  `status:'DONE'`, `limit: 15` spilled 153,800 chars / 1,207 lines of XDR correlation-rule
-  execution metadata. Filter by report id or skip it.
+  `status:'DONE'`, `limit: 15` spilled 153,800 chars / 1,207 lines. Filter by report id or skip
+  it.
 - **`falcon_idp_investigate_entity` can be scope-denied on a token where every other tool
-  works**, verbatim: `access denied, scope not permitted Required scopes: Identity Protection
-  Entities:read` — a separately licensed module, so an entitlement answer, not a connectivity
-  one. `entity_names` and `email_addresses` are each a STRING, not a list, so one entity per
-  call, and the rejection reads as a bad entity rather than a bad call shape: `1 validation
-  error for investigate_entityArguments | entity_names | Input should be a valid string
+  works**: `access denied, scope not permitted Required scopes: Identity Protection
+  Entities:read` (a separately licensed module: an entitlement gap, not connectivity).
+  `entity_names` and `email_addresses` are each a STRING, not a list, so one entity per call,
+  and the rejection reads as a bad entity: `1 validation error for
+  investigate_entityArguments | entity_names | Input should be a valid string
   [type=string_type, input_value=['<name>'], input_type=list]`.
 
 ## falcon_search_applications (Discover)
@@ -211,8 +213,6 @@ telemetry) for "where is X installed", within these limits.
   `false_positive` / `ignored` populate the console column; `status:closed` alone does not.
 
 ## Correlation edges for common sources (M365, mail gateways, Zscaler ZIA)
-
-Worked examples; they apply only where your estate ingests the same sources.
 
 - **M365 / Exchange audit**: Defender-passthrough detections carry no target mailbox or
   operation; the NG-SIEM pivot into M365 audit rows is mandatory.

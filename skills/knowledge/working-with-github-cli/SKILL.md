@@ -190,10 +190,8 @@ activity lookups.
   `gh` failed with
   `net/url: invalid control character in URL`. Anchor the name match or take the exact id — and
   note that an em dash in a sibling workflow's name breaks naive quoting.
-- **zsh does not word-split unquoted parameters**, so the common bash idiom
-  `for p in "<repo> <num>"; do set -- $p; gh pr view $2 -R $1; done` passes **nothing**: every
-  call dies with `argument required when using the --repo flag` plus a full help dump. Write the
-  `gh` invocations out explicitly rather than looping over packed strings.
+- Looping over packed `"<repo> <num>"` strings fails every call with `argument required when
+  using the --repo flag` under zsh (no word splitting): see `working-with-zsh`.
 
 ## What this skill does not cover
 

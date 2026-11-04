@@ -145,8 +145,11 @@ Two related traps worth checking before trusting a filtered corpus:
   not data.** Aggregate in-query first; when you must parse a spill, the file is not one JSON
   object per line: bare fragment lines (truncation markers, hint text) sit between records, so
   `jq -s '.[].text | fromjson'` dies on the first one. Guard each parse:
-  `jq -s '.[].text | try fromjson'`, or a `try/except json.loads` loop. Lowering `limit` is not
-  a fix; a handful of wide records can spill on its own.
+  `jq -s '.[].text | try fromjson'`, or a `try/except json.loads` loop.
+- **Size a page before pulling it: one `limit: 1` call, then set `limit` so limit × record
+  size stays under ~50K characters**, the smallest of 375 spills seen across 8 sessions.
+  Record weight varies by tool from under 1K to over 1M (the vendor skills carry the
+  numbers), so lowering `limit` by feel does not fix it, and one record can spill alone.
 - **A spilled `.json` file can be double-JSON-encoded, so `grep` returns zero matches for a
   string that is demonstrably in the content.** A `grep` zero against a spill file is not
   evidence of absence: byte-count the file or run `python -c "import json,sys;

@@ -5,12 +5,11 @@ description: "Wiz MCP (discover and execute: list_issues, graph_search, list_clo
 
 # Working with the Wiz MCP — sharp edges (cloud/k8s blast radius)
 
-How to drive the Wiz MCP tools for security hunts. The two tools that matter are `discover` (the
-real tool list and schemas) and `execute`.
+The two tools that matter are `discover` (the real tool list and schemas) and `execute`.
 **Multi-tenant orgs:** separate MCP server entries for each Wiz tenant share the same URL
 (`https://mcp.app.wiz.io`) — tenant selection is scoped to the OAuth session. Run every hunt
-against each tenant, and read the control-probe section below before asserting that the two are
-in fact separated. **Two tenants can also answer each other's labelling questions:** a principal
+against each tenant, and read the control-probe section below before asserting the two are
+separated. **Two tenants can also answer each other's labelling questions:** a principal
 one tenant calls "outside our cloud organizations" may be fully inventoried in the sibling
 tenant, so querying the sibling for the same account id is the fastest way to tell an unknown
 third party from an unregistered affiliate. Wiz cannot make that correlation itself.
@@ -27,10 +26,19 @@ third party from an unregistered affiliate. Wiz cannot make that correlation its
 - **A deliberately wrong input is a free schema read.** A wrong *parameter* returns
   `additionalProperties 'zzz_probe' not allowed`, which proves the tool exists and lists its
   required properties; a wrong *value* returns the legal enum verbatim, e.g. `value must be one
-  of "NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"`; a wrong shape or type names it (`expected
-  array, but got string`; `properties/tech_name/type`). That enum read is the cheapest guard
-  against the uppercase-value trap. A parameter that does NOT error is in the schema; whether it
-  is *applied* still needs the both-polarities probe in `working-with-mcp-connectors`.
+  of "NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"`, except inside an `execute_graph_query`
+  `query`, where an unknown relationship type returns only `internal unexpected error` with no
+  legal values; a wrong shape or type names it (`expected array, but got string`;
+  `properties/tech_name/type`). That enum read is the cheapest guard against the
+  uppercase-value trap. A parameter that does NOT error is in the schema; whether it is
+  *applied* still needs the both-polarities probe in `working-with-mcp-connectors`.
+- **Probe each tool with `zzz_probe` before its first real call**: param names do not carry
+  across sibling tools. `get_posture_issue` and `get_threat` take `issue_id` (`id` fails
+  `missing properties: 'issue_id'`; `threat_id` is rejected); `get_graph_entity_raw_data` takes
+  `resource_id`; `list_cloud_events_grouped` takes `group_by_fields` and `actor_email_equals`;
+  `list_posture_issues` rejects `first`, `created_after`, `created_before` (all legal on
+  `list_issues`) and windows on `created_at_after` / `created_at_before`; `list_issues` rejects
+  `order_by` (its name is `order_by_field`).
 - **`graph_search` takes a free-text STRING; a structured query goes to `execute_graph_query`.**
   An object passed to `graph_search` returns `expected string, but got object`. Free text it
   cannot translate fails as `{"extensions":{"code":"INTERNAL"},...,"message":"Failed to convert
@@ -61,9 +69,8 @@ third party from an unregistered affiliate. Wiz cannot make that correlation its
   only**: the full Issue field set observed is `createdAt`, `dueAt`, `entitySnapshot`, `id`,
   `resolvedAt`, `severity`, `sourceRules`, `status`, `statusChangedAt`, `type`, so there is
   nothing URL-shaped to render. Render items as "link not captured", and never construct an
-  `app.wiz.io` console URL by pattern. Any workflow that needs a clickable link has to build one
-  out of band from the id, or do without: settle that when you design the deliverable, not when
-  you render it.
+  `app.wiz.io` console URL by pattern. A deliverable that needs clickable links builds them
+  out of band from the id, or does without; decide that at design time.
 - Treat specific findings as **transactional** — re-pull at query time rather than caching them
   as durable facts.
 
@@ -74,8 +81,8 @@ finer details.)*
 
 - **Split a CVE into presence vs exposure, then join — never rank on presence alone.** Presence =
   *is the vulnerable artifact here at all* (Vulnerability Findings); exposure = *can it be
-  reached* (Security Graph). Ranking on presence alone over-counts internal assets and is
-  decisively wrong for an unauth-RCE — join the two and rank on the intersection.
+  reached* (Security Graph). Presence alone over-counts internal assets; rank on the
+  intersection.
 - **A multi-product CVE spans four inventory surfaces — enumerate each.** One vulnerable
   component can land as (1) an **OS package**, (2) an **image SBOM** entry, (3) a **K8s
   workload**, and (4) an **external connector** asset. A single CVE filter misses the
@@ -84,10 +91,9 @@ finer details.)*
   rewrite pattern that gates whether the CVE is actually hit) cannot be answered by Wiz —
   confirm it out-of-band, then re-import the result as a **custom asset tag** so the graph can
   use it.
-- **`isAccessibleFromInternet: null` ≠ `false` — the single biggest lesson.** Wiz returns `null`
-  when it can't fully chain a public path, *not* a confirmed "internal." Treat `null` as unknown
-  and cross-check raw cloud load-balancer inventory before concluding an asset is not
-  internet-facing.
+- **`isAccessibleFromInternet: null` ≠ `false`.** Wiz returns `null` when it can't fully chain
+  a public path, *not* a confirmed "internal." Treat `null` as unknown and cross-check raw cloud
+  load-balancer inventory before concluding an asset is not internet-facing.
 - **Finding-level `executionControllers: []` underreports cross-account deploys.** An empty
   controller list at the finding level does not mean the image is undeployed — for
   centralized-registry patterns the deploy lives in another account. Use
@@ -95,16 +101,10 @@ finer details.)*
 - **`list_kubernetes_clusters` rejects cloud account IDs.** It wants the internal Wiz
   **subscription UUID**, and the error on an AWS account ID is unhelpful. Translate account ID →
   subscription UUID via `list_subscriptions` first.
-- **Pagination is not cleanly disjoint** (`first:20` max; a DESC then ASC pass only partially
-  overlaps). For exhaustive enumeration use the **grouped endpoints** with
-  `group_by=["VULNERABLE_ASSET"]` and accept multiple ordering passes rather than trusting one
-  page.
-- **Param names do not carry across sibling tools, and an unknown key rejects the call** (the
-  `additionalProperties` error above). Probe before composing. Observed: `get_posture_issue`
-  takes `issue_id` (`id` fails `missing properties: 'issue_id'`); `list_posture_issues` rejects
-  `first`, `created_after`, `created_before` (all legal on `list_issues`) and windows on
-  `created_at_after` / `created_at_before`; `list_issues` rejects `order_by` (its name is
-  `order_by_field`).
+- **Pagination is not cleanly disjoint** (`list_vulnerability_findings` and its `_grouped`
+  cap `first` at 20; a DESC then ASC pass only partially overlaps). For exhaustive
+  enumeration use the **grouped endpoints** with `group_by=["VULNERABLE_ASSET"]` and accept
+  multiple ordering passes rather than trusting one page.
 - **`list_issues` returns no assignee fields** — "unassigned" cannot be verified from a list
   call; carry a prior observation as unconfirmed, or fetch the single issue.
 - **Wiz "Issues" lag — don't read "0 Issues" as low risk.** Fresh Vulnerability Findings may not
@@ -117,7 +117,17 @@ finer details.)*
   a `search` param and returns the cloud object, its **`assumeRolePolicy` as a separate
   `RAW_ACCESS_POLICY` entity with its own `updatedAt`**, the attached customer-managed policies,
   and the IaC declarations with repo, branch and path. That `updatedAt` is **the cheapest way to
-  prove a trust policy did NOT change inside a window**.
+  prove a trust policy did NOT change inside a window**. No projection, ~1.6-2K characters a
+  record: `first: 40` spills (52-73K), so page at `first: 20` or less and count via a
+  `_grouped` tool.
+- **`*_contains` filters are sometimes rejected** (trigger unconfirmed): `invalid 'externalId'
+  filter: validating partial string filters: partial string filter 'contains' is not allowed`.
+  Use the tool's `search` parameter; its type varies (string on `list_cloud_resources`, array on
+  `get_subscription` and `list_cloud_accounts`).
+- **Scan-shaped queries fail `The operation timed out.`**: `RAW_ACCESS_POLICY` with `statements
+  CONTAINS <account-id>`, `list_entitlements` by `granted_entity_external_id`,
+  `list_code_repositories` with `first: 1000`. Resolve the policy ids first, then query
+  `_vertexID EQUALS <id>`.
 - **Issue records point at SYNTHETIC entities that resolve nowhere.** An issue titled for a
   finding class carries an entity id that is **not** the underlying resource's, and resolves
   through neither `list_cloud_resources` nor `graph_search`; searching the synthetic name
@@ -130,8 +140,8 @@ finer details.)*
   invisible to these booleans. **Read the attached policy documents; never rank on the flags.**
 - **`list_issues` returns OPEN issues only when no status argument is passed**, and says nothing
   about the filter it applied: unfiltered returned 7 where the same query with a resolved status
-  returned 38, so any backlog count built on the default is wrong by the size of the resolved
-  set. **Pass the status explicitly, in both polarities, before characterising a backlog.**
+  returned 38. **Pass the status explicitly, in both polarities, before characterising a
+  backlog.**
 - **`list_issues` returns 10 by default with a `totalCount`**; `first` caps at 20, and the
   served schema has at times carried no pagination parameter at all. Page with `after`
   (`pageInfo.endCursor`) where it is served; otherwise slice with `created_after` /
@@ -139,10 +149,11 @@ finer details.)*
   separated, so exhaustive enumeration is not always reachable — report the shortfall.
 - **`list_issues` never returns THREAT_DETECTION issues**, at any severity, and has no type
   parameter, so a "zero open criticals" built on it is a false all-clear (it produced two).
-  Take the threat census from `list_issues_grouped` with `type: ["THREAT_DETECTION"]` (its
-  default omits threats) and `group_by: "SOURCE_RULE"`, never `SUBSCRIPTION`: subscription
-  grouping drops every entity without one (identity-provider service principals,
-  source-control integrations).
+  Take the threat census from `list_issues_grouped` with `{"type": ["THREAT_DETECTION"],
+  "group_by": "SOURCE_RULE", "fetchIssues": false, "fetchSecurityScoreImpact": false}`: its
+  default omits threats, and without both flags it fails `missing properties: 'fetchIssues',
+  'fetchSecurityScoreImpact'`. Never group by `SUBSCRIPTION`, which drops every entity without
+  one (identity-provider service principals, source-control integrations).
 - **`list_issues` filtered by `resource_id` is not exhaustive for that resource**: on one role
   it returned only the toxic-combination Issues and missed a HIGH excessive-access finding and
   two CSPM findings. Before a per-resource negative, also query
@@ -156,11 +167,10 @@ finer details.)*
   `origin: ["WIZ_SENSOR_RUNTIME_EVENTS"]` with a tight resource and a ≤15-min window (the
   telemetry is a firehose); `command_line_contains: ["helm"]` went from 0 to 110 in 15 min.
 - **`externalOwners` is a technology IDENTIFIER, not a count, and `EQUALS "0"` means
-  UNATTRIBUTED.** A rule written to fire on "zero external owners" therefore fires on every
-  principal Wiz has not classified, including your own accounts sitting unclassified in the
-  discovered-resources queue. The proof is in the same tenant: a role owned by a recognised
-  vendor carried that vendor's technology id in the field. **Read the raw value on a known row
-  before treating the field as a count.**
+  UNATTRIBUTED.** A "zero external owners" rule fires on every principal Wiz has not
+  classified, your own unclassified accounts included; a vendor-owned role carried that
+  vendor's technology id in the field. **Read the raw value on a known row before treating the
+  field as a count.**
 - A falling open-threat count can be aging-out, not triage: auto-resolve `DETECTION_EXPIRED`
   (no resolver) or deletion (~90 days after last detection). A deleted id returns
   `{"extensions":{"code":"NOT_FOUND"},"path":["issue"]}`, identical to a sibling-tenant id;
@@ -189,18 +199,14 @@ finer details.)*
 ## Tenant separation cannot be verified by comparing scoped queries
 
 **Two differently-configured servers returning the same empty body proves nothing in either
-direction.** Observed: byte-identical `{"issues":{"nodes":[],"totalCount":0}}` from both. That
-result is equally consistent with two properly isolated tenants that both happen to have no
-matching issue, with one tenant answering twice, and with a filter that matches nothing anywhere.
-Matching emptiness is not evidence; it is the absence of evidence, and reporting it as
-confirmation of separation is a wrong operator-facing claim.
+direction.** Observed: byte-identical `{"issues":{"nodes":[],"totalCount":0}}` from both,
+equally consistent with two isolated tenants with no match, one tenant answering twice, and a
+filter that matches nothing anywhere.
 
 - **Probe unfiltered, per server.** List issues with **no filters**, ordered by creation. Only a
-  server that returns rows is demonstrably answering for *some* tenant — a scoped query cannot
-  establish that much.
+  server that returns rows is demonstrably answering for *some* tenant.
 - **Then check the two result sets are disjoint** — issue ids, resources, and totals should not
-  coincide. Overlap is the positive evidence of crossing; identical zeros are not the positive
-  evidence of isolation.
+  coincide. Overlap is the positive evidence of crossing.
 - **Control-test the severity filter separately before believing any zero.** An unsupported or
   mis-cased filter value returns an empty set rather than an error, so "no critical issues" is
   only reportable alongside a filter known to return rows in that same tenant.
