@@ -6,8 +6,8 @@ description: "Splunk MCP (splunk_run_query, splunk_get_*, saia_* assistants). Lo
 # Working with the Splunk MCP — sharp edges
 
 Operating mechanics for the Splunk (Cloud) MCP tools (`splunk_run_query`, `splunk_get_*`, the
-`saia_*` assistant tools). These are `splunklib` (splunk-sdk-python) behaviors, true of any
-Splunk MCP surface, not one server.
+`saia_*` assistant tools). Session bullets are `splunklib` (splunk-sdk-python) behaviors; the
+rest were observed on Splunk Cloud MCP.
 
 ## Auth / session
 
@@ -52,9 +52,11 @@ Splunk MCP surface, not one server.
   `totalEventCount: "0"` for *every* index regardless of real contents, and caps the list
   (`truncated: true`, with the real count in `total_rows`). You cannot use these fields to find
   which index holds data — they are placeholders.
-- Pick candidate indexes by name / domain knowledge, then confirm by searching:
-  `... | stats count by index`. Empty output means wrong index or wrong window, not "no such
-  data."
+- Pick candidate indexes by name / domain knowledge, then confirm with `| tstats count where
+  index=* <indexed-field filter> by index sourcetype` (the `TERM()` caveat above applies) and
+  search them with an explicit `index IN (...)`. A raw `index=* "<term>" | stats ... by index
+  sourcetype`, or a wide free-text CloudTrail search, fails `The operation timed out.` Empty
+  output means wrong index or wrong window, not "no such data."
 
 ## Result shapes
 
@@ -78,11 +80,8 @@ Splunk MCP surface, not one server.
   failed (sid: <n>.<n>)` (six in a row while `splunk_get_info` succeeded between attempts, so
   not session expiry); the same SPL passed once the bounds moved to the parameters. `Search job
   failed` on a healthy server is a query-shape problem, not a server one.
-- **Numbers come back as strings** (`"count": "28"`). Cast before doing math or comparisons.
-- **A raw-event `| table ...` dump overflows the response cap and spills to a
-  `tool-results/*.txt` file** — the tool hands you the path, not the rows. Aggregate in-query
-  (`stats`/`chart`/`top` on the few fields you need) instead of tabling wide raw events; `grep`
-  the spill file when you must parse one.
+- **A raw-event `| table ...` dump spills to a `tool-results/*.txt` file.** Aggregate in-query
+  (`stats`/`chart`/`top` on the few fields you need) instead of tabling wide raw events.
 - **`| rest /servicesNS/-/-/saved/searches count=0` works through `splunk_run_query`** and is
   the only way to read a saved detection's SPL, cron schedule and threshold. The `search` field
   is long enough that the tool truncates it — slice it with `substr` across successive calls.

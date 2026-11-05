@@ -1,6 +1,6 @@
 ---
 name: working-with-runlayer
-description: "Runlayer MCP governance (AI Watch enforcement, policy denies, audit logs). Load when a tool call is denied by policy or connectors go dark after a policy rollout; covers deny shapes and their fixes, audit-log decoding, enforcement versus monitoring-only posture."
+description: "Runlayer MCP governance (AI Watch enforcement, policy denies, audit logs, incidents). Load before the first incident or audit-log read, and when a call is denied by policy or connectors go dark after a policy rollout; covers deny shapes and fixes, audit-log decoding, read sizes, enforcement posture. Also when asked who called a tool or how many incidents are open."
 ---
 
 # Working with Runlayer — sharp edges (MCP governance layer)
@@ -12,8 +12,8 @@ How to diagnose and report Runlayer policy denies without fighting the governanc
 - The block is the **AI Watch `mcp_enforce` hook** (`beforeMCPExecution`). Its decision input is
   the MCP server *source* — proxy URL / stdio command / registration state — not the tool or its
   arguments.
-- It fires **after tool schemas load**, so `ToolSearch` succeeding proves nothing about whether
-  calls will go through. The only reliable probe is one live read-only call per server.
+- It fires **after tool schemas load**, so a deferred-tool search succeeding proves nothing
+  about whether calls will go through. The only reliable probe is one live read-only call per server.
 
 ## Three deny shapes — the canned message flattens them; keep them separate
 
@@ -31,9 +31,18 @@ Each implies a different fix, so report them per-server, never as "Runlayer/MCP 
 
 - The policy id cited in a deny may be **unfindable in PBAC**. The **Runlayer audit log** is the
   decoder: it names the hook decision and its inputs.
-- `query_docs_filesystem_runlayer` is the documentation oracle — use it instead of reading local
+- `search_docs` → `read_docs_page` is the documentation oracle — use it instead of reading local
   hook files (the deny text forbids touching them, and the docs tool reliably answers posture
   questions).
+
+## Incident and audit-log reads
+
+- **`list_incidents` is ~8.8K characters per incident** (~80% `trend_bins` and
+  `available_actions`), so its default `limit: 50` spills (22 did); read the response's
+  `total` / `counts` for a census and `get_incident` by `group_key` for detail.
+- **`list_audit_logs` is ~500 characters a row and spilled at `limit: 200`**; narrow with its
+  filters (`action_type` + `action_type_op`, `server_id`, `tool_name`, `blocked`) rather than
+  paging the window.
 
 ## Posture knobs (owner decisions, never yours)
 

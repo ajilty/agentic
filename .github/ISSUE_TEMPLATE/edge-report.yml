@@ -22,11 +22,16 @@ body:
         - working-with-github-cli
         - working-with-horizon3-mcp
         - working-with-jira-mcp
+        - working-with-knowbe4-phisher
         - working-with-m365-connector
+        - working-with-mcp-connectors
         - working-with-playwright
         - working-with-runlayer
         - working-with-slack-mcp
+        - working-with-splunk-mcp
+        - working-with-tines-mcp
         - working-with-wiz-mcp
+        - working-with-zsh
         - (new skill proposal)
     validations:
       required: true

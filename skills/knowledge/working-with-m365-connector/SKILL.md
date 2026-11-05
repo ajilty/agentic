@@ -1,6 +1,6 @@
 ---
 name: working-with-m365-connector
-description: "Microsoft 365 connector (Outlook mail and calendar, Teams chat, SharePoint, search and read_resource). Load before the first M365 call in a session; covers search-versus-read projections, attachments, folder scoping, Teams throttling, missing mail headers. Also when asked who accepted a meeting or to open an attachment."
+description: "Microsoft 365 connector (Outlook mail and calendar, Teams chat, SharePoint, search and read_resource). Load before the first M365 call in a session; covers search-versus-read projections, attachments, folder scoping, Teams throttling, missing mail headers. Also when asked who accepted a meeting, to open an attachment, or to search someone else's or a shared mailbox."
 ---
 
 # Working with the Microsoft 365 connector — sharp edges
@@ -154,14 +154,16 @@ visually** instead of trusting the broken text layer.
 ## 403s that look like outages and are not
 
 `get_me` succeeding while another call 403s is the tell: the connector is live and the problem is
-an unconsented scope, not connectivity. Each of these needs an admin grant, so surface it as an
-operator action rather than retrying.
+access (usually an unconsented scope), not connectivity. Surface each as an operator action
+rather than retrying; most need an admin grant.
 
 - **Shared / other-mailbox reads need `Mail.Read.Shared`.** `outlook_email_search` with
   `mailboxOwnerEmail` set to any mailbox but your own returns HTTP 403, verbatim:
   `FORBIDDEN: Failed to search messages caused by: Access is denied. Check credentials and try
   again., Cannot find row based on condition.` with `graphErrorCode: ErrorAccessDenied` and
-  `sharedMailbox: true`.
+  `sharedMailbox: true`. Another user's mailbox can instead fail `FORBIDDEN ... delegate access`
+  or `MailboxNotEnabledForRESTAPI` (mailbox Graph cannot reach: on-premises, inactive, or
+  soft-deleted); the scope grant fixes neither. Report the mailbox as unswept, never empty.
 - **Directory lookup needs admin-consented `People.Read`.** `search_people` returns 403,
   verbatim: `FORBIDDEN: Graph denied access; this tool requires the 'People.Read' delegated
   permission. The hosted OBO path requests '.default', so 'People.Read' may not be
