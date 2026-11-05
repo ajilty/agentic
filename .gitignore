@@ -5,3 +5,6 @@
 
 # Harness-managed worktrees / local state
 .claude/worktrees/
+node_modules/
+# Seam: materialized synthetic corpus (reproducible from seed via `seam corpus`)
+plugins/seam/corpus-out/

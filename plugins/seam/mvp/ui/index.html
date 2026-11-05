@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Seam — board</title>
+<style id="shared">/* Seam MVP — shared design tokens, graduated from board prototype v7. */
+:root{
+  --paper:#F4F7F6; --ink:#1B2431; --ink-soft:#4A5563; --stitch:#A7B0BC;
+  --card:#FFFFFF; --line:#DCE2E6; --chip:#EDF1F0;
+  --indigo:#4C5FD5; --moss:#4E7A52; --ochre:#B07A2E; --alert:#B3402F;
+  --link:#3A4DC4; --warn-bg:#FBF3E4; --warn-ink:#8A5A16;
+  --ledger-bg:#141F2A; --ledger-txt:#C4D2DE; --ledger-key:#8FB7E8;
+  --radius:6px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:700;letter-spacing:-.01em;margin:0}
+code,kbd,.mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+a{color:var(--link)}
+.seam-rule{border:0;border-top:1px dashed var(--stitch);margin:0}
+.wordmark{font-family:'Archivo',sans-serif;font-weight:700;letter-spacing:-.02em}
+.wordmark::after{content:"";display:inline-block;width:26px;border-top:2px dashed var(--stitch);
+  margin-left:8px;vertical-align:6px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:var(--chip);border:1px solid var(--line);
+  border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--ink-soft);white-space:nowrap}
+.chip.warn{background:var(--warn-bg);border-color:#E8D6AE;color:var(--warn-ink)}
+.chip.bad{background:#FBEDEB;border-color:#E7C4BD;color:var(--alert)}
+.btn{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:var(--radius);padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--stitch)}
+.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+.deep{color:var(--link);text-decoration:none;border-bottom:1px dotted currentColor}
+.deep::after{content:" ↗";font-size:.85em}
+</style>
+<style>
+.top{display:flex;align-items:center;gap:16px;padding:12px 20px;background:var(--card);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.top .wordmark{font-size:19px}
+.modes{display:flex;gap:2px;margin-left:8px}
+.mode{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);padding:5px 13px;cursor:pointer}
+.mode:first-child{border-radius:var(--radius) 0 0 var(--radius)}
+.mode:last-child{border-radius:0 var(--radius) var(--radius) 0}
+.mode[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.mode .b{display:inline-block;min-width:16px;margin-left:6px;padding:0 4px;border-radius:8px;
+  background:var(--chip);color:var(--ink-soft);font-size:11px;font-weight:600}
+.mode[aria-selected="true"] .b{background:rgba(255,255,255,.22);color:#fff}
+.mode .b.alert{background:var(--alert);color:#fff}
+.fresh{margin-left:auto;display:flex;gap:6px;align-items:center;font-size:12px;color:var(--ink-soft)}
+.lens{display:flex;gap:6px;align-items:center;padding:9px 20px;background:var(--card);
+  border-bottom:1px solid var(--line);flex-wrap:wrap;font-size:12px}
+.lens .lbl{color:var(--stitch);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em}
+.lens button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);
+  border-radius:999px;padding:2px 10px;cursor:pointer;color:var(--ink-soft)}
+.lens button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.wrap{display:grid;grid-template-columns:238px 1fr;gap:20px;padding:20px;align-items:start}
+.rail h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);margin-bottom:8px}
+.ws{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--indigo);
+  border-radius:var(--radius);padding:9px 11px;margin-bottom:7px;cursor:pointer}
+.ws:hover{border-color:var(--stitch)}
+.ws .n{font-weight:600;font-size:13.5px}
+.ws .m{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
+.ws.moss{border-left-color:var(--moss)} .ws.ochre{border-left-color:var(--ochre)}
+.seeded{background:#EDF3ED;border:1px solid #C6DAC8;color:var(--moss);border-radius:var(--radius);
+  padding:8px 11px;font-size:12px;margin-bottom:10px}
+.tier{margin-bottom:22px}
+.tier h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:9px}
+.tier h2 .ct{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12px;color:var(--ink-soft);font-weight:400}
+.tier h2::after{content:"";flex:1;border-top:1px dashed var(--stitch)}
+.tier .cards{margin-top:10px;display:flex;flex-direction:column;gap:9px}
+.card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--indigo);
+  border-radius:var(--radius);padding:12px 14px}
+.card.prov{border-style:dashed;border-left-style:solid}
+.card.moss{border-left-color:var(--moss)} .card.ochre{border-left-color:var(--ochre)}
+.card .hd{display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap}
+.badge{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:10.5px;font-weight:500;letter-spacing:.06em;
+  border:1px solid var(--line);border-radius:3px;padding:1px 6px;background:var(--chip);color:var(--ink-soft)}
+.badge.reply{background:#EDF0FC;border-color:#C9D2F4;color:var(--indigo)}
+.badge.review{background:#EDF3ED;border-color:#C6DAC8;color:var(--moss)}
+.badge.nudge{background:#FBF3E4;border-color:#E8D6AE;color:var(--warn-ink)}
+.tchip{font-size:10.5px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;border-radius:999px;padding:1px 8px;
+  border:1px dashed var(--stitch);color:var(--ink-soft);background:transparent;cursor:pointer}
+.tchip.conf{border-style:solid;background:var(--chip)}
+.unread{width:7px;height:7px;border-radius:50%;background:var(--indigo);display:inline-block}
+.card .ti{font-weight:600;font-size:14.5px;margin-bottom:6px}
+.lbl{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:10px;letter-spacing:.08em;color:var(--stitch)}
+.card .ln{font-size:13px;color:var(--ink-soft);margin-bottom:3px}
+.claim{border-bottom:1px dotted var(--link);color:var(--link);cursor:pointer}
+.sig{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
+.card .act{margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.msgs{margin-top:9px;font-size:12.5px;color:var(--ink-soft);cursor:pointer}
+.exp{margin-top:8px;border-left:2px solid var(--line);padding-left:10px}
+.msg{padding:5px 0;font-size:12.5px;border-bottom:1px dotted var(--line)}
+.msg:last-child{border:0}
+.msg .who{font-weight:600;color:var(--ink)}
+.msg .q{color:var(--ink-soft);font-style:italic}
+.cal{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:11px 13px;margin-bottom:18px}
+.calrow{display:flex;gap:8px;align-items:center;margin-top:7px;flex-wrap:wrap}
+.calrow .d{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:11px;color:var(--stitch);width:64px}
+.ev{border:1px solid var(--line);border-radius:var(--radius);padding:5px 10px;font-size:12.5px;background:#FBFCFC}
+.ev.focus{border-style:dashed;border-color:var(--moss);background:#F4F8F4}
+.empty{background:var(--card);border:1px dashed var(--stitch);border-radius:var(--radius);
+  padding:14px;text-align:center;color:var(--ink-soft);font-size:13px}
+.resolved{margin-top:8px;background:#F0F2F2;border:1px solid var(--line);border-radius:var(--radius);padding:10px 13px}
+.resolved h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft)}
+.rrow{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-soft);padding:5px 0;
+  border-bottom:1px dotted var(--line)}
+.rrow:last-child{border:0}
+.rrow .t{flex:1;text-decoration:line-through}
+.ledgerbtn{margin-top:14px}
+.ledger{margin-top:10px;background:var(--ledger-bg);color:var(--ledger-txt);
+  font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:11px;border-radius:var(--radius);max-height:200px;overflow:auto;display:none}
+.ledger.open{display:block}
+.ledger .lb{padding:10px 14px}
+.ledger .lb div{padding:1px 0;white-space:pre-wrap;word-break:break-word}
+.k{color:var(--ledger-key)}
+.note{font-size:12px;color:var(--ink-soft);margin-top:6px}
+.proto{background:var(--warn-bg);border-bottom:1px solid #E8D6AE;color:var(--warn-ink);
+  padding:6px 20px;font-size:12px;text-align:center}
+@media(max-width:820px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="proto">Prototype for review — seeded state (post first-run interview). Not live data.</div>
+<header class="top">
+  <span class="wordmark">Seam</span>
+  <div class="modes" role="tablist">
+    <button class="mode" role="tab" aria-selected="true">Operate <span class="b alert" id="bOp" title="unread items needing you in actionable tiers">2</span></button>
+    <button class="mode" role="tab" aria-selected="false">Reflect <span class="b" title="designed — not in this build">0</span></button>
+    <button class="mode" role="tab" aria-selected="false">Know <span class="b" title="designed — not in this build">0</span></button>
+  </div>
+  <div class="fresh">
+    <span class="chip">email 07:42</span>
+    <span class="chip">calendar 07:42</span>
+  </div>
+</header>
+
+<div class="lens">
+  <span class="lbl">Lens</span>
+  <button aria-pressed="true">All</button>
+  <button aria-pressed="false">Reply</button>
+  <button aria-pressed="false">Nudge · waiting</button>
+  <button aria-pressed="false">Review</button>
+  <button aria-pressed="false">Approve</button>
+  <span class="note" style="margin-left:8px">Action type is a filter, not a section — every item keeps its own urgency.</span>
+</div>
+
+<div class="wrap">
+  <aside class="rail">
+    <div class="seeded">Seeded from your 10-min setup — 3 workstreams, 6 people. Tiering is live, not settling.</div>
+    <h3>Workstreams</h3>
+    <p class="note" style="margin-top:-2px">Anchor = the formal work item a stream maps to (a tracker ticket), if any.</p>
+    <div class="ws" data-sel="1">
+      <div class="n">SecureTooling renewal</div>
+      <div class="m">6 messages · 3 open · anchor: none</div>
+    </div>
+    <div class="ws moss">
+      <div class="n">Phish incident 0804</div>
+      <div class="m">5 messages · 2 open · anchor: SEC-1181</div>
+    </div>
+    <div class="ws ochre">
+      <div class="n">Board deck Q3</div>
+      <div class="m">4 messages · 1 open · anchor: none</div>
+    </div>
+    <h3 style="margin-top:16px">People</h3>
+    <p class="note">6 seeded principals · filter by person to scope the board.</p>
+  </aside>
+
+  <main>
+    <div class="cal">
+      <h2 style="font-size:13px;text-transform:uppercase;letter-spacing:.07em">Calendar · read</h2>
+      <div class="calrow"><span class="d">TODAY</span>
+        <span class="ev focus">Focus 09:00–10:30</span>
+        <span class="ev">Renewal negotiation 15:00 · 3 attendees</span>
+        <span class="ev">1:1 16:00</span></div>
+      <div class="calrow"><span class="d">TOMORROW</span>
+        <span class="ev focus">Focus 08:00–09:30</span>
+        <span class="ev">Vendor sync 11:00 · 4 attendees</span></div>
+      <p class="note">Attendee lists corroborate working groups. Scheduling an action into a block
+        would stage a private hold — a write, so it waits behind your approval (not yet in this build).</p>
+    </div>
+
+    <section class="tier">
+      <h2>Critical Now <span class="ct">2 / cap 5</span></h2>
+      <div class="cards">
+        <div class="card prov">
+          <div class="hd"><span class="unread"></span><span class="badge review">REVIEW</span>
+            <button class="tchip" onclick="confirmChip(this,'CRITICAL')">CRITICAL · provisional</button></div>
+          <div class="ti">Confirm the credential-reset blast radius before the 10:00 all-staff notice.</div>
+          <div class="ln"><span class="lbl">WHY NOW</span> Internal confirmation of 2 clicks;
+            notice deadline <span class="claim" onclick="revealProv(this,'email:m-5001b · E. Vance 08:12')">10:00 today</span>.</div>
+          <div class="ln"><span class="lbl">CONTEXT</span> Reported phish hit 12 mailboxes; resets in progress.</div>
+          <div class="sig"><span class="chip">date extracted</span><span class="chip">internally corroborated</span>
+            <span class="chip">2 surfaces</span></div>
+          <details class="msgs"><summary>5 messages</summary><div class="exp">
+            <div class="msg"><span class="who">S. Ortiz</span> · 07:05 ·
+              <span class="q">"weird DocuSign-looking email, link goes to alerts-notify.example"</span>
+              <a class="deep" href="#" onclick="return false">open</a></div>
+            <div class="msg"><span class="who">E. Vance</span> · 08:12 ·
+              <span class="q">"notice needs your sign-off before 10:00"</span>
+              <a class="deep" href="#" onclick="return false">open</a></div>
+          </div></details>
+          <div class="act"><a class="deep" href="#" onclick="return false">Open thread in mail</a></div>
+        </div>
+
+        <div class="card prov moss">
+          <div class="hd"><span class="badge nudge">NUDGE · waiting</span><button class="tchip" onclick="confirmChip(this,'CRITICAL')">CRITICAL · provisional</button></div>
+          <div class="ti">Chase the purge confirmation you asked for 2 hours ago.</div>
+          <div class="ln"><span class="lbl">WHY NOW</span> Your ask at
+            <span class="claim">08:10</span>, no reply, incident SLA 2h.</div>
+          <div class="ln"><span class="lbl">CONTEXT</span> Purge across 12 mailboxes still unconfirmed.</div>
+          <div class="sig"><span class="chip">from your sent mail</span><span class="chip">silent 2h 04m</span><span class="chip warn">mail-only — a reply in chat/in person isn't seen</span></div>
+          <div class="act"><a class="deep" href="#" onclick="return false">Open thread in mail</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tier">
+      <h2>Opportunity Now <span class="ct">2</span></h2>
+      <div class="cards">
+        <div class="card prov ochre">
+          <div class="hd"><span class="unread"></span><span class="badge reply">REPLY</span>
+            <button class="tchip" onclick="confirmChip(this,'OPPORTUNITY')">OPPORTUNITY · provisional</button></div>
+          <div class="ti">Respond to the renewal quote before Friday's claimed pricing deadline.</div>
+          <div class="ln"><span class="lbl">WHY NOW</span> Vendor says
+            <span class="claim">pricing expires Friday</span> — sender-claimed, unverified.</div>
+          <div class="ln"><span class="lbl">CONTEXT</span> 18% uplift proposed; legal redlines due midweek.</div>
+          <div class="sig"><span class="chip warn">urgency claimed by sender — unverified</span>
+            <span class="chip">external party</span></div>
+          <p class="note">Held out of Critical: no internal signal corroborates Friday.</p>
+          <div class="act"><a class="deep" href="#" onclick="return false">Open thread in mail</a></div>
+        </div>
+        <div class="card prov moss">
+          <div class="hd"><span class="badge nudge">NUDGE · waiting</span><span class="tchip conf">OPPORTUNITY ✓</span></div>
+          <div class="ti">Legal redlines on the MSA — counsel said midweek.</div>
+          <div class="ln"><span class="lbl">WHY NOW</span> Not yet due; nudge proposed
+            <span class="claim">Thursday</span> if still silent.</div>
+          <div class="sig"><span class="chip">stated expectation: midweek</span><span class="chip">silent 3d</span></div>
+          <div class="act"><a class="deep" href="#" onclick="return false">Open thread in mail</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tier">
+      <h2>Over the Horizon <span class="ct">1</span></h2>
+      <div class="cards">
+        <div class="card">
+          <div class="hd"><span class="badge review">REVIEW</span><span class="tchip conf">HORIZON ✓</span></div>
+          <div class="ti">Read the Q3 board deck ahead of next week's cycle.</div>
+          <div class="ln"><span class="lbl">WHY NOW</span> No deadline yet; surfaces at Review Friday.</div>
+          <div class="sig"><span class="chip">attachment unopened</span></div>
+          <div class="act"><a class="deep" href="#" onclick="return false">Open thread in mail</a></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="resolved">
+      <h3>Resolved today · 2</h3>
+      <div class="rrow"><span class="chip">done</span><span class="t">Approve the vendor W-9 request</span>
+        <button class="btn">Undo</button></div>
+      <div class="rrow"><span class="chip">dismissed</span><span class="t">Nightly Semgrep digest — 41 findings</span>
+        <button class="btn">Undo</button></div>
+      <p class="note">Seen it dismissed 9× in 14 days. Here's the filter rule to paste into mail yourself —
+        <span class="claim">from:ci-noreply@ · skip inbox · label ci/digests</span>.
+        Applying it is a write, so it stays your move.</p>
+    </div>
+
+    <button class="btn ledgerbtn" onclick="var l=document.getElementById('ledger');l.classList.toggle('open')">Show store ledger (illustrative)</button>
+    <div class="ledger" id="ledger"><div class="lb">
+<div>{<span class="k">"ts"</span>:"2026-08-07T07:42:03Z",<span class="k">"actor"</span>:"agent",<span class="k">"type"</span>:"sync_requested",<span class="k">"result"</span>:{"email":{"ok":true,"appended":31},"calendar":{"ok":true,"appended":4}}}</div>
+<div>{<span class="k">"ts"</span>:"2026-08-07T07:42:08Z",<span class="k">"actor"</span>:"agent",<span class="k">"type"</span>:"model_call"<span style="color:#8A5A16"> ·designed</span>,<span class="k">"provider"</span>:"anthropic","model":"claude","message_ids":["email:m-5001a","email:m-6001a"],"bytes_sent":2841}</div>
+<div>{<span class="k">"ts"</span>:"2026-08-07T07:42:09Z",<span class="k">"actor"</span>:"agent",<span class="k">"type"</span>:"tier_assigned"<span style="color:#8A5A16"> ·designed</span>,<span class="k">"action"</span>:"act_201","tier":"critical","reason":"internal corroboration + extracted deadline"}</div>
+<div>{<span class="k">"ts"</span>:"2026-08-07T07:42:09Z",<span class="k">"actor"</span>:"agent",<span class="k">"type"</span>:"external_urgency_flagged"<span style="color:#8A5A16"> ·designed</span>,<span class="k">"action"</span>:"act_204","verdict":"uncorroborated — held at opportunity"}</div>
+<div>{<span class="k">"ts"</span>:"2026-08-07T07:42:09Z",<span class="k">"actor"</span>:"agent",<span class="k">"type"</span>:"injection_attempt_logged"<span style="color:#8A5A16"> ·designed</span>,"source":"email:m-7002a","note":"body-sourced filter instruction ignored"}</div>
+<div>{<span class="k">"ts"</span>:"2026-08-07T08:03:44Z",<span class="k">"actor"</span>:"user",<span class="k">"type"</span>:"tier_confirmed",<span class="k">"action"</span>:"act_205"}</div>
+    </div></div>
+    <p class="note">Illustrative seed. Events tagged <span style="color:#8A5A16">·designed</span> come from
+      engines not yet built (story compilation, urgency capping, injection adjudication, model-call
+      logging) — shown here to convey intent, not because they fired. Real today: sync, and your own
+      confirmations. The shipped ledger will only ever record what actually happened.</p>
+  </main>
+</div>
+
+<script>
+document.querySelectorAll('.mode').forEach(m=>m.addEventListener('click',()=>{
+  document.querySelectorAll('.mode').forEach(x=>x.setAttribute('aria-selected','false'));
+  m.setAttribute('aria-selected','true');}));
+function confirmChip(btn,tier){btn.textContent=tier+' \u2713';btn.classList.add('conf');
+  var card=btn.closest('.card'); if(card) card.classList.remove('prov');}
+function revealProv(el,src){if(el.dataset.open)return; el.dataset.open=1;
+  var s=document.createElement('span'); s.className='note'; s.style.marginLeft='6px';
+  s.textContent='\u2192 '+src; el.after(s);}
+document.querySelectorAll('.lens button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.lens button').forEach(x=>x.setAttribute('aria-pressed','false'));
+  b.setAttribute('aria-pressed','true');}));
+</script>
+</body>
+</html>

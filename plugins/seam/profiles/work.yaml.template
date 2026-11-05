@@ -1,0 +1,28 @@
+# Seam instance profile — work persona.
+# Scaffolded but DISABLED until work-side MCP permissions are confirmed.
+# `seam init --profile work` copies this to $SEAM_HOME/profiles/work.yaml.
+profile: work
+enabled: false                    # do not enable until work MCP permissions are confirmed
+store_root: ""                    # REQUIRED: work-sanctioned cloud folder
+urgency_profile: work
+quiet_hours: "20:00-07:00"
+principals: []                    # boss, regulators; full addresses
+sources:
+  - surface: email
+    mcp: ""
+    backend: fixture
+    read: []
+    write: []
+    cadence_min: 180
+  - surface: slack
+    mcp: ""
+    backend: fixture
+    read: []
+    write: []
+    cadence_min: 180
+  - surface: calendar
+    mcp: ""
+    backend: fixture
+    read: []
+    write: []
+    cadence_min: 360

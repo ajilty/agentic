@@ -1,0 +1,7 @@
+{"threadId":"t-5001","messages":[
+ {"id":"m-5001a","payload":{"headers":[
+   {"name":"From","value":"S. Ortiz <s.ortiz@stoneridge.com>"},
+   {"name":"To","value":"security@stoneridge.com"},
+   {"name":"Date","value":"Tue, 4 Aug 2026 07:05:12 -0400"},
+   {"name":"Subject","value":"suspicious email?"}]},
+  "snippet":"got a weird DocuSign-looking email, link goes to alerts-notify.example — did I mess up?"}]}

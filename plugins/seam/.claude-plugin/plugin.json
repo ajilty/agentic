@@ -1,0 +1,13 @@
+{
+  "name": "seam",
+  "version": "0.1.0",
+  "description": "Personal communications command-center overlay: sync email/Slack/calendar into a local store, infer threads and workstreams, compile a triage board. Draft-in-place only; never sends.",
+  "author": {
+    "name": "ajilty",
+    "email": "github@ajilty.com"
+  },
+  "homepage": "https://github.com/ajilty/agentic",
+  "repository": "https://github.com/ajilty/agentic",
+  "license": "MIT",
+  "keywords": ["overlay", "triage", "mcp", "email", "slack", "calendar", "fixture-first"]
+}

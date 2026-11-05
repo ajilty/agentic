@@ -1,0 +1,8 @@
+{
+  "counts": { "email": 4, "slack": 5, "calendar": 1 },
+  "fingerprint_stability": {
+    "email_first": "computed-at-runtime",
+    "note": "counts are the contract; fingerprints must be identical across two pulls of the same fixtures"
+  },
+  "rerun_appends": { "email": 0, "slack": 0, "calendar": 0 }
+}
