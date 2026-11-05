@@ -1,5 +1,5 @@
 ---
-name: working-with-m365-connector
+name: working-with-m365-mcp
 description: "Microsoft 365 connector (Outlook mail and calendar, Teams chat, SharePoint, search and read_resource). Load before the first M365 call in a session; covers search-versus-read projections, attachments, folder scoping, Teams throttling, missing mail headers. Also when asked who accepted a meeting, to open an attachment, or to search someone else's or a shared mailbox."
 ---
 

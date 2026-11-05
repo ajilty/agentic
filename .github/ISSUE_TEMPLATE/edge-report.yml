@@ -18,15 +18,15 @@ body:
         - working-with-aws-cli
         - working-with-confluence-mcp
         - working-with-crowdstrike-mcp
-        - working-with-entra-graph
+        - working-with-entra-graph-cli
         - working-with-github-cli
         - working-with-horizon3-mcp
         - working-with-jira-mcp
-        - working-with-knowbe4-phisher
-        - working-with-m365-connector
+        - working-with-knowbe4-phisher-mcp
+        - working-with-m365-mcp
         - working-with-mcp-connectors
         - working-with-playwright
-        - working-with-runlayer
+        - working-with-runlayer-mcp
         - working-with-slack-mcp
         - working-with-splunk-mcp
         - working-with-tines-mcp
