@@ -20,8 +20,18 @@ incantation over a description of it.
 
 ## Shape and size
 
-- One skill per tool surface, named `working-with-<tool>` (kebab-case), one
-  `SKILL.md`, nothing else. **A section beats a new skill**: a new skill adds a
+- One skill per tool surface, named `working-with-<vendor>-<surface>`
+  (kebab-case), one `SKILL.md`, nothing else. The surface suffix is `-mcp`
+  for any MCP server, claude.ai and ChatGPT "connectors" included (a
+  connector is a hosted MCP server: its tools arrive as `mcp__*`, and whether
+  a given server is a connector or self-hosted is a fact about one tenant,
+  not about the skill), or `-cli` for a command-line tool. No suffix only
+  for a surface that is neither (a shell, a library); `tests/test_descriptions.sh`
+  enforces the suffix against a short allowlist. Host-layer behavior that
+  only shows up in connector form (re-auth needs the operator in claude.ai,
+  a write tool missing under admin policy) is body content, generic in
+  `working-with-mcp-connectors` or as one line in the vendor skill. The
+  description's opening phrase names the same surface. **A section beats a new skill**: a new skill adds a
   description every session pays for on every turn, while a section in a body
   costs nothing until the skill fires. Split only when the triggers genuinely
   differ, never to make a long skill look shorter.

@@ -1,6 +1,6 @@
 ---
-name: working-with-entra-graph
-description: "Microsoft Graph via az rest for Entra ID (app registrations, service principals, app roles, permissions). Load before the first Graph call in a session; covers permission-to-app-role mapping, pagination, null guards, ConsistencyLevel headers. Also when asked who holds an application permission."
+name: working-with-azure-cli
+description: "Azure CLI (az rest against Microsoft Graph for Entra ID: app registrations, service principals, app roles, permissions). Load before the first Graph call in a session; covers permission-to-app-role mapping, pagination, null guards, ConsistencyLevel headers. Also when asked who holds an application permission."
 ---
 
 # Working with Entra / Microsoft Graph via `az` — sharp edges

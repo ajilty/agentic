@@ -1,5 +1,5 @@
 ---
-name: working-with-runlayer
+name: working-with-runlayer-mcp
 description: "Runlayer MCP governance (AI Watch enforcement, policy denies, audit logs, incidents). Load before the first incident or audit-log read, and when a call is denied by policy or connectors go dark after a policy rollout; covers deny shapes and fixes, audit-log decoding, read sizes, enforcement posture. Also when asked who called a tool or how many incidents are open."
 ---
 

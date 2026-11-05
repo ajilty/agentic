@@ -19,3 +19,15 @@ for f in "$HERE"/../skills/working-with-*/SKILL.md; do
     "$(basename "$(dirname "$f")")" "$n" "$DIET_BYTES" >&2
 done
 pass
+
+# Naming: working-with-<vendor>-<surface>, surface -mcp (connectors included) or -cli;
+# no suffix only for a shell or a library (CONTRIBUTING, Shape and size).
+NO_SUFFIX_OK=" working-with-zsh working-with-playwright working-with-mcp-connectors "
+for f in "$HERE"/../skills/working-with-*/SKILL.md; do
+  n=$(basename "$(dirname "$f")")
+  case "$n" in *-mcp|*-cli) pass ;; *)
+    case "$NO_SUFFIX_OK" in *" $n "*) pass ;; *) fail "$n: name needs a -mcp or -cli suffix (or an allowlist entry if it is neither)" ;; esac ;;
+  esac
+  nm=$(awk '/^---$/{c++; next} c==1 && /^name:/{sub(/^name:[ ]*/,""); print}' "$f")
+  [ "$nm" = "$n" ] && pass || fail "$n: frontmatter name is '$nm'"
+done
