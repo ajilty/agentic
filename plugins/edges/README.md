@@ -13,9 +13,9 @@ not here.
 | Skill | Surface |
 |---|---|
 | `working-with-aws-cli` | `aws` CLI (SSO, SSM RunCommand, CloudTrail) |
+| `working-with-azure-cli` | `az rest` against Microsoft Graph / Entra ID |
 | `working-with-confluence-mcp` | Atlassian MCP, Confluence read + write |
 | `working-with-crowdstrike-mcp` | falcon-mcp (NG-SIEM CQL, FQL tools) |
-| `working-with-entra-graph-cli` | `az rest` against Microsoft Graph / Entra ID |
 | `working-with-github-cli` | `gh` across a SAML-protected enterprise |
 | `working-with-horizon3-mcp` | Horizon3 / NodeZero pentest results |
 | `working-with-jira-mcp` | Atlassian MCP, Jira reads + writes, JQL |

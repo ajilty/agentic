@@ -16,9 +16,9 @@ body:
       label: Which skill?
       options:
         - working-with-aws-cli
+        - working-with-azure-cli
         - working-with-confluence-mcp
         - working-with-crowdstrike-mcp
-        - working-with-entra-graph-cli
         - working-with-github-cli
         - working-with-horizon3-mcp
         - working-with-jira-mcp
