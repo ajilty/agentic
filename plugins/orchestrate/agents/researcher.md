@@ -7,7 +7,6 @@ effort: medium
 color: cyan
 ---
 
-
 <!-- Capabilities (read/write/run/web) are declared harness-neutrally in
      ../agents.yaml and compiled into each harness's agent definition by the
      per-harness generators. Do not hard-code tool names here. -->

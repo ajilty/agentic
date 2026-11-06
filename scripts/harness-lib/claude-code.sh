@@ -42,7 +42,7 @@ cc_agent_md() { # <persona> <dest.md>
   [ "$iso" != null ] && [ -n "$iso" ] && extra="${extra}isolation: $iso\n"
   { printf -- '---\nname: %s\ndescription: %s\ntools: %s\n%b---\n\n' \
       "$p" "$(p_desc "$p")" "$(cc_tools "$p")" "$extra"
-    body "$(p_body "$p")"; } > "$dest"
+    body "$(p_body "$p")" | sed '/./,$!d'; } > "$dest"   # drop leading blanks (MD012)
 }
 
 # Emit hooks.json derived from the contract's hooks: block (script + watch, in

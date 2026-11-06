@@ -4,10 +4,7 @@
 # We install orchestrate into a throwaway CODEX_HOME, then run a no-op `codex exec
 # --strict-config` and assert ZERO malformed-agent warnings about our roles.
 #
-# NOTE (this worktree): scripts/install-codex.sh here is still the OLD version, which emits
-# roles WITHOUT model/model_reasoning_effort/developer_instructions. Strict-config may then
-# warn or this may not exercise the target schema — so this test can SKIP/FAIL here by
-# design. It goes green after the installer-rewrite merge. We test against the TARGET schema.
+# The installer emits agents/*.toml and the skill only (no hooks or config.toml edits).
 if ! have_codex; then
   skip "codex schema: codex CLI not on PATH"
 elif ! have_codex_auth; then

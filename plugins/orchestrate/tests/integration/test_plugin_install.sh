@@ -30,7 +30,7 @@ else
     cc plugin marketplace add "$REPO_ROOT" >/dev/null 2>&1 && pass || fail "[$scope] marketplace add (local path)"
     cc plugin install orchestrate@ajilty --scope "$scope" >/dev/null 2>&1 && pass || fail "[$scope] plugin install --scope $scope"
     # list reports the expected scope
-    if cc plugin list 2>/dev/null | grep -A2 'orchestrate@ajilty' | grep -qi "Scope: $scope"; then pass; else fail "[$scope] plugin list reports Scope: $scope"; fi
+    if cc plugin list 2>/dev/null | grep -A4 'orchestrate@ajilty' | grep -qi "Scope: $scope"; then pass; else fail "[$scope] plugin list reports Scope: $scope"; fi
     # enable-state persists in the scope-appropriate settings file
     case "$scope" in
       user)    grep -qs 'orchestrate@ajilty' "$h/.claude/settings.json"  && pass || fail "[user] enable persisted to ~/.claude/settings.json";;
@@ -48,7 +48,7 @@ else
     case "$det" in *"$a"*) pass;; *) fail "details lists agent: $a";; esac
   done
   case "$det" in *"init"*) pass;; *) fail "details lists the start command/skill (/orchestrate:init)";; esac
-  case "$det" in *"Hooks (3)"*) pass;; *) fail "details reports 3 registered hook events";; esac
+  case "$det" in *"Hooks (2)"*) pass;; *) fail "details reports 2 registered hook events (PreToolUse, SessionStart; ADR-0040)";; esac
 
   # --- Isolation self-check: the test did not mutate real ~/.claude or the repo .claude ---
   if [ "$(_iso)" = "$iso_before" ]; then pass; else fail "test mutated real ~/.claude or repo .claude (FS isolation leak)"; fi

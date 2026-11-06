@@ -8,7 +8,6 @@ color: green
 isolation: worktree
 ---
 
-
 <!-- Capabilities are declared in ../agents.yaml: write + run + git, no web.
      The generators compile them per harness; on Claude Code this persona runs
      with isolation: worktree, so every dispatch gets its own tree. -->

@@ -1,6 +1,6 @@
 # Tier 3 (OpenCode install, static — no auth needed) — the compiled orchestrate.ts
-# must actually PARSE under OpenCode's TS-stripping runtime, wire the confirmed
-# load-bearing hook with the correct callback signature, and land every generated
+# must actually PARSE under OpenCode's TS-stripping runtime, wire shell.env and
+# session.compacted only, and land every generated
 # surface (agents/, commands/, plugins/, skill) exactly where a live `opencode`
 # reads from. Guards on have_opencode (not have_opencode_auth) — this probe needs
 # the CLI's bundled `node`/parsing behavior but no live model call, matching the
@@ -24,7 +24,8 @@ else
     # to a plain syntax skip (not a fail) rather than asserting on an unsupported
     # host node.
     if command -v node >/dev/null 2>&1; then
-      if node --experimental-strip-types --check "$plug" >/tmp/oc_install_check.$$ 2>&1; then
+      # (import, not --check: newer node's --check does not strip types; the module only declares an export)
+      if node --experimental-strip-types --no-warnings -e 'import(process.argv[1])' "$plug" >/tmp/oc_install_check.$$ 2>&1; then
         pass   # orchestrate.ts parses under strip-types
       else
         if grep -qi "unknown or unexpected option" /tmp/oc_install_check.$$ 2>/dev/null; then
@@ -38,20 +39,9 @@ else
       skip "opencode install: no node on PATH to syntax-check the emitted TS"
     fi
 
-    # The confirmed, load-bearing hook (live-probed against 1.18.4): must be
-    # wired with the (input, output) signature — args live on the SECOND
-    # parameter (Hooks["tool.execute.before"] output.args), and a single-arg
-    # callback silently reads undefined forever (the exact bug this tier found
-    # and fixed; see probe-results.md). This assertion locks that fix in place.
-    if grep -q '"tool.execute.before": *async (input: any, output: any)' "$plug"; then
-      pass   # tool.execute.before wired with the 2-arg signature the live args live on
-    else
-      fail "opencode install: tool.execute.before is not wired with a 2-arg (input, output) callback — args live on output.args live (probe-results.md); a 1-arg callback silently no-ops every path/command check"
-    fi
-    # Hook env must be passed EXPLICITLY per call — implicit process.env inheritance
-    # silently failed open on this Bun build (probe-results.md). The reconciled
-    # installer uses Bun \$'s per-call .env({ ...process.env, ...env }).
-    grep -q '\.env({ \.\.\.process\.env' "$plug" && pass || fail "opencode install: sh() does not pass an explicit per-call env ( .env({ ...process.env, ...env }) ) — hook subprocesses silently lose RESOLVED_PATH/TOOL_INPUT/PATH on this Bun build (probe-results.md)"
+    # 0.9.0: the plugin has no tool.execute.before floor (ADR-0040).
+    ! grep -q 'tool.execute.before' "$plug" && pass || fail "opencode install: plugin still wires tool.execute.before"
+    grep -q 'hooks/on-compaction.sh' "$plug" && pass || fail "opencode install: plugin does not run on-compaction.sh"
 
     # Documented hooks only (ADR-0034 resolution 2026-07-21): shell.env +
     # session.compacted wired, and NO subagent.start (not a documented event —
@@ -72,6 +62,6 @@ else
   n_cmds="$(find "$cfg/commands" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
   assert_eq "${n_cmds:-0}" 3 "opencode install: 3 command files"
   [ -f "$oc/.agents/skills/orchestrate/SKILL.md" ] && pass || fail "opencode install: skill did not land at HOME/.agents/skills/orchestrate/SKILL.md"
-  [ -x "$oc/.agents/skills/orchestrate/runtime/hooks/deny-heldout-read.sh" ] && pass || fail "opencode install: deny-heldout-read.sh not installed executable in the skill's runtime"
+  [ -x "$oc/.agents/skills/orchestrate/runtime/hooks/on-compaction.sh" ] && pass || fail "opencode install: on-compaction.sh not installed executable in the skill's runtime"
   cd /
 fi

@@ -7,7 +7,6 @@ effort: high
 color: green
 ---
 
-
 <!-- Capabilities are declared in ../agents.yaml: read + run, no write. The
      credentials you hold are scoped per dispatch to your declared target; where
      the harness cannot scope them, confinement is advisory (ADR-0002). -->

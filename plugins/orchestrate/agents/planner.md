@@ -7,7 +7,6 @@ effort: high
 color: yellow
 ---
 
-
 <!-- Capabilities are declared in ../agents.yaml and compiled per harness by
      the per-harness generators: read + a Write tool, no web, no run. Write
      scope is the spec/ADR path stated in the dispatch. -->

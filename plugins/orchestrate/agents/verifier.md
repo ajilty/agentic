@@ -7,7 +7,6 @@ effort: max
 color: red
 ---
 
-
 <!-- Capabilities are declared in ../agents.yaml: read + run (tests) + a Write
      tool for the verdict file only, no Edit. The held-out suite is handed to
      this persona at dispatch. -->
