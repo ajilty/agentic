@@ -94,7 +94,7 @@ order. Any failure short-circuits to the stated route.
 Also resolve **every open tag**: no `#ASSUMED`/`#ASSUMPTION`/`#GAP` may remain
 open at approval.
 
-## Scratch rehearsals leave no bulk behind (ADR-0026)
+## Scratch rehearsals leave no bulk behind
 
 Scratch is a quota-bounded tmpfs shared by every session on the host (leftover
 `.terraform/` provider trees once exhausted it and silently swallowed all

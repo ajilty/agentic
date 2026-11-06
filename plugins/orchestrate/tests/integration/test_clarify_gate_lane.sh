@@ -1,4 +1,4 @@
-# Tier 3c (live) — TEST THE GATE JUDGMENT (O6 front-door clarify-gate, §2b). Unlike
+# Tier 3c (live): TEST THE GATE JUDGMENT (O6 front-door clarify-gate, SKILL.md loop step 3). Unlike
 # test_clarify_lane (which instructs the router to journal a clarify, testing plumbing),
 # this tests the JUDGMENT: give a bare goal with NO hint to clarify, and see whether the
 # gate fires on its own at the right time.
@@ -18,7 +18,7 @@
 #
 # FUZZY runs K times (CLARIFY_GATE_K, default 1): a silent build is a hard FAIL, all
 # declines SKIP, and under K>1 a minority fire-rate FAILs (catches a gate that mostly
-# declines when it should ask). Each fire also asserts the §2b HEADLESS contract: the
+# declines when it should ask). Each fire also asserts the loop step 3 HEADLESS contract: the
 # journaled clarify skill must be `inline` (formal grill skills can't interview with no
 # human), and journaling a formal skill headless is a mislabel -> FAIL. We do NOT assert
 # a formal grill skill "executed": headless it can't (no human), so that is designed-zero,
@@ -40,7 +40,7 @@ else
   # --- Case FUZZY (K-run fire-rate) -------------------------------------------------
   # Run the ambiguous goal K times (CLARIFY_GATE_K, default 1). Per run:
   #   silent   — implementer dispatched with NO clarify (the silent-rework failure) -> FAIL
-  #   fire     — a clarify event before any build. Headless, §2b REQUIRES the journaled
+  #   fire:    a clarify event before any build. Headless, loop step 3 REQUIRES the journaled
   #              skill be `inline` (formal grill skills can't interview with no human);
   #              journaling a formal skill headless is a mislabel that blinds metrics -> FAIL.
   #   decline  — router never reached a dispatch this run (didn't engage).
@@ -62,14 +62,14 @@ else
       silent=$((silent+1))
     elif [ -n "$cl" ] && { [ -z "$im" ] || [ "$cl" -lt "$im" ]; }; then
       fires=$((fires+1))
-      # §2b headless contract: the journaled clarify skill must be `inline`, not a formal
+      # loop step 3 headless contract: the journaled clarify skill must be `inline`, not a formal
       # grill skill (which cannot interview with no human present).
       sk="$(grep '"event":"clarify"' "$bf" 2>/dev/null | grep -oE '"skill":"[^"]*"' | head -1)"
       case "$sk" in
         *inline*) : ;;                                   # correct headless fallthrough
         *grill-with-docs*|*grill-me*|*brainstorming*)
           mislabel=$((mislabel+1))
-          echo "  (FUZZY: headless run journaled a FORMAL skill $sk — §2b requires 'inline' when no human can interview)" ;;
+          echo "  (FUZZY: headless run journaled a FORMAL skill $sk: loop step 3 requires 'inline' when no human can interview)" ;;
       esac
     else
       declines=$((declines+1))
@@ -78,12 +78,12 @@ else
   if [ "$silent" -gt 0 ]; then
     fail "clarify-gate FUZZY: $silent/$K runs dispatched an implementer with NO clarify (silent-rework — gate did not fire)"
   elif [ "$mislabel" -gt 0 ]; then
-    fail "clarify-gate FUZZY: $mislabel/$K fires journaled a FORMAL grill skill in a headless run (§2b requires inline)"
+    fail "clarify-gate FUZZY: $mislabel/$K fires journaled a FORMAL grill skill in a headless run (loop step 3 requires inline)"
   elif [ "$fires" -eq 0 ]; then
     skip "clarify-gate FUZZY: gate never fired in $K run(s) (all declines) — not exercised"
   elif [ $((fires * 2)) -ge "$K" ]; then
-    pass   # gate fires on a majority of ambiguous-goal runs, journaling inline per §2b
-    echo "  (FUZZY: fired $fires/$K, journaled inline + HALT-open per §2b headless contract, declines $declines)"
+    pass   # gate fires on a majority of ambiguous-goal runs, journaling inline per loop step 3
+    echo "  (FUZZY: fired $fires/$K, journaled inline + HALT-open per the loop step 3 headless contract, declines $declines)"
   else
     fail "clarify-gate FUZZY: gate fired only $fires/$K on an ambiguous goal (under-firing)"
   fi

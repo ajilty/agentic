@@ -1,4 +1,4 @@
-# Tier 3c — the router's intake-clarification decision is JOURNALED (§2b), so it
+# Tier 3c: the router's intake-clarification decision is JOURNALED (SKILL.md loop step 3), so it
 # becomes a checkable trace instead of invisible router-context behavior. Today a
 # clarification skill runs in router context and leaves NO ledger event, so nothing
 # can verify it fired. `ledger.sh clarify <skill> [ticket]` records the decision

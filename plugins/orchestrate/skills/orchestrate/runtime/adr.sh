@@ -79,7 +79,11 @@ case "$cmd" in
           *[Ss]upersed*)
             status="$(printf '%s' "$sline" | grep -oiE 'superseded by [0-9A-Za-z-]+' || true)"
             [ -z "$status" ] && status="superseded" ;;
-          *) status="active" ;;
+          *) status="active"
+             # An active ADR amended by a later one says so, so a planner reading the
+             # index alone does not take the original title as the whole decision.
+             am="$(grep -oE '^## Amended by ADR-[0-9]+' "$f" 2>/dev/null | grep -oE '[0-9]+$' | paste -sd, - || true)"
+             [ -n "$am" ] && status="active, amended by ${am//,/, }" ;;
         esac
         printf '| [%s](%s) | %s | %s |\n' "$num" "$base" "$title" "$status"
       done

@@ -39,11 +39,12 @@ pace 🟢 moving · 🟡 slow · 🔴 stalled; lane ✅ done · 🔄 running · 
    event`; the router skipped the journal, so model_mix and coverage undercount.
 2. 🌳 **Lanes**: a tree, one node per ticket with its status glyph; parallel lanes are
    siblings; writer lanes show worktree commits-ahead. When the `dispatched` events carry
-   `model`/`effort`, show them inline per lane (e.g. `verifier opus/high`), so the operator
+   `model`/`effort`, show them inline per lane (e.g. `implementer sonnet/medium`), so the operator
    can see horsepower was right-sized.
 3. 🙋 **Needs you**: render this section **only if non-empty**: halted `DECISION_FORK`s,
    clarify-halts, prod changes waiting for the operator's confirmation, `INCONSISTENT_ORACLE`,
-   reground ambiguous-writer halts. Each is one line (the ask) + 📄 pointer to the ticket
+   reground ambiguous-writer halts (an `OPEN WRITER ... branch=unknown` is a running lane 🔄,
+   not a halt). Each is one line (the ask) + 📄 pointer to the ticket
    file. If nothing is pending, omit the section and say `nothing needs you`.
 4. ⏭️ **Next**: what's coming, from the plan's remaining tasks + current lane states.
 

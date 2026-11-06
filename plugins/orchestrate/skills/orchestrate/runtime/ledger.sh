@@ -43,15 +43,16 @@ case "$cmd" in
     # of "note":) that makes the anchor INVISIBLE to reground. Warn; the goal helper
     # gets it right for free.
     if [ "$ev" = goal ]; then case "$line" in *'"note":'*) ;;
-      *) echo "ledger.sh append: WARNING goal event without a \"note\" field — reground's goal anchor reads note (use: ledger.sh goal '<note>' [spec] [base])" >&2 ;;
+      *) echo "ledger.sh append: WARNING goal event without a \"note\" field: reground's goal anchor reads note; use: ledger.sh goal '<note>' [spec] [base]" >&2 ;;
     esac; fi
     printf '%s\n' "$line" >> "$LEDGER" ;;
 
   retries)   # derived, never held: compaction can't corrupt a disk count
     t="${1:?ticket}"; [ -f "$LEDGER" ] || { echo 0; exit 0; }
-    grep -c "\"ticket\":\"$t\".*\"verdict\":\"REJECTED\"" "$LEDGER" || true ;;
+    # Field-order independent: a hand-appended line may put verdict before ticket.
+    grep -F "\"ticket\":\"$t\"" "$LEDGER" | grep -cF '"verdict":"REJECTED"' || true ;;
 
-  metrics)   # §8 metrics, derived by replaying the ledger (no separate sink). Optional
+  metrics)   # metrics (SKILL.md "Ledger"), derived by replaying the ledger (no separate sink). Optional
              # ticket filter. Emits key=val pairs; splits healthy escalations (forks/
              # decisions) from friction (rejects + oracle-inconsistencies + lease-conflicts).
     t="${1:-}"
@@ -65,7 +66,7 @@ case "$cmd" in
     dimp=$(c '"event":"dispatched".*"persona":"implementer"'); da=$(c '"event":"dispatched".*"persona":"actuator"')
     # Horsepower actually spent (verify optimal usage): persona:model:effort:count over
     # dispatched events that journaled model/effort (optional fields; '-' when absent).
-    # Escalated dispatches (§2a′) show up as a distinct triple next to the tier default.
+    # Escalated dispatches (SKILL.md "Right-sizing") show up as a distinct triple next to the tier default.
     # `|| true` is load-bearing: with ZERO dispatched events grep exits 1, and under
     # set -euo pipefail that killed metrics (and feedback with it) on a fresh board.
     mix="$(src | grep '"event":"dispatched"' | sed -n 's/.*"persona":"\([^"]*\)".*/\1 &/p' | while read -r p line; do
@@ -75,10 +76,9 @@ case "$cmd" in
     done | sort | uniq -c | awk '{print $2":"$1}' | paste -sd, - || true)"; mix="${mix:--}"
     dv=$(src | grep -cE '"event":"dispatched".*"persona":"(verifier|validator)"' 2>/dev/null || true)
     # unjournaled_work: returned/verdict events exceeding dispatched events on the same
-    # ticket. Those personas ran with NO model bound at dispatch — under the frontmatter
-    # bug (#44385) they inherit the main-loop model, so the run's priciest tier does
-    # mechanical work invisibly (measured 2026-08-05: planner + verifier rode a flagship
-    # main loop while model_mix showed nothing). Per-ticket so lanes can't cancel out.
+    # ticket: personas that ran with no dispatched row, so model_mix cannot attribute
+    # their horsepower and the run's cost is undercounted (measured 2026-08-05: planner +
+    # verifier ran while model_mix showed nothing). Per-ticket so lanes can't cancel out.
     uw=0
     while IFS= read -r tk; do [ -n "$tk" ] || continue
       w=$(src | grep "\"ticket\":\"$tk\"" | grep -cE '"event":"(returned|verdict)"' 2>/dev/null || true)
@@ -150,9 +150,10 @@ case "$cmd" in
       if [ "$persona" = implementer ]; then
         # A writer dispatched with native worktree isolation has no branch on its
         # dispatched event (the harness names the worktree; the branch lands on
-        # returned). Unknown branch = possibly still in flight: HALT, never re-dispatch.
+        # returned). That is the normal in-flight state, so it is reported, not a HALT;
+        # uncommitted work in its tree is caught by the dirty-worktree scan in (b).
         if [ -z "$branch" ]; then
-          echo "OPEN WRITER   ticket=$t branch=unknown -> check git worktree list and the agent's status; reconcile before re-dispatch"; ambiguous=1
+          echo "OPEN WRITER   ticket=$t branch=unknown (in flight until returned; before any re-dispatch, confirm with git worktree list that no worktree-* tree newer than its dispatched ts exists)"
         elif git rev-parse --verify "$branch" >/dev/null 2>&1; then
           echo "OPEN WRITER   ticket=$t branch=$branch -> reconcile worktree before re-dispatch"; ambiguous=1
         else
@@ -202,11 +203,14 @@ case "$cmd" in
     [ "$ambiguous" = 1 ] && { echo "REGROUND: ambiguous writer lane(s) -> HALT for human re-attach"; exit 3; }
     echo "REGROUND: clean" ;;
 
-  decision)   # record a resolved DECISION_FORK to the board (judgment-memory capture, SKILL §11)
-    tk="${1:?ticket}"; fid="${2:?fork_id}"; adr="${3:-}"; mkdir -p "$ROOT"
-    printf '{"ts":"%s","ticket":"%s","event":"decision","fork_id":"%s","adr":"%s"}\n' "$(date -u +%FT%TZ)" "$tk" "$fid" "$adr" >> "$LEDGER" ;;
+  decision)   # record a resolved DECISION_FORK or a prod confirmation (SKILL.md "Judgment memory",
+              # "Production changes"). The optional note carries the operator's answer, so a
+              # prod "declined" never reads like an "approved": decision T prod-ack:<target> "" "approved: ..."
+    tk="${1:?ticket}"; fid="${2:?fork_id}"; adr="${3:-}"; note="${4:-}"; mkdir -p "$ROOT"
+    nl=""; if [ -n "$note" ]; then nl="${note//\\/\\\\}"; nl="${nl//\"/\\\"}"; nl="$(printf '%s' "$nl" | tr '\n\r\t' '   ')"; nl=",\"note\":\"$nl\""; fi
+    printf '{"ts":"%s","ticket":"%s","event":"decision","fork_id":"%s","adr":"%s"%s}\n' "$(date -u +%FT%TZ)" "$tk" "$fid" "$adr" "$nl" >> "$LEDGER" ;;
 
-  clarify)    # journal the router's intake-clarification decision (§2b/ADR-0004): which
+  clarify)    # journal the router's intake-clarification decision (SKILL.md loop step 3, ADR-0004): which
               # clarification skill was selected (first-present-wins), so the choreography
               # is a checkable trace instead of invisible router-context behavior.
     sk="${1:?skill}"; tk="${2:-intake}"; mkdir -p "$ROOT"
@@ -228,8 +232,11 @@ case "$cmd" in
               # is the retrospective signal. T0 (the oracle is the check) never warns.
     tk="${1:?ticket}"; mkdir -p "$ROOT"; tier=""; hv=0
     if [ -f "$LEDGER" ]; then
-      tier="$(grep "\"ticket\":\"$tk\".*\"event\":\"intake\"" "$LEDGER" 2>/dev/null | sed -n 's/.*"tier":"\([^"]*\)".*/\1/p' | tail -1 || true)"
-      grep -q "\"ticket\":\"$tk\".*\"event\":\"verdict\"" "$LEDGER" 2>/dev/null && hv=1 || true
+      # Field-order independent: match the ticket and the event with separate greps (a
+      # hand-appended line may put event before ticket), then extract the field.
+      tl="$(grep -F "\"ticket\":\"$tk\"" "$LEDGER" 2>/dev/null || true)"
+      tier="$(printf '%s\n' "$tl" | grep -F '"event":"intake"' | sed -n 's/.*"tier":"\([^"]*\)".*/\1/p' | tail -1 || true)"
+      printf '%s\n' "$tl" | grep -qF '"event":"verdict"' && hv=1 || true
     fi
     case "$tier" in
       T0*|t0*) ;;
@@ -237,5 +244,5 @@ case "$cmd" in
     esac
     printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER" ;;
 
-  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr]|goal <note> [spec] [base]|done <ticket>}" >&2; exit 64 ;;
+  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base]|done <ticket>}" >&2; exit 64 ;;
 esac

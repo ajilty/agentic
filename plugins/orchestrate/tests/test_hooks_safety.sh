@@ -17,6 +17,17 @@ assert_eq "$o" "" "deny path keeps stdout empty (reason on stderr only)"
 # the process cwd must NOT decide: the payload cwd does
 ( cd "$wt" && feed 'git reset --hard X' "$r" >/dev/null 2>&1 ); assert_eq "$?" "2" "payload cwd (primary) wins over process cwd (worktree)"
 ( cd "$r" && feed 'git reset --hard X' "$wt" >/dev/null 2>&1 ); assert_eq "$?" "0" "payload cwd (worktree) wins over process cwd (primary)"
+# (b2) the target checkout is resolved per statement, not from the payload cwd alone:
+#      from a linked-worktree cwd, `git -C <primary>` and `cd <primary> &&` hit the primary
+feed "git -C $r reset --hard origin/main" "$wt" >/dev/null 2>&1; assert_eq "$?" "2" "worktree cwd + git -C <primary> reset --hard denied"
+feed "cd $r && git reset --hard origin/main" "$wt" >/dev/null 2>&1; assert_eq "$?" "2" "worktree cwd + cd <primary> && reset --hard denied"
+feed "cd $r; git clean -fd" "$wt" >/dev/null 2>&1; assert_eq "$?" "2" "worktree cwd + cd <primary>; clean -fd denied"
+feed "git -C .agents/worktrees/lane reset --hard X" "$r" >/dev/null 2>&1; assert_eq "$?" "0" "primary cwd + git -C <relative worktree> reset --hard allowed"
+feed "cd .agents/worktrees/lane && git reset --hard X" "$r" >/dev/null 2>&1; assert_eq "$?" "0" "primary cwd + cd <relative worktree> && reset --hard allowed"
+feed "(cd $wt && git status) && git reset --hard X" "$r" >/dev/null 2>&1; assert_eq "$?" "2" "a subshell cd does not carry past its closing paren"
+feed "cd $r && git status && git checkout -b y" "$wt" >/dev/null 2>&1; assert_eq "$?" "0" "cd <primary> with no destructive verb allowed"
+# a payload cwd that does not exist falls back to the process cwd instead of failing open
+( cd "$r" && feed 'git reset --hard X' "/nonexistent/orchestrate-$$" >/dev/null 2>&1 ); assert_eq "$?" "2" "nonexistent payload cwd falls back to process cwd (primary -> denied)"
 # (c) no destructive verb: checkout -b plus commit is allowed on the primary (2026-07-06 regression)
 feed 'git checkout -b x && git commit -m m' "$r" >/dev/null 2>&1; assert_eq "$?" "0" "checkout -b && commit allowed on primary"
 feed 'git status && git checkout -- .' "$r" >/dev/null 2>&1; assert_eq "$?" "2" "checkout -- . still denied on primary in a compound line"

@@ -157,7 +157,7 @@ else
   echo "(skip manifest validity: $YQ4_SKIP)"
 fi
 
-# --- Clarification binding (§2b front-door gate): the router-prose config that binds
+# --- Clarification binding (SKILL.md loop step 3, the front-door clarify): the router-prose config that binds
 #     WHICH clarification skill fires must stay present and order-matched. Nothing
 #     compiles it per-harness, so without this guard it can silently drift or vanish
 #     (the gate would fall through to inline on every ambiguous goal, unnoticed). It
@@ -165,7 +165,7 @@ fi
 if have_yq4; then
   AGY="$SK/skills/orchestrate/references/agents.yaml"
   got_cs="$(yq '.conventions.clarification_skills | join(",")' "$AGY" 2>/dev/null)"
-  assert_eq "$got_cs" "grill-with-docs,grill-me,brainstorming,inline" "clarification_skills present + order-matched (§2b)"
+  assert_eq "$got_cs" "grill-with-docs,grill-me,brainstorming,inline" "clarification_skills present + order-matched (loop step 3)"
 else
   echo "(skip clarification binding: $YQ4_SKIP)"
 fi

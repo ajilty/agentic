@@ -17,7 +17,7 @@ LIB="${HARNESS_LIB:-$(cd "$PLUGIN_ROOT/../.." && pwd)/scripts/harness-lib}"
 . "$LIB/common.sh"; . "$LIB/claude-code.sh"
 require_yq4
 
-# 1) agents/<persona>.md — frontmatter (name/description/tools/tier/color/isolation) + persona body
+# 1) agents/<persona>.md: frontmatter (name/description/tools/tier/color/isolation) + persona body
 mkdir -p "$PLUGIN_ROOT/agents"
 for p in $(personas); do
   cc_agent_md "$p" "$PLUGIN_ROOT/agents/$p.md"

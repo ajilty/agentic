@@ -35,7 +35,7 @@ can't run).
 {"ts","ticket","event":"verdict","verdict"}                             # APPROVED|REJECTED|INCONSISTENT_ORACLE
 {"ts","ticket","event":"clarify","skill"}                               # intake clarification; ticket="intake" if pre-ticket
 {"ts","ticket","event":"fork","state":"halted","fork_id"}
-{"ts","ticket","event":"decision","fork_id","adr","note"}               # a resolved fork (adr set iff promoted) or a prod confirmation (fork_id "prod:<target>", answer in note)
+{"ts","ticket","event":"decision","fork_id","adr","note"}               # a resolved fork (adr set iff promoted) or a prod confirmation: ledger.sh decision <ticket> prod-ack:<target> "" "<approved|declined>: <one line>" (the operator's answer, either way, in note)
 {"ts","event":"denied","hook","persona","note"}                         # written by the shared-checkout floor when it stops a command (ADR-0032); never by the router. Counted by metrics (denials), shown by status, harvested by feedback
 {"ts","ticket","event":"lane","state":"open|closed","branch"}
 {"ts","ticket","event":"done"}                                          # via `ledger.sh done <ticket>`: warns on stderr when a T1/T2 lane has no verdict, and still appends; verify_coverage shows the gap
@@ -62,8 +62,10 @@ halted forks are read the same way.
    router gates and promotes it to `tickets/<ticket>/findings/<slug>.md` at the
    `slug` on the `dispatched` event. Promoted file present means the result is
    durable; don't re-dispatch. An implementer whose last event is `dispatched`
-   is an open writer lane: reconcile it against `git worktree list` before
-   dispatching again.
+   has no `branch` yet (native isolation names it on `returned`), so reground
+   prints `OPEN WRITER ... branch=unknown`: it is in flight, not a halt. Before
+   any re-dispatch, confirm with `git worktree list` that no `worktree-*` tree
+   newer than its `dispatched` ts exists.
 2. **Disk ground truth.** Every live `worktree-*` or `worktree-agent-*`
    worktree with uncommitted work is an open writer lane to reconcile, *even if
    no ledger event exists for it* (missed append, crash mid-write). Disk wins
@@ -85,18 +87,21 @@ finished while the plan is open.
 
 ## Halt on an ambiguous writer
 
-If reground finds a dirty writer worktree, it **halts for human re-attach**
-(exit 3) rather than guess. Do not dispatch past a halt. A paused board beats a
+If reground finds a dirty writer worktree (or a 0.8.x `dispatched` row whose
+`branch` still exists), it **halts for human re-attach** (exit 3) rather than
+guess. An in-flight writer with no branch is not a halt. Do not dispatch past a halt. A paused board beats a
 wrong one.
 
 ## Hooks, in total
 
-Two, both on Claude Code only; everything else is the orchestrator driving its
-own loop:
+Two on Claude Code (OpenCode's generated plugin runs only the compaction one;
+Codex runs none); everything else is the orchestrator driving its own loop:
 
 - **Shared-checkout floor** (`guard-shared-checkout.sh`, before every Bash
   command, every agent): stops `reset --hard`, `clean -f`, `checkout -f`/`.`/`--`,
-  and `switch -f`/`--discard-changes` in the primary checkout, resolved from the
-  payload's `cwd`; linked worktrees are left alone. Journals `denied`.
+  and `switch -f`/`--discard-changes` aimed at the primary checkout. The target
+  is resolved per statement: `git -C DIR`, else the last `cd DIR` before it in
+  the line, else the payload's `cwd`. Linked worktrees are left alone. Journals
+  `denied`.
 - **Compaction recovery** (`on-compaction.sh`, `SessionStart` matcher
   `compact`): automatic reground + inject, as above.

@@ -1,4 +1,4 @@
-# Tier 3c, Layer 3 — ledger-derived §8 metrics + the durable feedback record
+# Tier 3c, Layer 3: ledger-derived metrics + the durable feedback record
 # (deterministic, no live model). Backs the /orchestrate:feedback command.
 R="$HERE/../skills/orchestrate/runtime/ledger.sh"
 d="$(mktemp_repo)"; cd "$d"

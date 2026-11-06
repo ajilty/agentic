@@ -114,7 +114,8 @@ Official sources, fetched the same day:
 
 ## Amends
 
-0024 (see its `Amended by ADR-0041` section) and the OpenCode model default in
-0037.
+0024 (see its `Amended by ADR-0041` section) and 0037's Consequences bullet
+"OpenCode emits tier models (Anthropic ladder default, `ORCHESTRATE_OC_MODEL_*`
+overrides)" (see its `Amended by ADR-0041` section).
 
 Status: active

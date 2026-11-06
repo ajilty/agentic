@@ -189,8 +189,9 @@ by ADR-0040 (removed); the history is in git and the ADR.
 - **`keep-on-branch.sh` false-denied worktree commits under CC.** Fixed in
   0.8.x, then removed with the branch guard.
 - **Hooks read CC's stdin JSON; per-dispatch context via the active-writer
-  record.** The surviving floor still reads stdin and resolves from the
-  payload's `cwd`; the active-writer record is gone.
+  record.** The surviving floor still reads stdin and resolves each statement's
+  target (`git -C`, a preceding `cd`, else the payload's `cwd`); the
+  active-writer record is gone.
 - **run-scope blocked verifier scratch rehearsals.** run-scope is removed; the
   verifier's brief says to rehearse in scratch or a detached copy.
 - **`reground` halts on a dangling `active-writer.json`**, the overwrite test

@@ -30,3 +30,13 @@ bash "$R" append '{"ticket":"T3","event":"intake","tier":"T0"}'
 err="$(bash "$R" done T3 2>&1 >/dev/null)"; assert_eq "$?" "0" "T0 without a verdict -> exit 0"
 assert_eq "$err" "" "T0 without a verdict -> no warning"
 cd /; rm -rf "$d"
+
+# 4) field order does not matter: a hand-appended intake/verdict with event before ticket
+d="$(mktemp_repo)"; cd "$d"
+bash "$R" append '{"event":"intake","ticket":"T4","tier":"T0"}'
+err="$(bash "$R" done T4 2>&1 >/dev/null)"; assert_eq "$err" "" "T0 intake with event before ticket -> no warning"
+bash "$R" append '{"event":"intake","ticket":"T5","tier":"T1"}'
+bash "$R" append '{"verdict":"REJECTED","event":"verdict","ticket":"T5"}'
+err="$(bash "$R" done T5 2>&1 >/dev/null)"; assert_eq "$err" "" "verdict with fields reordered still counts"
+assert_eq "$(bash "$R" retries T5)" "1" "retries counts a REJECTED verdict whose verdict key precedes ticket"
+cd /; rm -rf "$d"

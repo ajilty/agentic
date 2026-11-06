@@ -29,20 +29,20 @@ raises a DECISION_FORK citing it (supersede flow).
 | [0021](0021-delegate-on-context-cost-not-difficulty.md) | Delegate on context cost, not difficulty: a second-strike tripwire for diagnosis | active |
 | [0022](0022-oracle-must-be-a-function-probe.md) | A valid oracle is an independent function probe; pair the Verifier by default | active |
 | [0023](0023-agent-teams-incompatible-detect-and-warn.md) | Agent teams is incompatible with orchestrate's isolation; detect and warn (no opt-out) | superseded by 0040 |
-| [0024](0024-horsepower-binds-at-dispatch.md) | Per-persona horsepower binds at dispatch, not at agent registration | active |
+| [0024](0024-horsepower-binds-at-dispatch.md) | Per-persona horsepower binds at dispatch, not at agent registration | active, amended by 0041 |
 | [0025](0025-researcher-is-two-jobs-spec-gaps-not-bought-back.md) | Researcher is two jobs; a T1 spec gap is not bought back by implementer model tier | active |
 | [0026](0026-verifier-scratch-carveout.md) | The verifier run-scope floor carves out scratch roots for rehearsals | superseded by 0040 |
 | [0027](0027-merge-lands-on-journaled-base.md) | Merges on the shared checkout must land on the journaled integration base | superseded by 0040 |
 | [0028](0028-feedback-lands-durably.md) | Run feedback lands durably: review sidecar, version stamp, dev-side harvest | active |
 | [0029](0029-worktree-base-from-journaled-goal.md) | Writer worktrees cut from the journaled goal base, not the operator's current checkout | superseded by 0040 |
 | [0030](0030-append-stamps-ts-and-flags-noncanonical-events.md) | `ledger.sh append` stamps ts and flags non-canonical events; helpers must out-earn raw echo | active |
-| [0031](0031-personas-carry-their-boundaries.md) | Personas carry their boundaries up front; hooks are the backstop, not the syllabus | active |
-| [0032](0032-denials-are-journaled-friction.md) | Every enforcement denial is journaled to the board; instrumentation over a verbose mode | active |
+| [0031](0031-personas-carry-their-boundaries.md) | Personas carry their boundaries up front; hooks are the backstop, not the syllabus | active, amended by 0040 |
+| [0032](0032-denials-are-journaled-friction.md) | Every enforcement denial is journaled to the board; instrumentation over a verbose mode | active, amended by 0040 |
 | [0033](0033-model-policy-rides-goal-anchor.md) | Dispatch model policy is a run-level operator toggle riding the goal anchor | superseded by 0040 |
 | [0034](0034-skill-native-installs-via-agents-skills.md) | Codex and OpenCode installs are skill-native via the cross-tool .agents/skills root | active |
 | [0035](0035-run-scope-mirrors-verdict-write-allowance.md) | run-scope mirrors the verifier's verdict-write allowance; one contract, every layer | superseded by 0040 |
 | [0036](0036-plugin-taxonomy-enable-boundary.md) | Plugins are enable boundaries; skills carry the trigger | active |
-| [0037](0037-harness-emitters-live-in-repo-level-lib.md) | ADR-0037: Harness emitters live in a repo-level lib; the contract carries the wire map | active |
+| [0037](0037-harness-emitters-live-in-repo-level-lib.md) | ADR-0037: Harness emitters live in a repo-level lib; the contract carries the wire map | active, amended by 0041 |
 | [0038](0038-repo-wide-plugin-test-and-validation-convention.md) | 0038: Repo-wide plugin test and validation convention | active |
 | [0039](0039-shipyard-product-plugin-structural-pauses.md) | Shipyard ships as a product plugin of user-invoked segments with structural pauses | active |
 | [0040](0040-gates-become-guidance.md) | Gates become guidance: git facts stay deterministic, workflow facts become prose | active |
