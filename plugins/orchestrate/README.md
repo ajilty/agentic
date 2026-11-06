@@ -2,81 +2,85 @@
 
 A standing operator loop you feed goals of any altitude (from "bump the conn
 limit" to "deploy app A on cluster B" to "ensure prod restores from backup"). It
-decomposes and executes them with enforced discipline — capability-subtracted
-personas, single-writer leasing, a fail-closed held-out oracle, and a pre-apply
-consequence gate — survives interruption, and remembers its judgment across goals.
+decomposes them and drives five personas (researcher, planner, implementer,
+verifier, actuator), each with only the tools its role needs. Writers build in
+parallel, each in its own git worktree; steps that touch a shared target run one
+at a time; every change is verified by a fresh-context reviewer; and every run
+is journaled so you can judge afterwards whether the loop earned its keep. It
+survives interruption and compaction and remembers its judgment across goals.
 
 ## Install
 
-**Claude Code** — from this repo's self-marketplace:
+**Claude Code**, from this repo's self-marketplace:
 
-```
+```text
 /plugin marketplace add ajilty/agentic
 /plugin install orchestrate@ajilty
 ```
 
-Everything ships in the plugin: the five persona agents, the hook floor
-(`hooks/hooks.json` auto-registers — no settings.json snippet to paste), the
-skill, commands, and `bin/` shims. Nothing runs at install time; artifacts are
-pre-built and committed (see "Generated artifacts" below).
+Everything ships in the plugin: the five persona agents, the two hooks
+(`hooks/hooks.json` registers them automatically), the skill, the commands, and
+the `bin/` shims. Nothing runs at install time; artifacts are pre-built and
+committed (see "Generated artifacts" below).
 
-**Codex / OpenCode** — compile-step installers (one harness-neutral capability
-contract → native enforcement):
+**Codex / OpenCode**:
 
-```
+```text
 plugins/orchestrate/scripts/install-codex.sh    --scope user   # or --scope project
 plugins/orchestrate/scripts/install-opencode.sh --scope user   # or --scope project
 ```
 
-Both install ONE copy of the skill (SKILL.md + references/ + runtime/, with a
-harness dispatch addendum appended) into the cross-tool `.agents/skills/` root
-(`~/.agents/skills/` at user scope, `<repo>/.agents/skills/` at project scope) —
-both harnesses auto-discover it there (ADR-0034; no AGENTS.md include step).
-Harness config dirs get only native surfaces:
-
-- **Codex** (`~/.codex` or `.codex/`): persona TOMLs (sandbox, model, effort),
-  `hooks.json` wiring the floor, config.toml edits (hooks feature + network
-  access), and hook **trust seeding** with a live self-verify — an untrusted
-  Codex hook silently fails OPEN, so read the HOOK TRUST status the installer
-  prints before relying on the floor.
-- **OpenCode** (`~/.config/opencode` or `.opencode/`): persona agents, the
-  `/orchestrate-{init,status,feedback}` commands, and a generated enforcement
-  plugin (`plugins/orchestrate.ts`) that runs the shared hook scripts on tool
-  events.
+The installers put the skill (SKILL.md, references/, runtime/) in the cross-tool
+`.agents/skills/` root (`~/.agents/skills/` at user scope,
+`<repo>/.agents/skills/` at project scope), where both harnesses discover it
+(ADR-0034), and generate the persona definitions from `agents.yaml`: persona
+TOMLs for Codex, persona agents for OpenCode. They wire no hooks. OpenCode also
+gets the `/orchestrate-{init,status,feedback}` command wrappers and a small
+plugin that puts the runtime on `PATH` and reruns reground after compaction.
 
 Installers are idempotent; `yq` v4 (mikefarah) is required at install time only.
 
 ## Use
 
+```text
+/orchestrate:init <goal>     # start a goal of any altitude
+/orchestrate:init            # no args: resume open lanes (regrounds first)
+/orchestrate:status          # read-only status update from the board
+/orchestrate:feedback        # record the run review and a rating row
 ```
-/orchestrate:init <goal>                  # start a goal of any altitude
-/orchestrate:init --models=quick <goal>   # dispatch policy: dynamic (default) | quick | inherit (ADR-0033)
-/orchestrate:init                         # no args → resume open lanes (regrounds first)
-```
-
-Export `HELDOUT_ROOT` (the path where held-out tests / live-probe oracles live,
-outside the writer's tree) before running an ops or held-out lane — the
-held-out-deny hook fails closed against reads under it.
 
 The loop is idempotent and self-detecting: an empty ledger starts fresh, open
-lanes resume, and compaction recovers automatically. Reground (always first) →
-intake (clarify only if ambiguous) → right-size → drive lanes (Researcher /
-Planner / Implementer / Actuator / Verifier) → verify, resolve, merge, close.
-No config file — repo specifics are discovered, defaulted, or set by env.
+lanes resume, and compaction recovers automatically. Reground, intake (clarify
+only if no oracle is nameable), right-size, drive lanes, verify, land, feedback.
+No config file: repo specifics are discovered, defaulted, or set by env.
+
+If the project keeps held-out tests, name their path in the goal (or export
+`HELDOUT_ROOT`); the router tells the implementer not to read it and hands it to
+the verifier. For a hard boundary, add a `permissions.deny` `Read(<path>)` rule
+in the project's own settings.
+
+Writers run under the harness's native worktree isolation, which cuts from
+`origin/HEAD` unless the project sets `worktree.baseRef: "head"`. At intake the
+router checks that base against the goal's base branch and, on a mismatch, stops
+with the one-line fix (`git remote set-head origin <base>`).
 
 ## What ships
 
-- **`commands/init.md`** — the `/orchestrate:init` entry point (thin wrapper; the
-  router brain is `skills/orchestrate/SKILL.md`).
-- **`agents/{researcher,planner,implementer,verifier,actuator}.md`** — the five
-  capability-subtracted subagents. **Generated** (see below).
-- **`hooks/hooks.json`** — held-out-deny, branch-guard, the pre-apply gate +
-  write-ahead (`SubagentStart`), and compaction-recovery (`SessionStart`). These
-  **auto-register** when the plugin is enabled; their command paths are
-  `${CLAUDE_PLUGIN_ROOT}`-relative, so they are machine-independent. **Generated.**
-- **`skills/orchestrate/`** — the harness-neutral source of truth: `SKILL.md` (the
-  router brain), `references/` (`agents.yaml` + persona bodies), and `runtime/`
-  (`ledger.sh`, `adr.sh`, and the enforcement/lifecycle hook scripts).
+- **`commands/{init,status,feedback}.md`**: `/orchestrate:init` (the entry
+  point; the router brief is `skills/orchestrate/SKILL.md`), `/orchestrate:status`
+  (read-only board view), and `/orchestrate:feedback` (durable run review).
+- **`agents/{researcher,planner,implementer,verifier,actuator}.md`**: the five
+  persona subagents, each with a tools allowlist, a model and effort tier, and,
+  for the implementer, `isolation: worktree`. **Generated** (see below).
+- **`hooks/hooks.json`**: two hooks. The shared-checkout floor (PreToolUse on
+  Bash) and compaction recovery (SessionStart, matcher `compact`). Command paths
+  are `${CLAUDE_PLUGIN_ROOT}`-relative, so they are machine-independent.
+  **Generated.**
+- **`skills/orchestrate/`**: the harness-neutral source of truth: `SKILL.md`
+  (the router brief), `references/` (`agents.yaml`, persona bodies,
+  `resume.md`), and `runtime/` (`ledger.sh`, `adr.sh`, and the two hook
+  scripts). Sibling craft skills (`research`, `plan`, `build`, `verify`) are
+  what each persona reads first.
 
 ## Generated artifacts (build step)
 
@@ -87,7 +91,7 @@ per hook) by `scripts/build.sh` and committed — a marketplace install runs no
 build. All harness mapping logic lives in the repo-level `scripts/harness-lib/`
 (ADR-0037), shared by this and the Codex/OpenCode installers. After editing `agents.yaml` or any persona body, regenerate:
 
-```
+```text
 scripts/build.sh
 ```
 
@@ -108,32 +112,39 @@ much context pre-exists:
 | | New repo | Existing repo |
 |---|---|---|
 | `.agents/` | gitignore it | add `.agents/` to `.gitignore` (one line) |
-| Oracle | Planner authors spec-derived acceptance checks | discovers existing tests; set `HELDOUT_ROOT` to enforce held-out isolation |
+| Oracle | Planner authors spec-derived acceptance checks | discovers existing tests; name any held-out path in the goal |
 | Judgment memory | `docs/adr/` starts empty, accumulates | optionally seed `docs/adr/` so the Planner recalls prior decisions instead of re-litigating |
-| Ops creds | scope per leased target (advisory) when the first ops goal appears | same |
-| Discovery | nothing to find | base branch, coverage, mutation targets discovered at runtime |
+| Ops creds | scope the actuator's credentials to its target when the first ops goal appears | same |
+| Worktree base | `origin/HEAD` points at the branch you land on | check `origin/HEAD`, or set `worktree.baseRef: "head"` |
+| Discovery | nothing to find | base branch, coverage, shared targets discovered at runtime |
 
 ## How state is laid out (two-axis split, ADR-0005)
 
-- **Tracked, human-facing →** `docs/specs/` (designs) and `docs/adr/` (cross-goal
+- **Tracked, human-facing:** `docs/specs/` (designs) and `docs/adr/` (cross-goal
   decisions; the judgment memory). These travel with the repo.
-- **Gitignored, machine state →** `.agents/` (the board ledger, per-ticket bus,
-  mutation-target leases, worktrees). One `.gitignore` entry.
+- **Gitignored, machine state:** `.agents/` (the board ledger, the per-ticket
+  bus, run reviews and feedback). One `.gitignore` entry. Writer worktrees are
+  managed by the harness.
 
-## Safety model (what's guaranteed vs advisory)
+## Safety model (what's guaranteed vs guidance)
 
-- **Guaranteed:** capability subtraction per persona (compiled to native tool
-  allowlists), single-writer over *mutation targets* via deterministic leases,
-  fail-closed held-out read-deny, branch-guard, and the pre-apply consequence gate
-  (a `PreToolUse` floor denies the Actuator's commands until a prod-tagged target
-  is acked — on Claude Code / Codex via hooks, on OpenCode via its plugin).
-- **Advisory (deployment responsibility):** credential confinement of the Actuator
-  to its leased targets, and any live-environment/network boundary — the skill
-  states these but cannot enforce them in every harness (ADR-0002, §8).
+- **Guaranteed:** the tools allowlist per persona (compiled into each agent
+  definition, so a persona without Edit or web cannot use them); the
+  shared-checkout floor (a hook that stops `reset --hard`, `clean -f`,
+  `checkout -f`, and similar discarding git commands in the primary checkout,
+  for every agent); and the harness's own worktree isolation guard and
+  permission prompts.
+- **Guidance:** everything else. Which branch a writer commits to, which paths a
+  persona writes, what counts as a test run, never reading a held-out path,
+  running shared-target steps one at a time, and asking before a production
+  change are directives in the router and persona briefs. The ledger shows when
+  one was skipped: a lane closed without a verdict is a `verify_coverage` gap.
+- **Your deployment:** credential scoping for the actuator and for any
+  live-environment oracle. ADR-0040 records why the rest is guidance.
 
 ## Tests
 
-```
+```text
 tests/run.sh                  # zero-dependency suite: runtime behavior + allowlist + drift + manifest
 tests/integration/run.sh      # live tier (real claude CLI + agent sessions); self-skips without auth
 ```
@@ -154,25 +165,24 @@ repos on this machine (no command needed — this is a convention, not an artifa
 2. Correlate each improvement item against `docs/adr/INDEX.md` and `TODO.md`: already
    fixed (name the ADR/version), ticketed, NEW, or a **recurrence** — recurrence of a
    ticketed item promotes it to a fix (precedent: ADR-0026).
-3. Watch the standing drift signals: `model_mix` all-flagship (ADR-0024), all-sonnet
-   researchers with no judgment-shaped output (ADR-0025), `verify_coverage` dropping on
-   code-bearing lanes (ADR-0022), `denials` rising — read the board's `denied` rows to
-   split "persona missing its boundary context" (ADR-0031) from "hook misfiring"
-   (ADR-0032), and check `model_policy` on the goal vs the `model_mix` actually spent
-   (ADR-0033).
+3. Watch the standing drift signals: `model_mix` all-flagship (ADR-0024),
+   researchers with no judgment-shaped output (ADR-0025), `verify_coverage`
+   dropping on code-bearing lanes (ADR-0022), `unjournaled_work` above zero, and
+   `denials` rising. Since 0.9.0 only the shared-checkout floor writes `denied`
+   rows, so a denial means a persona worked in the primary checkout instead of
+   its worktree (ADR-0031, ADR-0032).
 4. Propose ranked changes (SKILL prose / hook / tier table / test), each with an ADR call.
 
 ## Status
 
-Phases P1–P4 are landed (see [`DESIGN.md` §17](DESIGN.md)). Carried forward as
-deferred-with-ticket from the P1 whole-branch review: lease acquire atomicity
-(TOCTOU → `mkdir`/`set -C` hardening), `TARGETS` comma-split, and lease-key JSON
-escaping.
+0.9.0 removed the workflow-enforcing hooks, leases, and helpers and restated
+their rules as directive prose (ADR-0040, [`DESIGN.md` §18](DESIGN.md)). The
+open backlog is in [`TODO.md`](TODO.md).
 
 ## Known limitations & filing bugs
 
-Some Claude Code harness behaviors (subagent result notifications, worktree
-isolation) are outside a plugin's reach; orchestrate compensates for them by
-design. Before filing a bug, skim [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md) to
-tell a harness behavior from an orchestrate defect — the issue template's first
-question is exactly that triage.
+Some Claude Code harness behaviors (subagent result notifications, compaction
+timing) are outside a plugin's reach; orchestrate works around them by keeping
+every result and all control state on disk. Before filing a bug, skim
+[KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md) to tell a harness behavior from an
+orchestrate defect; the issue template's first question is exactly that triage.
