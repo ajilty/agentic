@@ -124,7 +124,7 @@ inspect() {
 }
 
 # Walk the command line by line, skipping heredoc bodies, and inspect each simple
-# command (split on && || ; |) of the remaining lines.
+# command (split on && || ; |, after quoted strings collapse) of the remaining lines.
 hd=""
 while IFS= read -r line; do
   if [ -n "$hd" ]; then
@@ -136,10 +136,13 @@ while IFS= read -r line; do
     *'<<'*)
       hd=$(printf '%s' "$line" | sed -nE "s/.*<<-?[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?.*/\1/p") ;;
   esac
+  # Collapse multi-word quoted strings first, so a separator inside a quoted
+  # message (`-m "it works; ship"`) does not split the command.
+  collapsed=$(printf '%s' "$line" | sed -E "s/\"[^\"]*[[:space:]][^\"]*\"/Q/g; s/'[^']*[[:space:]][^']*'/Q/g")
   while IFS= read -r seg; do
     inspect "$seg"
   done <<EOF
-$(printf '%s\n' "$line" | sed -E 's/(&&|\|\||;|\|)/\n/g')
+$(printf '%s\n' "$collapsed" | sed -E 's/(&&|\|\||;|\|)/\n/g')
 EOF
 done <<EOF
 $cmd

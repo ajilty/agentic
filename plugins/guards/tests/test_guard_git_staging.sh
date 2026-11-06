@@ -103,6 +103,12 @@ allow 'git add --chmod=+x file'
 allow 'git commit --fixup=abc'
 allow 'git rm -r --cached .'
 
+# separators inside quoted strings do not split the command
+deny 'git commit -m "it works; ship" -a'
+deny 'git add . ; echo "x && y"'
+allow 'git commit -m "a && b" -- f'
+allow 'git add src/x && git commit -m "fix; done" -- src/x'
+
 # heredoc skipping must not swallow a real sweep AFTER the terminator
 deny $'cat <<EOF\nhello\nEOF\ngit add -A'
 
