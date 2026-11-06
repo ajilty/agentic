@@ -154,3 +154,30 @@
 - [ ] **Step 2: Grep the plugin** for stale vocabulary: `grep -rnE 'lease|writer-ctx|gate-blocked|run-scope|write-scope|keep-on-branch|deny-heldout|dispatch-persona|worktree\.sh|--models' plugins/orchestrate --include='*.md' --include='*.sh' --include='*.yaml' --include='*.json'` returns only ADR history references or nothing. Fix stragglers.
 - [ ] **Step 3: Fresh-eyes review:** give the reviewer the diff `origin/main...HEAD` and the spec path, not conclusions; read-only; findings ranked with a failure scenario each; checks the PR description against the code. Fix or answer every finding.
 - [ ] **Step 4: Push and open the PR** titled `orchestrate 0.9.0: gates become guidance`, body: outcome, the two surviving hooks, what was removed, the shared-target rule, how old boards are handled, link to spec and ADR-0040, attribution line.
+
+### Task 7: Evergreen model and effort tiers (added after the model-tier hand-off)
+
+Source: the hand-off at the session scratchpad `handoffs/model-and-effort-selection.md` (live-tested on Claude Code 2.1.318 and Codex 0.166.0). Runs after Task 5; before Task 6.
+
+**Files:**
+
+- Modify: `plugins/orchestrate/skills/orchestrate/references/agents.yaml` (`tier:` values and header comment)
+- Modify: `scripts/harness-lib/claude-code.sh` (`cc_model`, `cc_color`), `scripts/harness-lib/codex.sh` (`codex_model`, `codex_effort`), `scripts/harness-lib/opencode.sh` (`oc_model`)
+- Modify: `plugins/orchestrate/skills/orchestrate/SKILL.md` (tier table and the paragraph under it), `plugins/orchestrate/KNOWN-LIMITATIONS.md` (Codex `max` row; model-frontmatter section), `plugins/orchestrate/README.md` (Codex/OpenCode env variables)
+- Modify: `plugins/orchestrate/tests/test_build.sh` (WANT_MODEL, WANT_EFFORT, WANT_COLOR, tier-table parity), `plugins/orchestrate/tests/test_install.sh` (OpenCode model defaults), `plugins/orchestrate/tests/integration/test_model_tier_lane.sh`
+- Create: `docs/adr/0041-premium-inherits-tiers-are-aliases-effort-passes-through.md`; amend `docs/adr/0024` with a pointer.
+- Regenerate: `plugins/orchestrate/agents/*.md`
+
+**Interfaces:**
+
+- `agents.yaml` tiers: researcher `{model: economy, effort: medium}`, planner `{model: premium, effort: high}`, implementer `{model: standard, effort: medium}`, verifier `{model: premium, effort: high}`, actuator `{model: standard, effort: high}`. Header comment: premium = the main loop's model (inherit); standard and economy = the harness's cheaper aliases, clamped at the main loop; effort passes through unchanged.
+- Claude Code: `cc_model premium` emits nothing (no `model:` line, which inherits); `standard` → `sonnet`, `economy` → `haiku`. `cc_color` keeps the heat ladder with premium hottest.
+- Codex: `codex_model` emits `model = "<id>"` only when `ORCHESTRATE_STANDARD_MODEL` / `ORCHESTRATE_ECONOMY_MODEL` is set for that tier, never for premium; `codex_effort` passes every level through unchanged (no `max → xhigh` clamp); effort is always emitted.
+- OpenCode: `oc_model` emits `model: {env:ORCHESTRATE_STANDARD_MODEL}` / `{env:ORCHESTRATE_ECONOMY_MODEL}` only when that variable is set at install time, never for premium; no Anthropic default IDs remain in the lib.
+- SKILL.md tier table rows become `| <persona> | <tier word: inherit, sonnet, haiku> | <effort> |`; the paragraph under it states: a persona never runs a bigger model than the main loop; when the main loop is at or below a persona's alias, pass no model and let it inherit; override a single dispatch upward only within the ceiling for a named hard item and journal it; after a `REJECTED` verdict that reads as missed checks, re-dispatch the implementer at `high`; a rejection that reads as wrong approach moves the model up one rung within the ceiling instead. `max` is not a default anywhere.
+- test_build.sh: planner and verifier agent files have no `model:` line; implementer `sonnet`/`medium`; actuator `sonnet`/`high`; researcher `haiku`/`medium`; verifier `high`.
+- [ ] **Step 1: Update the test expectations** in `test_build.sh`, `test_install.sh`, and `test_model_tier_lane.sh` per Interfaces. Run `bash plugins/orchestrate/tests/run.sh`; expect FAIL on the tier assertions.
+- [ ] **Step 2: Write ADR-0041** (status active; supersedes the per-dispatch mandate reading of 0024; records the live evidence: frontmatter binds both ways on 2.1.318; Codex accepts `max`; the compiled Codex IDs are rejected on a ChatGPT account).
+- [ ] **Step 3: Edit agents.yaml, the three harness libs, SKILL.md, KNOWN-LIMITATIONS.md, README.md** per Interfaces. Run `plugins/orchestrate/scripts/build.sh`.
+- [ ] **Step 4: Run** `bash plugins/orchestrate/tests/run.sh` → `FAIL=0`; `bash scripts/validate-plugins.sh` passes; `rumdl check` clean on touched files.
+- [ ] **Step 5: Commit** `feat(orchestrate): premium personas inherit the main loop; tiers are aliases; effort passes through (ADR-0041)`.
