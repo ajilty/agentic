@@ -87,7 +87,8 @@ Then `bash scripts/check.sh` (the full CI mirror; `pre-push` runs it too).
 A failure that also reproduces on main is pre-existing only if main's latest
 CI run (`gh run list --branch main --workflow tests`) is red on the same
 check; otherwise it blocks the PR and is reported, never shipped past.
-Commit with an
+Stage explicit paths (`git add <files changed>`), never `git add -A`: the
+staging guard blocks sweeping stages and costs a retry. Commit with an
 `edges(<tool>): <edge>` subject, push, and open the PR **as a draft**
 (`gh pr create --draft`) with a body listing each edge and its redaction
 statement, and the scorecard from the argument under a `## Scorecard`

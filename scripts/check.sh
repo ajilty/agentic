@@ -18,6 +18,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 exec </dev/null   # hooks under test read stdin; never inherit git's (pre-push) stdin
+# Git exports GIT_DIR (and friends) into hook environments, and in a linked
+# worktree that value is absolute, so every `git` call the suites make inside
+# their own temp repos would resolve to THIS repo instead. Drop them.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 failed=() skipped=()
 in_ci() { [ "${CI:-}" = true ]; }

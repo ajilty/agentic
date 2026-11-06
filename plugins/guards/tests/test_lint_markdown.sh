@@ -52,4 +52,19 @@ else
   run_hook "$L" "$(file_payload "$R/many.md")"; assert_eq "$RC" 2 "many findings -> 2"
   assert_contains "$ERR" "more" "truncation notice present"
   n=$(printf '%s\n' "$ERR" | grep -c '\[MD'); [ "$n" -le 20 ] && pass || fail "findings capped at 20 (got $n)"
+
+  # Scope: only files inside a git work tree are linted. Fixtures outside any repo
+  # (scratch, memory-like paths) are skipped silently even with findings.
+  OUT="$(mktemp -d "$WORK/outside.XXXXXX")"
+  for sub in tmp/x scratchpad/x .cache/x .claude/projects/p/memory; do
+    mkdir -p "$OUT/$sub"; cp "$R/bad.md" "$OUT/$sub/bad.md"
+    run_hook "$L" "$(file_payload "$OUT/$sub/bad.md")"
+    assert_eq "$RC" 0 "outside work tree $sub -> 0"; assert_eq "$ERR" "" "outside work tree $sub -> silent"
+  done
+  # Positive controls: inside a work tree is linted, including paths that used to be skipped.
+  for sub in docs tmp/x scratchpad/x .cache/x; do
+    mkdir -p "$R/$sub"; cp "$R/bad.md" "$R/$sub/bad.md"
+    run_hook "$L" "$(file_payload "$R/$sub/bad.md")"
+    assert_eq "$RC" 2 "in work tree $sub still linted"; assert_contains "$ERR" "MD018" "in work tree $sub finding surfaced"
+  done
 fi

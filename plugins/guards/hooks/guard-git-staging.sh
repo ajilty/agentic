@@ -9,9 +9,11 @@
 # re-issues with explicit paths).
 #
 # Denied forms (after any git global options such as -C <dir>, -c k=v, --git-dir=):
-#   git add  -A | --all | -u | --update | --[no-]ignore-removal | short clusters
-#            containing A or u (-Av, -vA) | pathspecs . ./ .. ../ * :/ :(top),
-#            quoted or not
+#   git add  -A | --all | --[no-]ignore-removal | short clusters containing A or u
+#            (-Av, -vA) | -u / --update unless the first token after `--` is a
+#            literal, non-sweeping pathspec: non-empty, not starting with $ > < & | #
+#            or 2> (`-u`, `-u .`, `-u -- .`, `-u -- $F`, `-u -- 2>&1` stay denied) |
+#            pathspecs . ./ .. ../ * :/ :(top), quoted or not
 #   git commit -a | --all | short clusters containing a (-am, -sam)
 # Each simple command in a pipeline/chain/newline sequence is inspected
 # separately, so `cd x && git add .` is caught.
@@ -22,7 +24,8 @@
 # `<<WORD` marker and its terminator are skipped. Single-word quoted tokens keep
 # their content so `git add "."` is still caught.
 #
-# Deliberately NOT denied: `git add -p/-N <path>`, read-only or worktree-only
+# Deliberately NOT denied: `git add -u -- <path>...` (bounded to the named paths),
+# `git add -p/-N <path>`, read-only or worktree-only
 # commands that take `.` (diff, log, checkout), `git stash -u`, and any non-git
 # command including the `dotfiles` wrapper whose `add -u` flow is sanctioned in
 # this environment. Not parsed: command substitution, `bash -c '...'`, eval.
@@ -37,12 +40,22 @@ cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 [ -n "$cmd" ] || exit 0
 
 deny() {
-  printf 'guards: blocked `%s` -- sweeping stage pulls unrelated files into the commit. Stage explicit paths (git add <file>...) then commit without -a.\n' "$1" >&2
+  printf 'guards: blocked `%s` -- sweeping stage pulls unrelated files into the commit. Stage explicit paths (git add <file>... or git add -u -- <file>...) then commit without -a.\n' "$1" >&2
   exit 2
 }
 
 # Strip one layer of surrounding quotes from a token.
 unquote() { local s="$1"; s=${s#[\"\']}; s=${s%[\"\']}; printf '%s' "$s"; }
+
+# A literal pathspec is non-empty and is not an expansion ($), redirect (> < & 2>),
+# pipe or comment (#): those can be empty or absent at runtime, which would make
+# `git add -u --` pathless and sweep the whole tracked tree.
+literal() {
+  case "$1" in
+    ''|'$'*|'>'*|'<'*|'&'*|'|'*|'#'*|[0-9]'>'*) return 1 ;;
+  esac
+  return 0
+}
 
 inspect() {
   local seg="$1" n i j k t sub a
@@ -68,20 +81,30 @@ inspect() {
       sub=${toks[$j]}; k=$((j+1))
       case "$sub" in
         add)
+          upd=0 dd=0 good=0 seen=0
           while [ "$k" -lt "$n" ]; do
             a=${toks[$k]}
             case "$a" in
               \"*|\'*)                        # quoted token: pathspec check only
                 case "$(unquote "$a")" in
                   .|./|..|../|'*'|./'*'|:/|':/*'|':(top)'*) deny "$seg" ;;
+                  *) if [ "$dd" = 1 ] && [ "$seen" = 0 ]; then
+                       seen=1; literal "$(unquote "$a")" && good=1
+                     fi ;;
                 esac ;;
-              -A|--all|-u|--update|--ignore-removal|--no-ignore-removal) deny "$seg" ;;
+              -A|--all|--ignore-removal|--no-ignore-removal) deny "$seg" ;;
+              -u|--update) upd=1 ;;         # allowed only with `-- <safe pathspec>`
+              --) dd=1 ;;
               --*) ;;
               -*[Au]*) deny "$seg" ;;       # short clusters: -Av, -vA, -uv
               .|./|..|../|'*'|./'*'|:/|':/*'|':(top)'*) deny "$seg" ;;
+              *) if [ "$dd" = 1 ] && [ "$seen" = 0 ]; then
+                   seen=1; literal "$a" && good=1
+                 fi ;;
             esac
             k=$((k+1))
-          done ;;
+          done
+          [ "$upd" = 1 ] && [ "$good" = 0 ] && deny "$seg" ;;
         commit)
           while [ "$k" -lt "$n" ]; do
             a=${toks[$k]}
@@ -101,7 +124,7 @@ inspect() {
 }
 
 # Walk the command line by line, skipping heredoc bodies, and inspect each simple
-# command (split on && || ; |) of the remaining lines.
+# command (split on && || ; |, after quoted strings collapse) of the remaining lines.
 hd=""
 while IFS= read -r line; do
   if [ -n "$hd" ]; then
@@ -113,10 +136,13 @@ while IFS= read -r line; do
     *'<<'*)
       hd=$(printf '%s' "$line" | sed -nE "s/.*<<-?[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?.*/\1/p") ;;
   esac
+  # Collapse multi-word quoted strings first, so a separator inside a quoted
+  # message (`-m "it works; ship"`) does not split the command.
+  collapsed=$(printf '%s' "$line" | sed -E "s/\"[^\"]*[[:space:]][^\"]*\"/Q/g; s/'[^']*[[:space:]][^']*'/Q/g")
   while IFS= read -r seg; do
     inspect "$seg"
   done <<EOF
-$(printf '%s\n' "$line" | sed -E 's/(&&|\|\||;|\|)/\n/g')
+$(printf '%s\n' "$collapsed" | sed -E 's/(&&|\|\||;|\|)/\n/g')
 EOF
 done <<EOF
 $cmd

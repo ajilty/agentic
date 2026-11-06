@@ -11,6 +11,12 @@
 # is ALSO exit 2 with the error text: a silently broken guard is worse than a
 # noisy one.
 #
+# Scope: files inside a git work tree only. A file whose directory is not inside a
+# work tree (scratchpad, /tmp notes, auto-memory) is skipped silently (exit 0):
+# it cannot be committed, and linting it is noise the model rightly ignores. Any
+# file inside a work tree is linted wherever the checkout lives, so harvest clones
+# and `dotfiles try` worktrees are covered.
+#
 # Check-only, never --fix: auto-fixing prose is how a wrapped line becomes a
 # heading. --no-cache: rumdl otherwise litters .rumdl_cache/ dirs into every repo.
 # Fail-open on missing jq/rumdl (lint assist, not a safety gate).
@@ -30,6 +36,11 @@ case "$f" in *.md|*.markdown) ;; *) exit 0 ;; esac
 command -v rumdl >/dev/null 2>&1 || exit 0
 
 dir=$(dirname "$f"); base=$(basename "$f")
+if command -v git >/dev/null 2>&1; then
+  # env -u: an inherited GIT_DIR (git hook environments export one) would make
+  # every path look like it is inside that repo.
+  [ "$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || exit 0
+fi
 # rumdl's [config warning] lines keep ANSI colour even under --color never; strip
 # escapes so nothing but text reaches the model.
 esc=$(printf '\033')
