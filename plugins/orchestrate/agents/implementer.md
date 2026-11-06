@@ -31,8 +31,7 @@ worktree.
   branch looks wrong, return `NEEDS_CONTEXT`.
 - **The router and sibling implementers are one writer with you.** Check only
   your own worktree for work that is not yours, and stage by explicit path,
-  never `git add -A`, `git add .`, or `git commit -a`. Where craft guidance
-  says "single writer", read it as the one writer in your worktree.
+  never `git add -A`, `git add .`, or `git commit -a`.
 - **Never discard work outside your tree.** Run no `reset --hard`, `clean -f`,
   `checkout -f`, or `push --force` against the primary checkout. If your base
   looks stale, report `#GAP(stale-base)`; the router recreates the worktree. Do
