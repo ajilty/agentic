@@ -5,8 +5,8 @@ Hooks that guard against known failure modes. Each guard is one script, one job,
 | Guard | Event | Posture | What it does |
 |---|---|---|---|
 | `validate-syntax.sh` | PostToolUse on `Write`/`Edit` | lint assist, fail-open | Parses the just-written `.json`/`.yaml`/`.yml` file (and the YAML frontmatter of `.md` files) with `jq`/`yq`; parse errors go back to Claude for same-turn self-correction |
-| `lint-markdown.sh` | PostToolUse on `Write`/`Edit` | lint assist, fail-open | Runs `rumdl` check-only over the just-written `.md` file; findings go back to Claude for same-turn self-correction |
-| `guard-git-staging.sh` | PreToolUse on `Bash` | hard gate | Denies `git add -A`/`.`/`-u`/`*` and `git commit -a` so unrelated dirty files cannot ride into a commit; Claude is told to stage explicit paths |
+| `lint-markdown.sh` | PostToolUse on `Write`/`Edit` | lint assist, fail-open | Runs `rumdl` check-only over the just-written `.md` file, but only if it is ship-bound (paths containing `/tmp/`, `/scratchpad/`, `/.cache/`, and auto-memory files under `/.claude/projects/*/memory/` are skipped); findings go back to Claude for same-turn self-correction |
+| `guard-git-staging.sh` | PreToolUse on `Bash` | hard gate | Denies `git add -A`/`.`/`-u`/`*` (`git add -u -- <path>` is allowed) and `git commit -a` so unrelated dirty files cannot ride into a commit; Claude is told to stage explicit paths |
 
 ## How the feedback loop works
 
@@ -18,7 +18,9 @@ The PreToolUse guard reads the shell command from the payload, splits chains and
 
 Validating "changed files" via `git diff --name-only` misses new untracked files (the primary `Write` case), scans unrelated dirty files on every edit, and breaks when the session cwd is not the repo root. These hooks validate exactly the one file the tool just wrote, independent of git state.
 
-## Markdown lint: rules and config
+## Markdown lint: scope, rules and config
+
+Only ship-bound files are linted. A path containing `/tmp/`, `/scratchpad/`, or `/.cache/`, or matching `/.claude/projects/*/memory/`, exits 0 before rumdl runs: those files are never committed. Repo files are always linted.
 
 The linter is [rumdl](https://github.com/rvben/rumdl), a fast single-binary Markdown linter with markdownlint-compatible rule ids (`MD001`..). It runs check-only; the guard never passes `--fix`, because auto-fixing prose is how a wrapped line becomes a heading.
 
@@ -40,10 +42,10 @@ Config resolution is rumdl's own, anchored at the linted file's directory:
 
 After any git global options (`-C <dir>`, `-c k=v`, `--git-dir=`, `--work-tree=`):
 
-- `git add` with `-A`, `--all`, `-u`, `--update`, `--[no-]ignore-removal`, short clusters containing `A` or `u` (`-Av`), or the pathspecs `.`, `./`, `..`, `../`, `*`, `:/`, `:(top)`, quoted or not.
+- `git add` with `-A`, `--all`, `--[no-]ignore-removal`, short clusters containing `A` or `u` (`-Av`), or the pathspecs `.`, `./`, `..`, `../`, `*`, `:/`, `:(top)`, quoted or not. `-u`/`--update` is denied unless followed by `--` and at least one non-sweeping pathspec: `git add -u`, `git add -u .`, and `git add -u -- .` are denied, `git add -u -- src/a.py` is allowed.
 - `git commit` with `-a`, `--all`, or short clusters containing `a` (`-am`, `-sam`).
 
-Each simple command in a `&&`/`;`/`|`/newline chain is inspected, so `cd x && git add .` is caught. Quoted strings and heredoc bodies are opaque text, so a commit message that says `-a` or `git add -A` is allowed. Not denied: `git add -p <path>`, `git add -N <path>`, `git checkout -- .`, `git diff .`, `git stash -u`, and any non-git command (the `dotfiles` wrapper's `add -u` flow is unaffected). The matcher is `Bash` only; Windows PowerShell sessions are not inspected, and the parser assumes POSIX shell syntax.
+Each simple command in a `&&`/`;`/`|`/newline chain is inspected, so `cd x && git add .` is caught. Quoted strings and heredoc bodies are opaque text, so a commit message that says `-a` or `git add -A` is allowed. Not denied: `git add -u -- <path>`, `git add -p <path>`, `git add -N <path>`, `git checkout -- .`, `git diff .`, `git stash -u`, and any non-git command (the `dotfiles` wrapper's `add -u` flow is unaffected). The matcher is `Bash` only; Windows PowerShell sessions are not inspected, and the parser assumes POSIX shell syntax.
 
 ## Behavior summary
 

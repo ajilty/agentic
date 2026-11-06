@@ -52,4 +52,15 @@ else
   run_hook "$L" "$(file_payload "$R/many.md")"; assert_eq "$RC" 2 "many findings -> 2"
   assert_contains "$ERR" "more" "truncation notice present"
   n=$(printf '%s\n' "$ERR" | grep -c '\[MD'); [ "$n" -le 20 ] && pass || fail "findings capped at 20 (got $n)"
+
+  # Scope: only ship-bound files are linted. Throwaway and memory locations are
+  # skipped silently even when the file has findings.
+  for sub in tmp/x scratchpad/x .cache/x .claude/projects/p/memory; do
+    mkdir -p "$R/$sub"; cp "$R/bad.md" "$R/$sub/bad.md"
+    run_hook "$L" "$(file_payload "$R/$sub/bad.md")"
+    assert_eq "$RC" 0 "skipped location $sub -> 0"; assert_eq "$ERR" "" "skipped location $sub -> silent"
+  done
+  # Positive control: a repo-shaped path with a known finding still reports.
+  mkdir -p "$R/docs"; cp "$R/bad.md" "$R/docs/bad.md"
+  run_hook "$L" "$(file_payload "$R/docs/bad.md")"; assert_eq "$RC" 2 "repo path still linted"; assert_contains "$ERR" "MD018" "repo path finding surfaced"
 fi

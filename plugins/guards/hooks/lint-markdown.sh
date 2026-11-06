@@ -11,6 +11,11 @@
 # is ALSO exit 2 with the error text: a silently broken guard is worse than a
 # noisy one.
 #
+# Scope: ship-bound files only. Paths containing /tmp/, /scratchpad/, or /.cache/,
+# and auto-memory files (/.claude/projects/*/memory/), are skipped silently (exit 0):
+# they are never committed, and linting them is noise the model rightly ignores.
+# Repo files are always linted.
+#
 # Check-only, never --fix: auto-fixing prose is how a wrapped line becomes a
 # heading. --no-cache: rumdl otherwise litters .rumdl_cache/ dirs into every repo.
 # Fail-open on missing jq/rumdl (lint assist, not a safety gate).
@@ -27,6 +32,9 @@ command -v jq >/dev/null 2>&1 || exit 0
 f=$(jq -r '.tool_input.file_path // empty' 2>/dev/null) || exit 0
 [ -n "$f" ] && [ -f "$f" ] || exit 0
 case "$f" in *.md|*.markdown) ;; *) exit 0 ;; esac
+case "$f" in
+  */tmp/*|*/scratchpad/*|*/.cache/*|*/.claude/projects/*/memory/*) exit 0 ;;
+esac
 command -v rumdl >/dev/null 2>&1 || exit 0
 
 dir=$(dirname "$f"); base=$(basename "$f")

@@ -9,9 +9,10 @@
 # re-issues with explicit paths).
 #
 # Denied forms (after any git global options such as -C <dir>, -c k=v, --git-dir=):
-#   git add  -A | --all | -u | --update | --[no-]ignore-removal | short clusters
-#            containing A or u (-Av, -vA) | pathspecs . ./ .. ../ * :/ :(top),
-#            quoted or not
+#   git add  -A | --all | --[no-]ignore-removal | short clusters containing A or u
+#            (-Av, -vA) | -u / --update unless followed by `--` and at least one
+#            non-sweeping pathspec (`-u`, `-u .`, `-u -- .` stay denied) |
+#            pathspecs . ./ .. ../ * :/ :(top), quoted or not
 #   git commit -a | --all | short clusters containing a (-am, -sam)
 # Each simple command in a pipeline/chain/newline sequence is inspected
 # separately, so `cd x && git add .` is caught.
@@ -22,7 +23,8 @@
 # `<<WORD` marker and its terminator are skipped. Single-word quoted tokens keep
 # their content so `git add "."` is still caught.
 #
-# Deliberately NOT denied: `git add -p/-N <path>`, read-only or worktree-only
+# Deliberately NOT denied: `git add -u -- <path>...` (bounded to the named paths),
+# `git add -p/-N <path>`, read-only or worktree-only
 # commands that take `.` (diff, log, checkout), `git stash -u`, and any non-git
 # command including the `dotfiles` wrapper whose `add -u` flow is sanctioned in
 # this environment. Not parsed: command substitution, `bash -c '...'`, eval.
@@ -68,20 +70,26 @@ inspect() {
       sub=${toks[$j]}; k=$((j+1))
       case "$sub" in
         add)
+          upd=0 dd=0 good=0
           while [ "$k" -lt "$n" ]; do
             a=${toks[$k]}
             case "$a" in
               \"*|\'*)                        # quoted token: pathspec check only
                 case "$(unquote "$a")" in
                   .|./|..|../|'*'|./'*'|:/|':/*'|':(top)'*) deny "$seg" ;;
+                  *) [ "$dd" = 1 ] && good=1 ;;
                 esac ;;
-              -A|--all|-u|--update|--ignore-removal|--no-ignore-removal) deny "$seg" ;;
+              -A|--all|--ignore-removal|--no-ignore-removal) deny "$seg" ;;
+              -u|--update) upd=1 ;;         # allowed only with `-- <safe pathspec>`
+              --) dd=1 ;;
               --*) ;;
               -*[Au]*) deny "$seg" ;;       # short clusters: -Av, -vA, -uv
               .|./|..|../|'*'|./'*'|:/|':/*'|':(top)'*) deny "$seg" ;;
+              *) [ "$dd" = 1 ] && good=1 ;;
             esac
             k=$((k+1))
-          done ;;
+          done
+          [ "$upd" = 1 ] && [ "$good" = 0 ] && deny "$seg" ;;
         commit)
           while [ "$k" -lt "$n" ]; do
             a=${toks[$k]}

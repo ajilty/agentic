@@ -5,3 +5,5 @@
 
 # Harness-managed worktrees / local state
 .claude/worktrees/
+.rumdl_cache/
+plugins/guards/tests/.work/
