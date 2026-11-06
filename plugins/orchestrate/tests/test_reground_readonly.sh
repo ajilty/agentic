@@ -27,11 +27,11 @@ cd /; rm -rf "$d"
 # --- in-flight writer with no branch on its dispatched event (native worktree
 #     isolation: the harness names the worktree, the branch lands on returned):
 #     the normal in-flight state. reground reports it with the re-dispatch check and
-#     does NOT halt (exit 0); only a dirty writer worktree halts.
+#     does NOT halt (exit 0).
 r="$(mktemp_repo)"
 ( cd "$r" && git commit -qm init --allow-empty && bash "$HERE/../skills/orchestrate/runtime/ledger.sh" append '{"ticket":"W1","event":"dispatched","persona":"implementer","dispatch_id":"d1"}' >/dev/null 2>&1 )
 out="$(cd "$r" && bash "$HERE/../skills/orchestrate/runtime/ledger.sh" reground 2>&1)"; rc=$?
 assert_eq "$rc" "0" "reground: implementer dispatched with unknown branch is in flight, not a HALT"
-case "$out" in *"OPEN WRITER   ticket=W1 branch=unknown (in flight until returned; before any re-dispatch, confirm with git worktree list that no worktree-* tree newer than its dispatched ts exists)"*) pass;; *) fail "reground names the unknown-branch writer lane with the re-dispatch check: $out";; esac
+case "$out" in *"OPEN WRITER   ticket=W1 persona=implementer branch=unknown -> in flight or crashed; before any re-dispatch, look for a worktree whose branch no returned row names"*) pass;; *) fail "reground names the unknown-branch writer lane with the re-dispatch check: $out";; esac
 case "$out" in *HALT*) fail "unknown-branch writer must not print HALT";; *) pass;; esac
 rm -rf "$r"

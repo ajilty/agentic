@@ -26,8 +26,9 @@ under `.agents/runs/orchestrate/eval/` in the repo root:
    verify_coverage, model_mix) alongside the note + review pointer.
 
 Then give the operator the two-line read: **shipped** changes and **healthy** escalations
-(forks/decisions: the tool correctly surfacing hard calls) versus **friction** (rejects,
-oracle-inconsistencies, denials: the number to drive down).
+(forks/decisions: the tool correctly surfacing hard calls; prod confirmations are counted
+apart as `prod_acks`) versus **friction** (rejects, oracle-inconsistencies, denials: the
+number to drive down). A rating the router wrote itself starts `router:`.
 
 **If you cannot execute shell here** (no Bash in this context): still produce the review
 text in chat, and print the exact command for the operator to run themselves:

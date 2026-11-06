@@ -260,15 +260,15 @@ when a T1 or T2 lane has no verdict and still appends, and `verify_coverage`
 shows the gap afterwards.
 
 **Ground truth is git, not just the ledger.** `ledger.sh reground` reconstructs
-open lanes two ways and merges them: from the ledger (tickets whose last event is
-`dispatched`) and from disk (any live `worktree-*` or `worktree-agent-*`
-worktree with uncommitted work). The second path catches a writer whose ledger
-event was missed entirely, a crash between dispatch and journaling. Disk wins
-over the log. If reground finds a dirty writer worktree it cannot account for,
-it halts (exit 3) for the operator to reconcile rather than guess. An
-implementer dispatched under native isolation has no branch until `returned`;
-reground reports it as in flight (`branch=unknown`), not as a halt, and the
-router checks `git worktree list` before any re-dispatch.
+open lanes two ways and merges them: from the ledger (every ticket whose last event
+is not `done`, by that event, so parked lanes such as a halted fork or an approved
+but unlanded change survive compaction) and from disk, scoped to this run (worktrees
+whose branch a `dispatched`, `returned`, or `lane` row names, or that live under
+`.claude/worktrees/` or `.agents/worktrees/` on a branch naming a board ticket;
+other sessions' worktrees are only counted). An in-flight implementer or actuator is
+reported, never offered for re-dispatch; a dirty lane worktree with a `dispatched`
+row is reported as in flight or crashed. Reground halts (exit 3) only on a lane
+worktree with uncommitted work and no `dispatched` row, a lane the ledger lost.
 
 **Shared-target steps run one at a time.** A step is *worktree-local* when
 everything it reads or changes lives inside the lane's own copy of the repo. A
@@ -293,7 +293,7 @@ a `decision` event (`fork_id` `prod-ack:<target>`, `note` "approved: ..." or
 **Two resume paths, split by cause:**
 
 - **Interruption** (crash, sleep, Ctrl-C): operator-driven. Re-run
-  `/orchestrate`; step 1 of the loop is reground and reconcile, then continue.
+  `/orchestrate:init`; step 1 of the loop is reground and reconcile, then continue.
 - **Compaction**: automatic. The `SessionStart` hook with matcher `compact`
   (`runtime/hooks/on-compaction.sh`) runs `ledger.sh reground` and injects the
   reconstructed board as authoritative state, telling the router to re-invoke
@@ -345,7 +345,7 @@ The layering:
 
 - `skills/orchestrate/SKILL.md`: the router brief. The loop, dispatching,
   shared-target steps, routing, quarantine, landing, and the ledger.
-  Harness-neutral; under 300 lines, with depth pushed into `references/`.
+  Harness-neutral; about 360 lines, with depth pushed into `references/`.
 - `references/personas/*.md`: role bodies. Harness-neutral.
 - `references/agents.yaml`: the one machine-readable contract (capabilities,
   tiers, routing enums, the two hooks, conventions, resume and trust policy).
@@ -392,15 +392,15 @@ plugins/orchestrate/
 └── tests/                         run.sh (unit), integration/, eval/
 ```
 
-## 13. Operating model: the `/orchestrate` loop
+## 13. Operating model: the `/orchestrate:init` loop
 
-`/orchestrate` is the single entry point. It is idempotent and self-detecting: an
+`/orchestrate:init` is the single entry point. It is idempotent and self-detecting: an
 empty ledger means a fresh start; open lanes mean a resume. The numbered loop in
 `SKILL.md`:
 
-1. **Reground.** `ledger.sh reground`. A halt on a dirty writer worktree goes to
-   the operator; open lanes are reconciled and continued.
-2. **Intake and goal.** Take whatever followed `/orchestrate`, fetch what it
+1. **Reground.** `ledger.sh reground`. A halt on a lane worktree the board lost
+   goes to the operator; open lanes are reconciled and continued.
+2. **Intake and goal.** Take whatever followed `/orchestrate:init`, fetch what it
    points at, journal the goal with its base branch, check that the harness's
    worktree base matches it, and name each task's shared targets.
 3. **Clarify** only if no acceptance oracle is nameable.
@@ -437,7 +437,7 @@ Stated plainly, because knowing what the plugin does not do is part of using it:
   oracle or an actuator, scope credentials in your deployment; the skill states
   the principle but cannot enforce it.
 - **Single router per repo.** The board has no global lock. One coordinating
-  `/orchestrate` session per repo is assumed; it fans out to many concurrent
+  `/orchestrate:init` session per repo is assumed; it fans out to many concurrent
   persona lanes, but two routers on the same board can interleave events.
 - **Hooks are Claude Code only.** Codex and OpenCode get the skill and persona
   definitions; on those harnesses the shared-checkout floor is prose, and

@@ -18,6 +18,7 @@ case "$out" in *shipped=1*) pass;; *) fail "metrics counts the legacy done row (
 case "$out" in *[Ww]arning*) fail "metrics does not warn on legacy rows ($out)";; *) pass;; esac
 out="$(bash "$R" reground 2>&1)"; rc=$?
 assert_eq "$rc" "0" "reground exits 0 on a 0.8.x board"
-case "$out" in *"GOAL:"*"[models: quick]"*) pass;; *) fail "reground prints the goal with the legacy model policy ($out)";; esac
+case "$out" in *"GOAL: old run"*) pass;; *) fail "reground prints the legacy goal ($out)";; esac
+case "$out" in *"models:"*) fail "reground no longer surfaces the dropped 0.8.x model policy ($out)";; *) pass;; esac
 case "$out" in *[Ww]arning*) fail "reground does not warn on legacy rows ($out)";; *) pass;; esac
 cd /; rm -rf "$d"

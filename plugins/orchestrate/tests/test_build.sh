@@ -2,16 +2,17 @@ SK="$HERE/.."   # plugins/orchestrate
 
 # --- Compiled tool-allowlist (safety-critical): each generated agent carries
 #     exactly the tools agents.yaml implies. Positive + negative assertions.
-declare -A WANT=(
-  [researcher]='Read,Grep,Glob,WebSearch,WebFetch,Write'
-  [planner]='Read,Grep,Glob,Write'
-  [implementer]='Read,Grep,Glob,Write,Edit,Bash'
-  [verifier]='Read,Grep,Glob,Write,Bash'
-  [actuator]='Read,Grep,Glob,Bash'
-)
-for p in "${!WANT[@]}"; do
+# One row per persona: persona|tools|model|effort|color (an empty model means no model:
+# line). A plain table, not associative arrays, so the suite runs under macOS bash 3.2.
+WANT_ROWS='researcher|Read,Grep,Glob,WebSearch,WebFetch,Write|haiku|medium|cyan
+planner|Read,Grep,Glob,Write||high|yellow
+implementer|Read,Grep,Glob,Write,Edit,Bash|sonnet|medium|green
+verifier|Read,Grep,Glob,Write,Bash||high|yellow
+actuator|Read,Grep,Glob,Bash|sonnet|high|green'
+want(){ printf '%s\n' "$WANT_ROWS" | awk -F'|' -v p="$1" -v k="$2" '$1 == p { print $k }'; }   # want <persona> <2..5>
+for p in researcher planner implementer verifier actuator; do
   got="$(awk -F': ' '/^tools: /{print $2; exit}' "$SK/agents/$p.md" 2>/dev/null)"
-  assert_eq "$got" "${WANT[$p]}" "allowlist $p"
+  assert_eq "$got" "$(want "$p" 2)" "allowlist $p"
 done
 
 # --- Compiled model/effort tiers: horsepower right-sized by persona role (ADR-0041). The
@@ -20,22 +21,19 @@ done
 #     economy -> haiku. Effort passes through unchanged. An empty WANT_MODEL means "no
 #     model: line". (CLAUDE_CODE_SUBAGENT_MODEL can still override at runtime; that is an
 #     operator env concern, not the compiled artifact.)
-declare -A WANT_MODEL=( [researcher]=haiku [planner]= [implementer]=sonnet [verifier]= [actuator]=sonnet )
-declare -A WANT_EFFORT=( [researcher]=medium [planner]=high [implementer]=medium [verifier]=high [actuator]=high )
 # Compiled terminal accent (CC-only presentation; the map lives in build.sh, NOT agents.yaml
 # — see ADR-0007 / the contract's harness-neutrality header). The accent is a COST HEAT
 # DERIVED from the tier above: cold = cheap, hot = expensive, so a fan-out board shows where
 # the spend goes. Pinned here because the signal is only worth anything if it tracks the tier
 # — a color that stopped following model/effort would be a lie about cost, not a cosmetic bug.
-declare -A WANT_COLOR=( [researcher]=cyan [planner]=yellow [implementer]=green [verifier]=yellow [actuator]=green )
-for p in "${!WANT_MODEL[@]}"; do
+for p in researcher planner implementer verifier actuator; do
   gm="$(awk -F': ' '/^model: /{print $2; exit}' "$SK/agents/$p.md" 2>/dev/null)"
   ge="$(awk -F': ' '/^effort: /{print $2; exit}' "$SK/agents/$p.md" 2>/dev/null)"
   gc="$(awk -F': ' '/^color: /{print $2; exit}' "$SK/agents/$p.md" 2>/dev/null)"
-  assert_eq "$gm" "${WANT_MODEL[$p]}" "model tier $p"
-  assert_eq "$ge" "${WANT_EFFORT[$p]}" "effort tier $p"
-  assert_eq "$gc" "${WANT_COLOR[$p]}" "color $p"
-  if [ -z "${WANT_MODEL[$p]}" ]; then   # premium: inherit means the line is ABSENT, not empty
+  assert_eq "$gm" "$(want "$p" 3)" "model tier $p"
+  assert_eq "$ge" "$(want "$p" 4)" "effort tier $p"
+  assert_eq "$gc" "$(want "$p" 5)" "color $p"
+  if [ -z "$(want "$p" 3)" ]; then   # premium: inherit means the line is ABSENT, not empty
     grep -q '^model:' "$SK/agents/$p.md" && fail "$p must carry no model: line (premium inherits, ADR-0041)" || pass
   fi
 done
@@ -45,11 +43,11 @@ done
 # must never happen is a cheap persona reading hotter than an expensive one. This is the
 # check that catches a well-meaning "let's make the actuator red" from re-tainting the
 # scale with a second, contradictory meaning.
-declare -A HEAT=( [cyan]=1 [green]=2 [yellow]=3 [red]=4 )
+heat(){ case "$1" in cyan) echo 1 ;; green) echo 2 ;; yellow) echo 3 ;; red) echo 4 ;; *) echo 0 ;; esac; }
 ladder_ok=1
 for pair in "researcher<implementer" "implementer=actuator" "actuator<planner" "planner=verifier"; do
   a="${pair%%[<=]*}"; b="${pair##*[<=]}"; op="${pair//[a-z]/}"
-  ha="${HEAT[${WANT_COLOR[$a]}]:-0}"; hb="${HEAT[${WANT_COLOR[$b]}]:-0}"
+  ha="$(heat "$(want "$a" 5)")"; hb="$(heat "$(want "$b" 5)")"
   case "$op" in
     '<') [ "$ha" -lt "$hb" ] || { ladder_ok=0; echo "  heat: $a ($ha) must be cooler than $b ($hb)" >&2; };;
     '=') [ "$ha" -eq "$hb" ] || { ladder_ok=0; echo "  heat: $a ($ha) and $b ($hb) are the same tier, must match" >&2; };;

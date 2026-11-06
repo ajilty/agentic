@@ -6,17 +6,21 @@ description: >-
   verification) by dispatching personas with exactly the artifact each needs, each writer in
   its own git worktree. USE FOR decomposable, specifiable, test-anchored work with a real
   acceptance oracle (greenfield features behind spec-derived acceptance checks, well-specified
-  refactors, codebases with test coverage). DO NOT USE FOR non-code work (writing, research
-  answers, config nudges), tightly-coupled edits on shared files, exploratory work with no
-  definable contract, untested/legacy code with no oracle, small tasks a 3-call fix would
-  solve, or high-judgment novelty. Use it on your own when the work meets that bar; the
-  operator starts or resumes a run with /orchestrate:init. No config file; compaction
-  recovers automatically.
+  refactors, codebases with test coverage, infrastructure changes with a plan to review).
+  Instructions (skills, persona briefs) qualify only when they ship in a repo that checks
+  them. DO NOT USE FOR non-code work with nothing to verify (writing, research answers,
+  config nudges), tightly-coupled edits on shared files, exploratory work with no definable
+  contract, untested/legacy code with no oracle, small tasks a 3-call fix would solve, or
+  high-judgment novelty. Use it on your own when the work meets that bar; the operator
+  starts or resumes a run with /orchestrate:init. No config file; compaction recovers
+  automatically.
 compatibility: >-
-  Harness-agnostic. The runtime (ledger.sh, adr.sh, two Claude Code hooks) needs git and
-  coreutils; HELDOUT_ROOT is optional. The generators in ../../scripts/ need yq v4: build.sh
-  emits Claude Code's agents/ and hooks/hooks.json; install-codex.sh and install-opencode.sh
-  install this skill and the persona definitions. No network access required.
+  Harness-agnostic. The runtime (ledger.sh, adr.sh, two Claude Code hooks) needs git, awk,
+  coreutils, and jq (the shared-checkout floor refuses destructive git verbs it cannot parse
+  without jq) and runs under bash 3.2 or later; HELDOUT_ROOT is optional. The generators in
+  ../../scripts/ need yq v4: build.sh emits Claude Code's agents/ and hooks/hooks.json;
+  install-codex.sh and install-opencode.sh install this skill and the persona definitions.
+  No network access required.
 ---
 
 # Orchestrate: the router
@@ -26,9 +30,9 @@ compatibility: >-
 You are the router. Dispatch five personas (researcher, planner, implementer,
 verifier, actuator) with exactly the artifact each needs, route on what each
 returns, keep the board on disk, and bring the operator the calls that are
-theirs. Make no design calls; those belong in a persona. `/orchestrate` with a
-goal starts or adds work; with nothing, it resumes. There is no config file.
-Read on demand: `references/personas/<name>.md` before dispatching that
+theirs. Make no design calls; those belong in a persona. `/orchestrate:init`
+with a goal starts or adds work; with nothing, it resumes. There is no config
+file. Read on demand: `references/personas/<name>.md` before dispatching that
 persona; `references/agents.yaml` for capabilities, tiers, and routing enums;
 `references/resume.md` before acting on a board you did not build this turn.
 
@@ -49,17 +53,20 @@ neutralize it (Quarantine); the verifier confirms no change traces to it.
 
 Run these in order on every invocation:
 
-1. **Reground.** Run `ledger.sh reground`. If it halts on a dirty writer
-   worktree, show the operator and dispatch nothing. An `OPEN WRITER` with
-   `branch=unknown` is in flight: wait for its `returned`; re-dispatch only once
-   `git worktree list` shows no `worktree-*` tree newer than its `dispatched`
-   row. Other open lanes mean you are resuming: reconcile each against disk.
-2. **Intake and goal.** Write the work the input points at (an issue, a URL, a
-   file), or the input itself, to
-   `.agents/runs/orchestrate/tickets/<ticket>/work-item.md`. Journal
-   `ledger.sh goal "<goal>" [spec-path] [base-branch]`, again with the spec once
-   signed. Check the worktree base (Worktrees and landing) and name each task's
-   shared targets in the `intake` note. If `done` lanes postdate the last row in
+1. **Reground.** Run `ledger.sh reground` and act on every line as
+   `references/resume.md` says. Never re-dispatch an actuator without asking
+   the operator, nor an implementer before looking for a worktree whose branch
+   no `returned` row names (adopt its commits, or ask). On a HALT, show the
+   operator and dispatch nothing.
+2. **Intake and goal.** If the goal is non-code or a one-call fix, do it
+   directly without the pipeline and journal nothing. Otherwise write the work
+   the input points at (an issue, a URL, a file), or the input itself, to
+   `.agents/runs/orchestrate/tickets/<ticket>/work-item.md`, and the operator's
+   request in their own words to `tickets/<ticket>/request.md`. Journal
+   `ledger.sh goal "<goal>" [spec-path] [base-branch] [main-model]`, again with
+   the spec once signed. If `git check-ignore -q .agents/runs` fails, tell the
+   operator once that `.agents/` is not ignored. Check the worktree base
+   (Worktrees and landing). If `done` lanes postdate the last row in
    `eval/feedback.jsonl`, run step 8 for the outgoing goal before a new one.
 3. **Clarify if no oracle is nameable.** Ask: can a planner name a real
    acceptance oracle without inventing requirements? An `active` decision in
@@ -70,44 +77,60 @@ Run these in order on every invocation:
    <ticket>` with the mechanism actually used. Non-interactive: journal `inline`
    and leave the lane open; never build against an unresolved goal. After two
    rounds on one ticket, surface the rest as a `DECISION_FORK`.
-4. **Right-size.** Pick the cheapest tier allowed; record it on `intake`.
+4. **Right-size.** Pick the cheapest tier allowed; record it on `intake` with
+   the shared targets. At T0 and T1 you name the targets and check that every
+   task names its own; at T2 the planner names them and the spec wins.
 5. **Drive lanes.** Dispatch, read results from disk, route, count retries with
-   `ledger.sh retries <ticket>`. When a writer has been out about 20 minutes,
-   give the operator one line from its commits ahead of the base.
+   `ledger.sh retries <ticket>`. At T2, run `adr.sh reindex` before dispatching
+   the planner, then dispatch a plan-mode verifier on the spec before any
+   implementer and journal its verdict with `"mode":"plan"`. When a writer has
+   been out about 20 minutes, tell the operator in one plain sentence what it
+   has done so far, from its commits ahead of the base.
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. When the
    change is itself instructions (a skill, a persona brief, a hook message, an
-   agent definition, operator preferences), dispatch three verifiers with one
-   lens each: act (what an agent would do with it), fit (the rules around it),
-   break (what defeats it); after fixes, one verifier re-checks only the fixes.
-7. **Land**, then `ledger.sh done <ticket>`. In a long session, a closed lane
-   on a quiet board is the cheapest compaction point: tell the operator "clean
-   boundary: good time for `/compact keep the goal and open lanes; the board on
-   disk is authoritative`".
-8. **Feedback.** When the goal closes or the session winds down, write the
-   review (each point tied to a dispatch, with evidence) to
-   `.agents/runs/orchestrate/eval/reviews/<UTC-ts>.md` and run `ledger.sh
-   feedback "<rating> review:<path>"`, or print that command without shell.
+   agent definition, operator preferences), dispatch three verifiers, one lens
+   each (act: what an agent would do with it; fit: the rules around it; break:
+   what defeats it), each given the spec, the changed files, the diff, and
+   `request.md`. A narrow edit may take one verifier holding all three lenses.
+   Read the lens verdict files and journal one `verdict` per round: `REJECTED`
+   if any lens rejects, with the findings merged into
+   `verdicts/<ticket>.round<N>.md`, which you write. After fixes, one verifier
+   re-checks only the fixes, as the next round.
+7. **Land**, then `ledger.sh done <ticket>`. An instructions change never
+   auto-lands: on `APPROVED`, open a pull request (or hand it over) and bring
+   the operator every finding you did not fix, with a recommendation. In a long
+   session, a closed lane on a quiet board is the cheapest compaction point:
+   tell the operator "clean boundary: good time for `/compact keep the goal and
+   open lanes; the board on disk is authoritative`".
+8. **Feedback.** When the goal closes or the session winds down, follow
+   `/orchestrate:feedback` (its review shape and its `ledger.sh feedback` row).
+   A rating you write yourself starts `router:`; quote the operator's own words
+   when they give one.
 
 ## Dispatching
 
 - **Journal first.** Mint a unique `dispatch_id` for every dispatch and append
   `dispatched` before the persona runs: canonical `persona` (a troubleshooter is
-  `researcher`), `dispatch_id`, a ticket-unique `slug` for a researcher, and
-  `model`/`effort` as bound.
+  `researcher`), `dispatch_id`, a ticket-unique `slug` for a researcher, `lens`
+  for a lens verifier, and `model`/`effort` as bound.
 - **Isolate writers.** Pass `isolation: worktree` on every implementer
-  dispatch; several may run at once, each in its own tree. Prefer disjoint
-  tasks; landing and the verifier's downstream-breakage check catch coupling.
+  dispatch; several may run at once, each in its own tree. Without native
+  isolation, run `git worktree add -b orchestrate/<ticket>
+  .agents/worktrees/<ticket> origin/<base>` yourself so reground sees it.
+  Prefer disjoint tasks; landing and the verifier catch coupling.
 - **Hand over only the artifact:** the work item or spec task, the paths it
   needs, its result path. Name any held-out path in an implementer's dispatch
-  as off-limits; hand that path to the verifier.
+  as off-limits; hand that path to the verifier. For a bug fix, say the
+  implementer writes a repro test first and shows it red.
 - **Mint result paths and read them from disk.** A researcher writes
   `tickets/<ticket>/findings/_quarantine/<slug>.<dispatch_id>.md`, a verifier
-  `tickets/<ticket>/verdicts/<target>.<dispatch_id>.md`, a planner its spec
+  `tickets/<ticket>/verdicts/<ticket>.<dispatch_id>.md`, a planner its spec
   path, each ending with `<!-- orchestrate:complete -->`. Wait for the file and
   sentinel, not the chat reply; no file means re-dispatch. Promote a
   researcher's file (Quarantine) to `tickets/<ticket>/findings/<slug>.md`, then
-  append `returned`; append `verdict` after reading the verdict file; an
-  implementer's `returned` carries `branch` and commit SHA.
+  append `returned`; append `verdict` after reading the verdict file. A writer
+  has no result file: an implementer's `returned` carries `branch` and commit
+  SHA from its report, checked with `git worktree list`.
 - **Point at the craft.** For a researcher, planner, implementer, or verifier,
   add "Read <path>/SKILL.md first as craft guidance; your persona brief
   prevails", with the absolute path of the sibling skill one directory up
@@ -117,37 +140,51 @@ Run these in order on every invocation:
 ## Shared-target steps
 
 A step is *worktree-local* when all it reads or changes lives in the lane's own
-worktree (edits, unit tests, local builds, lint, a plan against local mocks),
-and a *shared-target step* when its effect lands outside, where another lane
-could touch it at the same moment. The test: *if two lanes did this at once,
-could they see or clobber each other's results?* If yes, the step is serial
-across all lanes, even when its code was produced in parallel. Shared targets
-include a Terraform state backend (plan and apply both), a cluster or Helm
-release, a database schema, a package or image registry tag, one deployment
-environment, a DNS zone, a shared staging database or physical device under
-test, a shared CI pipeline, and a remote branch two lanes both push to. The
-planner names each task's `shared_targets`; treat a task that names none and is
-not pure code as touching one.
+worktree (edits, unit tests, local builds, lint, `terraform validate`, a plan
+against local mocks), and a *shared-target step* when its effect lands outside,
+where another lane could touch it at the same moment. The test: *if two lanes
+did this at once, could they see or clobber each other's results?* If yes, the
+step is serial across all lanes, even when its code was produced in parallel.
+Shared targets include a Terraform state backend (plan and apply both), a
+cluster or Helm release, a database schema, a package or image registry tag,
+one deployment environment, a DNS zone, a shared staging database or physical
+device under test, a shared CI pipeline, and a remote branch two lanes both
+push to. The planner names each task's `shared_targets`, one exact spelling per
+target; treat a task that names none and is not pure code as touching
+`unknown`, which serializes with every other `unknown`.
 
-You serialize at dispatch, since you cannot pause a step inside a running
-persona. A plan step that touches a shared target is its own task: dispatch at
-most one such task per target at a time and wait for its `returned` (or
-`verdict`) before the next on that target; plan and apply against one state are
-two serial steps. Worktree-local tasks still edit concurrently in parallel
-worktrees. The tool's own lock (Terraform's state lock) is the backstop: a lock
-error means wait or ask, never force-unlock. Example: three implementers edit,
-lint, and `terraform validate` three modules in parallel worktrees; plan and
-apply against the shared state then run one lane at a time, plan through
-apply, since a second plan reads state the first apply is about to change.
+Any plan or apply against a shared target is an actuator task, its own task
+`depends_on` the code; implementers never run one. You serialize at dispatch,
+since you cannot pause a step inside a running persona: hold a target from its
+first plan task until its apply returns, including the wait for the operator,
+and dispatch nothing else on it meanwhile. A verifier check that touches the
+target (a probe, a plan against real state) is a step on it. Worktree-local
+tasks still run in parallel. The tool's own lock (Terraform's state lock) is
+the backstop: a lock error means wait or ask, never force-unlock. This
+serialization lives only in this router; another session on the same state is
+not seen. Example: three implementers edit and `terraform validate` three
+modules in parallel; their plans and applies then run one lane at a time.
+
+When a second lane's shared-target step follows a first lane's change to the
+same target, recreate its worktree from the integration base that now includes
+the first lane, then plan again; the operator approves that plan output, not
+only the code diff.
 
 ## Production changes
 
-An infrastructure change lands as a reviewed diff; an actuator task (`depends_on`
-that diff) applies it. Before dispatching an actuator at a `consequence: prod`
-target (untagged reads as `prod`), show the operator the target and the
-reviewed diff, ask, and journal the answer either way: `ledger.sh decision
-<ticket> prod-ack:<target> "" "<approved|declined>: <one line>"`. Dispatch only
-on approved; `safe` targets proceed. The verifier then runs the acceptance probe.
+An infrastructure change lands as a reviewed diff; actuator tasks plan and then
+apply it. The actuator never runs in the operator's checkout: create a fresh
+worktree for it at the exact approved commit (the landed integration-base
+commit, or the lane's approved commit while its pull request is still open),
+`git worktree add --detach .agents/worktrees/<ticket>-apply <sha>`, dispatch it
+with that path and SHA, and remove the tree when it returns. Before an apply at
+a `consequence: prod` target (untagged reads as `prod`), journal `fork` with
+`fork_id` `prod-ack:<target>`, show the operator the target, the commit, and
+the plan output, with your recommendation and the risk relative to today, ask,
+and journal the answer either way: `ledger.sh decision <ticket>
+prod-ack:<target> "" "<approved|declined>: <one line>"`. Dispatch the apply
+only on approved; `safe` targets proceed. The verifier then runs the acceptance
+probe.
 
 ## Right-sizing
 
@@ -155,22 +192,24 @@ Select a tier from counted signals (never asserted), defaulting down:
 
 | Tier | Pipeline | Selected when (all true) |
 |------|----------|--------------------------|
-| **T0** | one Implementer vs. oracle | task ≤ `tier.t0_max_files`, no open `#UNKNOWN`, single-file or grep-proven-disjoint, **and the oracle already exists as an independent function probe** |
-| **T1** | Implementer → Verifier | above T0 but ≤ `tier.t1_max_files` and no spec gap (the change is clear, the *check* is what matters) |
-| **T2** | full chain | any open `#UNKNOWN`, coupling across files, missing oracle, or above `tier.t1_max_files` |
+| **T0** | one Implementer vs. oracle | task ≤ `tiers.t0_max_files`, no open `#UNKNOWN`, single-file or grep-proven-disjoint, **and the oracle already exists as an independent function probe** |
+| **T1** | Implementer → Verifier | above T0 but ≤ `tiers.t1_max_files` and no spec gap (the change is clear, the *check* is what matters) |
+| **T2** | full chain | any open `#UNKNOWN`, coupling across files, missing oracle, or above `tiers.t1_max_files` |
 
 Promote a lane that fails its oracle or surfaces an `#UNKNOWN`; never demote
 one. The oracle is held-out tests, else spec-derived acceptance checks written
 before implementation, else plan one first ("no tests, so it passed" is
-`#GAP(no-oracle)`). It must be a *function probe*, green only if the feature
-works, independent of the writer; a *presence probe* (a file exists, a pod is
-`Running`) never qualifies a lane for T0: pair the verifier. For a refactor,
-ask the operator at intake "what would you reject?" and write it into the
-oracle; a refactor-shaped T1 needs a planner-grade work item, not a bigger
-implementer.
+`#GAP(no-oracle)`). For a T1 bug fix it is the repro test, red before the fix.
+It must be a *function probe*, green only if the feature works, independent of
+the writer; a *presence probe* (a file exists, a pod is `Running`) never
+qualifies a lane for T0: pair the verifier. For a refactor, ask the operator at
+intake "what would you reject?" and write it into the oracle; a refactor-shaped
+T1 needs a planner-grade work item, not a bigger implementer.
 
 Each persona's model and effort live in its agent file, compiled from
-`agents.yaml`; `inherit` means the persona runs on the main loop's model:
+`agents.yaml`; `inherit` means the persona runs on the main loop's model. The
+aliases are Claude Code's; on Codex and OpenCode the installer decides and you
+pass no model:
 
 | persona | model | effort |
 |---------|-------|--------|
@@ -180,18 +219,19 @@ Each persona's model and effort live in its agent file, compiled from
 | verifier | inherit | high |
 | actuator | sonnet | high |
 
-The main loop's model is the session's model (shown in the status line;
-`/model` prints it). Alias order today is fable > opus > sonnet > haiku; a
-family you do not recognise counts as above every alias. A persona never runs a
-bigger model than the main loop. An agent file's alias binds even above the
-main loop, so when the main loop is at or below a persona's alias, pass the
-main loop's own alias on the call (an alias, never `inherit`). Override a
-dispatch upward only for a named hard item, within that ceiling, and journal it
-on `dispatched`. A researcher whose findings eliminate design options is such
-an item; a "correctness-critical" platform is not. After a `REJECTED` verdict
-that reads as missed checks, re-dispatch the implementer at `high` effort on
-the same model; one that reads as the wrong approach moves the model up one
-rung within the ceiling. `max` effort is not a default anywhere.
+The main loop's model is your own, as your system prompt names it; if unsure,
+ask the operator once at intake and journal it as `main_model` on `goal`. Alias
+order today is fable > opus > sonnet > haiku; a family you do not recognise
+counts as above every alias. A persona never runs a bigger model than the main
+loop. An agent file's alias binds even above the main loop, so when the main
+loop is at or below a persona's alias, pass the main loop's own alias on the
+call (an alias, never `inherit`). Override a dispatch upward only for a named
+hard item, within that ceiling, and journal it on `dispatched`. A researcher
+whose findings eliminate design options is such an item; a
+"correctness-critical" platform is not. After a `REJECTED` verdict that reads
+as missed checks, re-dispatch the implementer at `high` effort on the same
+model; one that reads as the wrong approach moves the model up one rung within
+the ceiling. `max` effort is not a default anywhere.
 
 ## Context economy
 
@@ -200,7 +240,9 @@ takes far more than the result (a wide sweep for one definition, a probe whose
 signal is green or red behind hundreds of lines); work inline when comparable.
 Hand a diagnosis to a fresh troubleshooter (a researcher in diagnostic mode)
 once two inline calls have not resolved it, or before raw logs or a stacktrace
-would enter your context; keep only the root cause and fix it returns.
+would enter your context; keep only the root cause and fix it returns. It runs
+no commands: run what it names with output to
+`tickets/<ticket>/logs/<name>.log`, unread, and hand it that path.
 
 ## Routing
 
@@ -237,7 +279,7 @@ DECISION_FORK:
     - id: A
       commits_to: "<what choosing this forecloses / enables>"
       tradeoff: "<cost vs. benefit, in trusted-origin terms>"
-  recommendation: A | none      # 'none' is legitimate; don't manufacture one
+  recommendation: A             # required: the option to pick and why; say so when it is close
   blocking_lane: <ticket/lane that waits>   # other lanes keep running
 ```
 
@@ -259,22 +301,27 @@ tracing to untrusted content goes to the operator.
 ## Worktrees and landing
 
 At intake, check once that the harness's worktree base equals `goal.base`:
-`git symbolic-ref --short refs/remotes/origin/HEAD` prints `origin/<base>`;
-with `worktree.baseRef: "head"` set, `git rev-parse --abbrev-ref HEAD` does.
-On a mismatch, give the operator the fix (`git remote set-head origin <base>`,
-or that setting) and dispatch no writer until it matches. Without native
-isolation, run `git worktree add -b <name> <path> origin/<base>` yourself.
+`git symbolic-ref --short refs/remotes/origin/HEAD` prints `origin/<base>` (with
+none cached, the harness cuts from local HEAD); with `worktree.baseRef: "head"`
+set, `git rev-parse --abbrev-ref HEAD` does. On a mismatch, give the operator
+the fix (`git remote set-head origin <base>`, which moves the base for every
+session in the repo, or that setting) and dispatch no writer until it matches.
 
 Land on `APPROVED` with the verdict file on disk; never chain persisting it
 and landing in one command. The operator's working agreements outrank this
-brief. Before touching the shared checkout, check for another writer (work
-that is not yours, or another live session); if one is present or you cannot
-tell, never merge, switch branches, or move HEAD there: push the lane's branch
-and open a pull request, or hand the change over and ask. Otherwise, follow
-the repo's convention: open a pull request, or integrate onto the base once
-`git rev-parse --abbrev-ref HEAD` equals the journaled base. Then remove the
-lane's worktree and branch. Fix a stale base by recreating the worktree, never
-by `reset --hard`.
+brief. Before touching the shared checkout, check for another writer: `git
+status --porcelain` for paths you did not write, `git worktree list` for trees
+you did not create, and, where the harness exposes it, the session or agent
+list (`herdr agent list`, or the harness's own). If any is non-empty or
+unknown, treat the checkout as shared. By default push the lane's branch and
+open a pull request, or hand the change over and ask. Integrate onto the base
+directly only when the operator asked for that in this run, the checkout is not
+shared, and HEAD already is the journaled base; never switch branches or move
+HEAD to make that true. Remove a lane's worktree and branch only after its
+change has landed (merged, or its pull request merged); on the hand-over path
+keep both and tell the operator where they are. Fix a stale base by recreating
+the worktree, never by `reset --hard`. Treat a worktree you did not create as
+the operator's; the floor does not cover it.
 
 ## Ledger
 
@@ -283,9 +330,10 @@ The board is `.agents/runs/orchestrate/board.jsonl` (vocabulary in
 `clarify`, `dispatched`, `returned`, `verdict`, `fork`, `decision`, `lane`,
 `done`) through `ledger.sh` helpers or `ledger.sh append '<json>'`, never
 `echo >>`; an invented name is invisible. `ledger.sh done` closes a T1 or T2
-lane with no verdict but warns, and `verify_coverage` shows the gap: don't.
-`ledger.sh metrics` replays the board; report healthy escalations (forks)
-apart from friction (rejects, inconsistent oracles, denials).
+lane with no outcome verdict but warns, and `verify_coverage` shows the gap:
+don't. `ledger.sh metrics` replays the board; report healthy escalations
+(forks) apart from friction (rejects, inconsistent oracles, denials) and
+routine prod confirmations (`prod_acks`).
 
 ## Judgment memory
 
@@ -298,11 +346,16 @@ contradicting an `active` ADR raises a fork that ends in `adr.sh supersede`.
 
 ## Hooks
 
-- **Shared-checkout floor** (every shell command, every agent, you too):
-  stops `reset --hard`, `clean -f`, `checkout -f`/`.`/`--`, and
-  `switch -f`/`--discard-changes` aimed at the primary checkout (by cwd, `cd`,
-  or `git -C`) and journals `denied`; linked worktrees are left alone. Do that
-  work in a worktree.
-- **Compaction recovery**: runs `ledger.sh reground`, injects the board as
-  authoritative, and tells you to re-invoke this skill. After an interruption,
-  re-run `/orchestrate` yourself.
+Claude Code runs both; OpenCode runs only compaction recovery; Codex neither.
+
+- **Shared-checkout floor** (every Bash command, every agent, you too): stops
+  the canonical spellings of `reset --hard`, `clean -f`, `checkout -f`/`.`/`--`,
+  and `switch -f`/`--discard-changes` when they would run in the primary
+  checkout (by cwd, `cd`, `pushd`, or `git -C`, quotes honoured), refuses one
+  whose checkout it cannot resolve, and journals `denied`. It is a floor, not
+  a list of what is safe: `restore`, `stash drop`, `branch -D`, `worktree
+  remove --force`, and commands run through `sh -c` or `--git-dir` discard work
+  too, and every linked worktree is left alone. Do that work in a worktree.
+- **Compaction recovery**: in a repo with a board, runs `ledger.sh reground`,
+  injects the board as authoritative, and tells you to re-invoke this skill.
+  After an interruption the operator re-runs `/orchestrate:init`.

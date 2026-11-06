@@ -110,8 +110,8 @@ but all three will confuse you if you don't know them going in:
 
 Also useful to know: a live fleet catches what unit tests structurally can't.
 Under Claude Code a hook's process cwd is not the subagent shell's cwd, which is
-why the shared-checkout floor resolves the checkout per statement (`git -C`, else
-a preceding `cd`, else the payload's `cwd`) rather than its own cwd; a
+why the shared-checkout floor resolves the checkout per statement (tracking `cd`,
+`pushd`, subshells, and `git -C` from the payload's `cwd`) rather than its own cwd; a
 hook bug of that class shipped green through hundreds of unit assertions and
 fell over in the first minutes of live dispatch. Budget a live pass before
 calling hook changes done.

@@ -58,7 +58,7 @@ The check that decides whether work is DONE; the writer must not be able to infl
 Any boundary the writer is not to cross: a path it is told never to read, or a live environment it has no credentials to reach.
 
 **Acceptance probe**:
-The ops-lane oracle — an executable check the Verifier runs against the live environment; the Actuator can neither read nor run it.
+The ops-lane oracle: an executable check the Verifier runs against the live environment. It is independent of the Actuator only where the operator separated their credentials; otherwise the Verifier records that as an assumption.
 
 **Judgment memory**:
 The in-repo, tracked, harness-neutral record of decisions made across goals, so a later goal need not re-litigate a settled one.
@@ -92,9 +92,9 @@ The trust tier on every piece of content — `TRUSTED` (repo, operator), `DERIVE
 ## Example dialogue
 
 > **operator:** "Deploy app A to cluster B."
-> **Router:** "Two tasks: the Implementer commits the manifests as a reviewed diff, then the Actuator applies them to `k8s:clusterB/appA`. That apply is a shared-target step, so no other lane touches that cluster until it finishes, and since it is prod I'll show you the diff and ask first."
+> **Router:** "Two tasks: the Implementer commits the manifests as a reviewed diff, then the Actuator plans and applies them to `k8s:clusterB/appA` from a fresh worktree at the approved commit. That is a shared-target step, so no other lane touches that cluster until the apply finishes, and since it is prod I'll show you the plan output and ask first."
 > **operator:** "How do we know it worked?"
-> **Router:** "The Verifier runs the acceptance probe (rollout complete, endpoints 200) with its own credentials. The Actuator can't run that probe, so it can't fake the result."
+> **Router:** "The Verifier runs the acceptance probe (rollout complete, endpoints 200). If the Actuator holds the same credentials, the Verifier says so in its verdict, since the probe is then not independent."
 
 ## Flagged ambiguities
 

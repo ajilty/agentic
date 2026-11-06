@@ -41,7 +41,7 @@ personas:
     # to findings/_quarantine/ (durable, attributed; the router gates+promotes it, ADR-0014).
   planner:
     body: personas/planner.md
-    description: "Turns findings into a committed spec/ADR with oracle and grep-backed independence claims. No web, no run."
+    description: "Turns findings into a decided spec with an oracle, disjoint tasks where it can, and named shared targets. No web, no run."
     capabilities: { read: true,  write: results,    run: none,        web: false }
     tier:         { model: premium,  effort: high }     # judgment: the spec+oracle gates everything downstream
     # writes only the spec/ADR artifact and its per-ticket files.
@@ -81,21 +81,25 @@ hooks:
     event: pre-tool-use
     applies_to: [all]              # router + every persona: a universal git-safety floor
     intent: >-
-      Refuse a working-tree/history-discarding git op (reset --hard, clean -f,
-      checkout -f/./--, switch --discard-changes) against the PRIMARY shared checkout
-      (git-dir == git-common-dir). The target is resolved per statement: `git -C DIR`,
-      else the last `cd DIR` before it in the line, else the hook payload's cwd. A
-      linked worktree is a throwaway sandbox and is left alone.
-    fail_closed: true
+      Refuse the canonical spellings of a working-tree/history-discarding git op
+      (reset --hard, clean -f, checkout -f/./--, switch -f/--discard-changes) against
+      the PRIMARY shared checkout (git-dir == git-common-dir). The command is split
+      into quoted shell words and statements; the target is tracked through cd,
+      pushd, popd, subshells, and `git -C`, from the hook payload's cwd. A destructive
+      verb whose checkout cannot be resolved is refused. A linked worktree is left
+      alone. Out of scope: --git-dir/--work-tree, GIT_DIR=, sh -c/eval/xargs, other
+      discarding verbs, an operator checkout that is itself a linked worktree.
+    fail_closed: true                # without jq any destructive verb is refused
   compaction_reground:
     script: on-compaction.sh
     watch: [post-compaction]
     event: post-compaction         # CC: SessionStart(source=compact)
     applies_to: [router]
     intent: >-
-      AUTOMATIC, hands-off. After compaction, run `ledger.sh reground` and inject
-      the reconstructed board as authoritative state (not a pointer to re-read).
-      Interruption resume is operator-driven via /orchestrate.
+      AUTOMATIC, hands-off, and only in a repo with a board (else no output). After
+      compaction, run `ledger.sh reground` and inject the reconstructed board as
+      authoritative state (not a pointer to re-read). Interruption resume is
+      operator-driven via /orchestrate:init.
 
 # --- Routing (enums the router maps; it never classifies) --------------------
 # Full semantics live in SKILL.md "Routing". This block is the machine-readable
@@ -111,8 +115,8 @@ routing:
     APPROVED:           done
     REJECTED:           implementer-once-then-human
     INCONSISTENT_ORACLE: human
-  blocked_backing_required: true        # unbacked reason -> human triage (principle 7)
-  reject_retries: 1                     # budget DERIVED from ledger (`ledger.sh retries <ticket>`), never held in context
+  blocked_backing_required: true        # unbacked reason -> human triage
+  reject_retries: 1                     # budget DERIVED from ledger (`ledger.sh retries <ticket>`, one per verdict round), never held in context
   decision_fork:
     halt: blocking_lane_only
     retry: false
@@ -137,16 +141,16 @@ conventions:
   clarification_skills: [grill-with-docs, grill-me, brainstorming, inline]  # SKILL.md loop step 3 (clarify); router-context, first present wins (ADR-0004); gate consults adr_index before firing
 
 # --- Resume / durability (apply "contracts are the bus" to the ROUTER itself) -
-# /orchestrate is the single entry point. On invocation it auto-detects: open
+# /orchestrate:init is the single entry point. On invocation it auto-detects: open
 # lanes in the ledger -> resume (reconstruct + reconcile); empty -> start fresh.
 resume:
-  entry_point: "/orchestrate"            # start AND interrupted-resume go through this
+  entry_point: "/orchestrate:init"       # start AND interrupted-resume go through this
   authority: ledger                      # control state read from board.jsonl, never recollection
   on_invocation: reconstruct-then-reconcile
-  on_uncertain_reground: halt-human      # ambiguous open lane -> stop, don't guess
+  on_uncertain_reground: halt-human      # a lane worktree the board lost -> stop, don't guess
   compaction: automatic                  # the compaction_reground hook recovers hands-off
   derived_not_held: [reject_retries]     # counted from the ledger each decision, so compaction can't reset the budget
-  ground_truth: git-worktrees            # reground cross-checks live worktrees, not just ledger events
+  ground_truth: git-worktrees            # reground cross-checks this run's live worktrees, not just ledger events
 
 # --- Provenance / quarantine (harness-neutral policy; SKILL.md "Trust model", "Quarantine")
 trust:

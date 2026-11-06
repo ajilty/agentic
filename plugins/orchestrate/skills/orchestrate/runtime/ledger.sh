@@ -4,10 +4,11 @@
 # them back on resume. No deps beyond coreutils/awk/git.
 #
 #   ledger.sh append '<json-object>'   # one event line (write-ahead before dispatch)
-#   ledger.sh retries <ticket>         # COUNT of REJECTED verdicts for a ticket (no-loop budget, derived)
-#   ledger.sh reground                 # reconstruct open lanes; reconcile vs git worktrees (ground truth)
-#                                       # exit 0 = clean/empty, exit 3 = ambiguous writer -> HALT
-#   ledger.sh goal <note> [spec-path]  # journal the run-level goal + a pointer to the plan (ADR-0020)
+#   ledger.sh retries <ticket>         # COUNT of outcome REJECTED verdict rows (one per round; no-loop budget, derived)
+#   ledger.sh reground                 # reconstruct open lanes; reconcile vs this run's git worktrees
+#                                       # exit 0 = report (act on it), exit 3 = lane worktree the board lost -> HALT
+#   ledger.sh goal <note> [spec] [base] [main_model]  # journal the run-level goal (ADR-0020)
+# Runs under bash 3.2 (macOS /bin/bash): no associative arrays.
 set -euo pipefail
 # Anchor the board at the MAIN checkout's root, never the process cwd: hooks fire
 # from inside agent worktrees, and appending telemetry to a linked worktree's COPY
@@ -20,6 +21,9 @@ _gcd="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || tru
 case "$_gcd" in */.git) _base="${_gcd%/.git}/";; *) _base="";; esac
 ROOT="${_base}.agents/runs/orchestrate"; LEDGER="$ROOT/board.jsonl"
 val() { sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" <<< "$1"; }
+# Free text into a JSON string body: escape backslash and quote, turn newline/CR/tab into
+# spaces, and drop every other control character (each would make the line invalid JSON).
+jtext() { local x="${1//\\/\\\\}"; x="${x//\"/\\\"}"; printf '%s' "$x" | tr '\n\r\t' '   ' | tr -d '\000-\037\177'; }
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
@@ -49,8 +53,10 @@ case "$cmd" in
 
   retries)   # derived, never held: compaction can't corrupt a disk count
     t="${1:?ticket}"; [ -f "$LEDGER" ] || { echo 0; exit 0; }
-    # Field-order independent: a hand-appended line may put verdict before ticket.
-    grep -F "\"ticket\":\"$t\"" "$LEDGER" | grep -cF '"verdict":"REJECTED"' || true ;;
+    # Field-order independent: a hand-appended line may put verdict before ticket. A
+    # plan-mode verdict ("mode":"plan") judges the spec, not the implementer's work, so it
+    # spends no implementer retry. Three-lens rounds journal ONE verdict row per round.
+    grep -F "\"ticket\":\"$t\"" "$LEDGER" | grep -F '"verdict":"REJECTED"' | grep -vcF '"mode":"plan"' || true ;;
 
   metrics)   # metrics (SKILL.md "Ledger"), derived by replaying the ledger (no separate sink). Optional
              # ticket filter. Emits key=val pairs; splits healthy escalations (forks/
@@ -58,8 +64,13 @@ case "$cmd" in
     t="${1:-}"
     src(){ [ -f "$LEDGER" ] || return 0; if [ -n "$t" ]; then grep "\"ticket\":\"$t\"" "$LEDGER"; else cat "$LEDGER"; fi; }
     c(){ src | grep -c "$1" 2>/dev/null || true; }
-    sh=$(c '"event":"done"'); di=$(c '"event":"dispatched"'); fk=$(c '"event":"fork"')
-    de=$(c '"event":"decision"'); rj=$(c '"verdict":"REJECTED"'); oi=$(c '"verdict":"INCONSISTENT_ORACLE"')
+    sh=$(c '"event":"done"'); di=$(c '"event":"dispatched"')
+    # A prod confirmation (fork_id prod-ack:<target>) is routine, not a hard call: counted
+    # as prod_acks, kept out of forks/decisions so those stay the healthy-escalation signal.
+    fk=$(src | grep -F '"event":"fork"' | grep -vcF '"fork_id":"prod-ack:' 2>/dev/null || true)
+    de=$(src | grep -F '"event":"decision"' | grep -vcF '"fork_id":"prod-ack:' 2>/dev/null || true)
+    pa=$(src | grep -F '"event":"decision"' | grep -cF '"fork_id":"prod-ack:' 2>/dev/null || true)
+    rj=$(c '"verdict":"REJECTED"'); oi=$(c '"verdict":"INCONSISTENT_ORACLE"')
     lc=$(c '"event":"lease-conflict"'); dn=$(c '"event":"denied"'); fr=$(( rj + oi + lc ))
     # delegation health (the infra-log finding: verification is the least-delegated function).
     dr=$(c '"event":"dispatched".*"persona":"researcher"'); dp=$(c '"event":"dispatched".*"persona":"planner"')
@@ -85,13 +96,14 @@ case "$cmd" in
       dd=$(src | grep "\"ticket\":\"$tk\"" | grep -c '"event":"dispatched"' 2>/dev/null || true)
       if [ "$w" -gt "$dd" ]; then uw=$((uw + w - dd)); fi
     done < <(src | grep -E '"event":"(returned|verdict)"' | sed -n 's/.*"ticket":"\([^"]*\)".*/\1/p' | sort -u)
-    # verify_coverage: of shipped (done) lanes, how many actually got a verifier verdict?
+    # verify_coverage: of shipped (done) lanes, how many got an outcome verdict? Field-order
+    # independent, and a plan-mode verdict (the spec, not the change) does not count.
     verified=0; total=0
     while IFS= read -r tk; do [ -n "$tk" ] || continue; total=$((total+1))
-      src | grep -q "\"ticket\":\"$tk\".*\"event\":\"verdict\"" && verified=$((verified+1))
+      src | grep -F "\"ticket\":\"$tk\"" | grep -F '"event":"verdict"' | grep -vqF '"mode":"plan"' && verified=$((verified+1))
     done < <(src | grep '"event":"done"' | sed -n 's/.*"ticket":"\([^"]*\)".*/\1/p' | sort -u)
-    printf 'shipped=%s dispatches=%s forks=%s decisions=%s rejects=%s oracle_inconsistent=%s lease_conflicts=%s denials=%s friction=%s disp_researcher=%s disp_planner=%s disp_implementer=%s disp_verifier=%s disp_actuator=%s verify_coverage=%s/%s model_mix=%s unjournaled_work=%s\n' \
-      "$sh" "$di" "$fk" "$de" "$rj" "$oi" "$lc" "$dn" "$fr" "$dr" "$dp" "$dimp" "$dv" "$da" "$verified" "$total" "$mix" "$uw" ;;
+    printf 'shipped=%s dispatches=%s forks=%s decisions=%s prod_acks=%s rejects=%s oracle_inconsistent=%s lease_conflicts=%s denials=%s friction=%s disp_researcher=%s disp_planner=%s disp_implementer=%s disp_verifier=%s disp_actuator=%s verify_coverage=%s/%s model_mix=%s unjournaled_work=%s\n' \
+      "$sh" "$di" "$fk" "$de" "$pa" "$rj" "$oi" "$lc" "$dn" "$fr" "$dr" "$dp" "$dimp" "$dv" "$da" "$verified" "$total" "$mix" "$uw" ;;
 
   feedback)  # Tier 3c, Layer 3: append a durable operator-feedback record (a ledger
              # metrics snapshot + a free-text rating) to the eval log, and echo it. This
@@ -107,7 +119,7 @@ case "$cmd" in
       case "$v" in ''|*[!0-9]*) v="\"$v\"" ;; esac
       json="$json,\"${kv%%=*}\":$v"
     done
-    nl="${note//\\/\\\\}"; nl="${nl//\"/\\\"}"
+    nl="$(jtext "$note")"
     printf '{"ts":"%s","event":"feedback","plugin_version":"%s","note":"%s"%s}\n' "$(date -u +%FT%TZ)" "$pv" "$nl" "$json" >> "$ed/feedback.jsonl"
     printf 'feedback recorded -> %s\n%s\nnote: %s\n' "$ed/feedback.jsonl" "$m" "${note:-<none>}" ;;
 
@@ -134,80 +146,127 @@ case "$cmd" in
     exit 1 ;;
 
   reground)
-    declare -A laststate
-    if [ -f "$LEDGER" ]; then
-      while IFS= read -r line; do
-        t="$(val "$line" ticket)"; [ -z "$t" ] && continue
-        ev="$(val "$line" event)"; [ -n "$ev" ] && laststate["$t"]="$ev|$(val "$line" persona)|$(val "$line" branch)|$(val "$line" slug)"
-      done < "$LEDGER"
-    fi
-    ambiguous=0; printed=0
-    # (a) ledger-derived open lanes
-    for t in "${!laststate[@]}"; do
-      IFS='|' read -r ev persona branch slug <<< "${laststate[$t]}"
-      [ "$ev" = dispatched ] || continue
+    # bash 3.2 safe (macOS /bin/bash): no associative arrays. One awk pass over the board
+    # prints a T row per ticket (has-dispatched flag + its last lane event) and a B row per
+    # branch the board names; the worktree scan then judges only trees this run knows.
+    rows=""
+    [ -f "$LEDGER" ] && rows="$(awk '
+      function f(k,   m) { if (match($0, "\"" k "\":\"[^\"]*\"")) { m = substr($0, RSTART, RLENGTH); sub("^\"" k "\":\"", "", m); sub("\"$", "", m); return m } return "" }
+      {
+        t = f("ticket"); e = f("event"); if (t == "" || e == "") next
+        if (e !~ /^(intake|clarify|dispatched|returned|verdict|fork|decision|lane|done)$/) next
+        b = f("branch"); if (b != "" && e ~ /^(dispatched|returned|lane)$/) print "B|" b "|" t
+        if (!(t in seen)) { seen[t] = 1; order[++n] = t }
+        if (e == "dispatched") disp[t] = 1
+        last[t] = e "|" f("persona") "|" b "|" f("slug") "|" f("verdict") "|" f("state") "|" f("mode")
+      }
+      END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" ((t in disp) ? 1 : 0) "|" last[t] } }' "$LEDGER")"
+    ambiguous=0; printed=0; tickets=""
+    # (a) ledger intent: every ticket whose lane is not closed, by its last event
+    while IFS='|' read -r kind t hasd ev persona branch slug verdict state mode; do
+      [ "$kind" = T ] || continue
+      tickets="$tickets $t"
+      [ "$t" = intake ] && continue          # pre-ticket clarify rows are not a lane
+      case "$ev" in done) continue ;; lane) [ "$state" = closed ] && continue ;; esac
       printed=1
-      if [ "$persona" = implementer ]; then
-        # A writer dispatched with native worktree isolation has no branch on its
-        # dispatched event (the harness names the worktree; the branch lands on
-        # returned). That is the normal in-flight state, so it is reported, not a HALT;
-        # uncommitted work in its tree is caught by the dirty-worktree scan in (b).
-        if [ -z "$branch" ]; then
-          echo "OPEN WRITER   ticket=$t branch=unknown (in flight until returned; before any re-dispatch, confirm with git worktree list that no worktree-* tree newer than its dispatched ts exists)"
-        elif git rev-parse --verify "$branch" >/dev/null 2>&1; then
-          echo "OPEN WRITER   ticket=$t branch=$branch -> reconcile worktree before re-dispatch"; ambiguous=1
-        else
-          echo "OPEN WRITER   ticket=$t branch=$branch MISSING -> re-dispatch candidate"
-        fi
-      else
-        # READ-ONLY lane (ADR-0014): the result is now a durable file, so the
-        # re-dispatch decision keys on its PRESENCE, not a guess. A read-only
-        # re-dispatch is idempotent (no writer lease) -> never an ambiguous HALT.
-        art="$ROOT/tickets/$t/findings/$slug.md"
-        if [ -n "$slug" ] && [ -f "$art" ]; then
-          echo "READONLY DONE  ticket=$t slug=$slug -> result on disk: $art"
-        else
-          echo "OPEN READONLY  ticket=$t persona=$persona slug=${slug:-?} -> re-dispatch (no result on disk${slug:+: $art})"
-        fi
-      fi
-    done
-    # (b) disk ground truth: any worktree on a worktree-* or worktree-agent-* branch with
-    #     uncommitted work, even if no ledger event exists (missed append / crash).
-    if git rev-parse --git-dir >/dev/null 2>&1; then
-      while IFS=$'\t' read -r wt br; do
-        case "$br" in worktree-*|*worktree-agent-*)
-          dirt="$(git -C "$wt" status --porcelain 2>/dev/null)"
-          if [ -n "$dirt" ]; then
-            # board.jsonl-only dirt is hook-telemetry RESIDUE (pre-0.8.25 hooks
-            # appended denied events to the worktree's own board copy), not
-            # in-flight work — report it, don't HALT (2026-08-05: 4 false HALTs).
-            if [ -z "$(printf '%s\n' "$dirt" | grep -v '\.agents/runs/orchestrate/board\.jsonl$')" ]; then
-              echo "TELEMETRY RESIDUE $wt ($br) -> board.jsonl-only dirt, not writer work; safe to discard"; printed=1
-            else
-              echo "DIRTY WORKTREE $wt ($br) -> uncommitted writer work; reconcile before re-dispatch"; ambiguous=1; printed=1
-            fi
+      case "$ev" in
+        dispatched)
+          case "$persona" in
+            actuator)
+              echo "OPEN WRITER   ticket=$t persona=actuator -> in flight or crashed; never re-dispatch an actuator without confirming with the operator" ;;
+            implementer)
+              if [ -z "$branch" ]; then
+                echo "OPEN WRITER   ticket=$t persona=implementer branch=unknown -> in flight or crashed; before any re-dispatch, look for a worktree whose branch no returned row names: if one exists it may hold this writer's commits (adopt them, or ask the operator)"
+              elif git rev-parse --verify -q "$branch" >/dev/null 2>&1; then
+                echo "OPEN WRITER   ticket=$t persona=implementer branch=$branch -> in flight or crashed; reconcile that branch before any re-dispatch"
+              else
+                echo "OPEN WRITER   ticket=$t persona=implementer branch=$branch MISSING -> re-dispatch candidate"
+              fi ;;
+            *)
+              # READ-ONLY lane (ADR-0014): the re-dispatch decision keys on the promoted
+              # result's presence on disk; re-running a reader is idempotent.
+              art="$ROOT/tickets/$t/findings/$slug.md"
+              if [ -n "$slug" ] && [ -f "$art" ]; then
+                echo "READONLY DONE  ticket=$t slug=$slug -> result on disk: $art"
+              else
+                echo "OPEN READONLY  ticket=$t persona=${persona:-?} slug=${slug:-?} -> re-dispatch (no result on disk${slug:+: $art})"
+              fi ;;
+          esac ;;
+        returned) echo "OPEN LANE     ticket=$t last=returned persona=${persona:-?} -> route its result (a writer's goes to the verifier)" ;;
+        verdict)
+          if [ "$mode" = plan ]; then
+            case "$verdict" in
+              APPROVED) echo "OPEN LANE     ticket=$t last=plan-verdict:APPROVED -> spec signed; dispatch the implementers" ;;
+              *) echo "OPEN LANE     ticket=$t last=plan-verdict:${verdict:-?} -> back to the planner" ;;
+            esac
+          else
+            case "$verdict" in
+              APPROVED) echo "OPEN LANE     ticket=$t last=verdict:APPROVED -> awaiting landing" ;;
+              REJECTED) echo "OPEN LANE     ticket=$t last=verdict:REJECTED -> awaiting fix (ledger.sh retries $t)" ;;
+              *) echo "OPEN LANE     ticket=$t last=verdict:${verdict:-?} -> the operator" ;;
+            esac
           fi ;;
-        esac
+        fork)     echo "OPEN LANE     ticket=$t last=fork -> halted, awaiting the operator" ;;
+        intake)   echo "OPEN LANE     ticket=$t last=intake -> not yet dispatched" ;;
+        clarify)  echo "OPEN LANE     ticket=$t last=clarify -> clarification open" ;;
+        decision) echo "OPEN LANE     ticket=$t last=decision -> decision recorded; resume the lane" ;;
+        *)        echo "OPEN LANE     ticket=$t last=$ev -> reconcile" ;;
+      esac
+    done <<< "$rows"
+    # (b) disk ground truth, scoped to this run: a worktree is a lane of this run when its
+    #     branch is named on a dispatched/returned/lane row, or it lives under
+    #     .claude/worktrees/ or .agents/worktrees/ on a branch naming a ticket on the board.
+    #     Other worktrees belong to other sessions: counted once, never judged.
+    other=0
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+      while IFS='|' read -r wt br; do
+        [ -n "$br" ] || continue
+        kt="$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b { t = $3 } END { print t }')"
+        if [ -z "$kt" ]; then
+          case "$wt" in
+            */.claude/worktrees/*|*/.agents/worktrees/*)
+              nb="-$(printf '%s' "$br" | tr '/_.' '---')-"
+              for t in $tickets; do
+                [ "$t" = intake ] && continue
+                case "$nb" in *"-$(printf '%s' "$t" | tr '/_.' '---')-"*) kt="$t"; break ;; esac
+              done ;;
+          esac
+        fi
+        dirt="$(git -C "$wt" status --porcelain 2>/dev/null || true)"
+        # board.jsonl-only dirt is hook-telemetry RESIDUE (pre-0.8.25 hooks appended to the
+        # worktree's own board copy), not writer work, in any tree: report, never halt.
+        if [ -n "$dirt" ] && [ -z "$(printf '%s\n' "$dirt" | grep -v '\.agents/runs/orchestrate/board\.jsonl$' || true)" ]; then
+          echo "TELEMETRY RESIDUE $wt ($br) -> board.jsonl-only dirt, not writer work; safe to discard"; printed=1; continue
+        fi
+        [ -n "$kt" ] || { other=$((other + 1)); continue; }
+        [ -n "$dirt" ] || continue
+        printed=1
+        if [ "$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $3 }')" = 1 ]; then
+          echo "DIRTY WORKTREE $wt ($br) ticket=$kt -> in flight or crashed; confirm before re-dispatch"
+        else
+          echo "DIRTY WORKTREE $wt ($br) ticket=$kt -> uncommitted work and no dispatched row on the board (the ledger lost it); show the operator"; ambiguous=1
+        fi
       done < <(git worktree list --porcelain 2>/dev/null | awk '
-        /^worktree /{p=$2} /^branch /{b=$2; sub("refs/heads/","",b); print p"\t"b}')
+        /^worktree /{ sub(/^worktree /, ""); p = $0; n++ } /^branch /{ b = $2; sub("refs/heads/", "", b); if (n > 1) print p "|" b }')
+      [ "$other" -gt 0 ] && echo "OTHER WORKTREES (not this run): $other"
     fi
     # Run-level anchor (ADR-0020): the latest `goal` event carries the north star + a
     # pointer to where the plan durably lives (spec/ADR). Surface it so a clean board
     # never reads as "finished" and resume doesn't depend on external prose.
     gline=""; [ -f "$LEDGER" ] && gline="$(grep '"event":"goal"' "$LEDGER" 2>/dev/null | tail -1 || true)"
     if [ -n "$gline" ]; then
-      gn="$(val "$gline" note)"; gs="$(val "$gline" spec)"; gp="$(val "$gline" model_policy)"
-      echo "GOAL: ${gn:-?}${gs:+ -> resume from plan: $gs}${gp:+ [models: $gp]}"
+      gn="$(val "$gline" note)"; gs="$(val "$gline" spec)"
+      echo "GOAL: ${gn:-?}${gs:+ -> resume from plan: $gs}"
     fi
-    [ "$printed" = 0 ] && echo "board: no open lanes${gline:+ (goal above is open unless the plan is complete — verify before concluding done)}"
-    [ "$ambiguous" = 1 ] && { echo "REGROUND: ambiguous writer lane(s) -> HALT for human re-attach"; exit 3; }
+    [ "$printed" = 0 ] && echo "board: no open lanes${gline:+ (goal above is open unless the plan is complete: verify before concluding done)}"
+    [ "$ambiguous" = 1 ] && { echo "REGROUND: lane worktree with no dispatched row -> HALT: show the operator before dispatching"; exit 3; }
     echo "REGROUND: clean" ;;
 
   decision)   # record a resolved DECISION_FORK or a prod confirmation (SKILL.md "Judgment memory",
               # "Production changes"). The optional note carries the operator's answer, so a
               # prod "declined" never reads like an "approved": decision T prod-ack:<target> "" "approved: ..."
     tk="${1:?ticket}"; fid="${2:?fork_id}"; adr="${3:-}"; note="${4:-}"; mkdir -p "$ROOT"
-    nl=""; if [ -n "$note" ]; then nl="${note//\\/\\\\}"; nl="${nl//\"/\\\"}"; nl="$(printf '%s' "$nl" | tr '\n\r\t' '   ')"; nl=",\"note\":\"$nl\""; fi
+    nl=""; if [ -n "$note" ]; then nl=",\"note\":\"$(jtext "$note")\""; fi
     printf '{"ts":"%s","ticket":"%s","event":"decision","fork_id":"%s","adr":"%s"%s}\n' "$(date -u +%FT%TZ)" "$tk" "$fid" "$adr" "$nl" >> "$LEDGER" ;;
 
   clarify)    # journal the router's intake-clarification decision (SKILL.md loop step 3, ADR-0004): which
@@ -222,10 +281,11 @@ case "$cmd" in
               # north star + next-step location across compaction — resume then depends on
               # an external prose doc. This event anchors the board to the goal (ADR-0020).
               # Run-level, so no ticket field (reground's lane loop skips no-ticket lines).
-    note="${1:?goal note}"; spec="${2:-}"; base="${3:-}"; mkdir -p "$ROOT"
-    nl="${note//\\/\\\\}"; nl="${nl//\"/\\\"}"          # escape backslash + quote in free text
-    printf '{"ts":"%s","event":"goal","note":"%s","spec":"%s","base":"%s"}\n' \
-      "$(date -u +%FT%TZ)" "$nl" "$spec" "$base" >> "$LEDGER" ;;
+    # main_model: the router's own model (its system-prompt identity, or the operator's
+    # answer at intake), the ceiling no persona runs above (SKILL.md "Right-sizing").
+    note="${1:?goal note}"; spec="${2:-}"; base="${3:-}"; mm="${4:-}"; mkdir -p "$ROOT"
+    printf '{"ts":"%s","event":"goal","note":"%s","spec":"%s","base":"%s"%s}\n' \
+      "$(date -u +%FT%TZ)" "$(jtext "$note")" "$spec" "$base" "${mm:+,\"main_model\":\"$(jtext "$mm")\"}" >> "$LEDGER" ;;
 
   done)       # close a lane. Verification is guidance, not a gate: a non-T0 lane with no
               # verdict still closes, with a stderr warning; verify_coverage in `metrics`
@@ -236,7 +296,7 @@ case "$cmd" in
       # hand-appended line may put event before ticket), then extract the field.
       tl="$(grep -F "\"ticket\":\"$tk\"" "$LEDGER" 2>/dev/null || true)"
       tier="$(printf '%s\n' "$tl" | grep -F '"event":"intake"' | sed -n 's/.*"tier":"\([^"]*\)".*/\1/p' | tail -1 || true)"
-      printf '%s\n' "$tl" | grep -qF '"event":"verdict"' && hv=1 || true
+      printf '%s\n' "$tl" | grep -F '"event":"verdict"' | grep -vqF '"mode":"plan"' && hv=1 || true
     fi
     case "$tier" in
       T0*|t0*) ;;
@@ -244,5 +304,5 @@ case "$cmd" in
     esac
     printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER" ;;
 
-  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base]|done <ticket>}" >&2; exit 64 ;;
+  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
 esac

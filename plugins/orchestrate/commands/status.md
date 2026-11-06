@@ -20,8 +20,10 @@ Gather, keeping raw output OUT of your reply (glance, don't dump):
   (`tickets/<ticket>/fork.md`, verdicts, `work-item.md`) and the writer worktree's commits-ahead.
 - `.agents/runs/orchestrate/eval/feedback.jsonl`: ts of the last feedback row (if any),
   to spot a feedback gap.
-- Runtime freshness: read the `version` from the executing runtime's `plugin.json`
-  (three levels above the `ledger.sh` you just ran) and compare it against the newest
+- Runtime freshness: read the `version` from the executing plugin's
+  `.claude-plugin/plugin.json` (one level above `bin/` when `ledger.sh` resolves to the
+  plugin's `bin/` shim, which `command -v ledger.sh` shows; three levels above
+  `skills/orchestrate/runtime/` otherwise) and compare it against the newest
   version directory installed for this plugin (Claude Code keeps versioned installs
   side by side, e.g. `~/.claude/plugins/cache/<marketplace>/orchestrate/<version>/`).
   A long-lived session keeps executing its loaded copy after `plugin update`.
@@ -32,9 +34,10 @@ pace 🟢 moving · 🟡 slow · 🔴 stalled; lane ✅ done · 🔄 running · 
 
 1. 🎯 **Headline**: the goal (from the `goal` event), pace (🟢/🟡/🔴 from event recency +
    done-ratio), progress (`N done / M lanes`), and 📋 the plan pointer (spec/ADR path).
-   When `metrics` shows `denials>0`, add one line, `⛔ N denials (persona and command)`, from
-   the board's `denied` events; the shared-checkout floor stopped a discarding git command
-   in the primary checkout, so that persona needs its worktree context. When `metrics`
+   When `metrics` shows `denials>0`, add one line, `⛔ N denials (who and command)`, from
+   the board's `denied` events: the shared-checkout floor stopped a discarding git command
+   aimed at the primary checkout. `persona` is the agent that ran it (`-` is a main session,
+   which may be the operator's own work outside the run). When `metrics`
    shows `unjournaled_work>0`, add one line: `⚠️ N results with no matching dispatched
    event`; the router skipped the journal, so model_mix and coverage undercount.
 2. 🌳 **Lanes**: a tree, one node per ticket with its status glyph; parallel lanes are
@@ -42,9 +45,12 @@ pace 🟢 moving · 🟡 slow · 🔴 stalled; lane ✅ done · 🔄 running · 
    `model`/`effort`, show them inline per lane (e.g. `implementer sonnet/medium`), so the operator
    can see horsepower was right-sized.
 3. 🙋 **Needs you**: render this section **only if non-empty**: halted `DECISION_FORK`s,
-   clarify-halts, prod changes waiting for the operator's confirmation, `INCONSISTENT_ORACLE`,
-   reground ambiguous-writer halts (an `OPEN WRITER ... branch=unknown` is a running lane 🔄,
-   not a halt). Each is one line (the ask) + 📄 pointer to the ticket
+   clarify-halts, prod changes waiting for the operator's confirmation (a `fork` row whose
+   `fork_id` is `prod-ack:<target>` with no matching `decision`), `INCONSISTENT_ORACLE`,
+   an in-flight actuator after an interruption, and a reground HALT (a lane worktree the
+   board lost). An `OPEN WRITER ... branch=unknown` is a running lane 🔄, not a halt; an
+   `OPEN LANE` row is a parked lane shown under Lanes. Each is one line (the ask) + 📄
+   pointer to the ticket
    file. If nothing is pending, omit the section and say `nothing needs you`.
 4. ⏭️ **Next**: what's coming, from the plan's remaining tasks + current lane states.
 

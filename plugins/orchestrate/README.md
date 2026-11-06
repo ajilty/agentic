@@ -143,10 +143,11 @@ much context pre-exists:
 
 - **Guaranteed:** the tools allowlist per persona (compiled into each agent
   definition, so a persona without Edit or web cannot use them); the
-  shared-checkout floor (a hook that stops `reset --hard`, `clean -f`,
-  `checkout -f`, and similar discarding git commands in the primary checkout,
-  for every agent); and the harness's own worktree isolation guard and
-  permission prompts.
+  shared-checkout floor (a hook that stops the canonical spellings of `reset
+  --hard`, `clean -f`, `checkout -f`, and similar discarding git commands in the
+  primary checkout, for every agent, and refuses one whose checkout it cannot
+  resolve; its header lists what it does not cover); and the harness's own
+  worktree isolation guard and permission prompts.
 - **Guidance:** everything else. Which branch a writer commits to, which paths a
   persona writes, what counts as a test run, never reading a held-out path,
   running shared-target steps one at a time, and asking before a production
@@ -182,8 +183,9 @@ repos on this machine (no command needed — this is a convention, not an artifa
    researchers with no judgment-shaped output (ADR-0025), `verify_coverage`
    dropping on code-bearing lanes (ADR-0022), `unjournaled_work` above zero, and
    `denials` rising. Since 0.9.0 only the shared-checkout floor writes `denied`
-   rows, so a denial means a persona worked in the primary checkout instead of
-   its worktree (ADR-0031, ADR-0032).
+   rows: a denial means an agent aimed a discarding git command at the primary
+   checkout; its `persona` field names which (`-` is a main session, possibly the
+   operator's own outside the run) (ADR-0031, ADR-0032).
 4. Propose ranked changes (SKILL prose / hook / tier table / test), each with an ADR call.
 
 ## Status

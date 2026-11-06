@@ -14,6 +14,7 @@ operator; never thrash.
 
 The work item for intake (loop step 2) follows. If it is empty, this is a
 **resume**: run step 1 (`ledger.sh reground`) and continue the open lanes
-instead of starting new work.
+instead of starting new work. If it is non-code work or a fix one or two calls
+would finish, do it directly without the pipeline and journal nothing.
 
 $ARGUMENTS
