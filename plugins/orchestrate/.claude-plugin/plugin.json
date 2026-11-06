@@ -1,6 +1,6 @@
 {
   "name": "orchestrate",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Standing operator loop: feed goals of any altitude; capability-scoped personas work in parallel worktrees, shared-target steps run one at a time, verification is independent, and every run is journaled for retrospectives.",
   "author": {
     "name": "ajilty",

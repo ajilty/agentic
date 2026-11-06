@@ -31,7 +31,7 @@ can't run). ADR numbers below are orchestrate's own, not the target repo's.
 {"ts","ticket","event":"intake","tier","note"}                          # work item recorded + right-sized; tier = T0/T1/T2; note names the task's shared targets
 {"ts","ticket","event":"dispatched","persona","dispatch_id","slug","lens","model","effort"}   # BEFORE the persona runs. persona: one of researcher|planner|implementer|verifier|actuator (a troubleshooter journals as researcher). dispatch_id: EVERY dispatch (orchestrate ADR-0014). slug: researchers only, ticket-unique topic (RAW -> findings/_quarantine/<slug>.<dispatch_id>.md, promoted -> findings/<slug>.md). lens: act|fit|break for an instructions verifier. model/effort: optional, the horsepower actually bound
 {"ts","ticket","event":"returned","persona","status","artifact","branch"}   # artifact: the PROMOTED findings path (researcher). branch: implementer only, the worktree branch from its report, confirmed with git worktree list
-{"ts","ticket","event":"verdict","verdict","mode","round","artifact"}   # APPROVED|REJECTED|INCONSISTENT_ORACLE. mode: "plan" for a plan-mode verdict on the spec (spends no implementer retry, not verify coverage). An instructions lane journals ONE row per round of lens verifiers (REJECTED if any lens rejects), round = N, artifact = verdicts/<ticket>.round<N>.md, the merged findings the router writes
+{"ts","ticket","event":"verdict","verdict","mode","round","artifact"}   # APPROVED|REJECTED|INCONSISTENT_ORACLE. mode: "plan" for a plan-mode verdict on the spec (spends no implementer retry, not verify coverage); the spec as reviewed is pinned beside it at verdicts/<ticket>.<dispatch_id>.spec.md so a re-review diffs instead of re-reading. An instructions lane journals ONE row per round of lens verifiers (REJECTED if any lens rejects), round = N, artifact = verdicts/<ticket>.round<N>.md, the merged findings the router writes
 {"ts","ticket","event":"clarify","skill"}                               # intake clarification; ticket="intake" if pre-ticket
 {"ts","ticket","event":"fork","state":"halted","fork_id"}               # a DECISION_FORK, or a prod confirmation the router is waiting on (fork_id prod-ack:<target>)
 {"ts","ticket","event":"decision","fork_id","adr","note"}               # a resolved fork (adr set iff promoted) or a prod confirmation: ledger.sh decision <ticket> prod-ack:<target> "" "<approved|declined>: <one line>" (the operator's answer, either way, in note)
@@ -82,7 +82,7 @@ every line it prints:
      gates and promotes it to `tickets/<ticket>/findings/<slug>.md`.
    - `OPEN LANE ... last=<event>`: a parked lane, so it survives compaction:
      `returned` (awaiting its verdict), `verdict:APPROVED` (awaiting landing),
-     `verdict:REJECTED` (awaiting fix), `plan-verdict:*`, `fork` (halted,
+     `verdict:REJECTED` (awaiting fix: attach the `artifact` of the ticket's latest verdict row to the retry), `plan-verdict:*`, `fork` (halted,
      awaiting the operator), `intake` (not yet dispatched), `clarify`,
      `decision`. Resume each from that event.
 2. **Disk ground truth**, scoped to this run. A worktree is a lane of this run
