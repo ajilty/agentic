@@ -116,6 +116,18 @@ keys, resource ids, paths), the spec uses those verbatim; a guessed key the
 findings could have answered is at best an `#ASSUMPTION` and at worst silent
 rework. Then hand to Verifier (plan-mode) before Execution.
 
+## Revising after a plan-mode rejection
+
+Your dispatch names the verdict file (the verifier's findings on the spec) and
+the spec as pinned for that review. Revise only what those findings name; a
+change that follows necessarily from a named fix (a `depends_on`, a shared
+target, a split that keeps the existing id and appends new ones) is listed
+under that finding and counts as named. Everything else stays byte-identical:
+do not reorder, renumber, or reflow, so the re-review can diff the pin against
+your spec and read only what changed. Write the list of what you changed, and
+the finding each answers, to `<spec>.changes.md` beside the spec, never inside
+it; the re-review reads it. A change it does not account for is a finding.
+
 ## Judgment memory (read the decision index first)
 
 The router runs `adr.sh reindex` before dispatching you, so ADRs written by any

@@ -52,6 +52,15 @@ untrusted-origin content; every task names its `shared_targets` and
 `consequence`, and a task that is not pure code names at least one. Flag tasks
 that look coupled but are planned in parallel as a concern.
 
+On a re-review after a revision, your dispatch names the most recent plan-mode
+verdict, the spec as pinned for it, and the planner's change list
+(`<spec>.changes.md`). Diff that pin against the current spec first; re-read in full only the tasks the diff or a prior finding touches,
+verdict each prior finding ADDRESSED or NOT ADDRESSED, and confirm the untouched
+tasks by the diff, not by reading them again. A change the planner's list does
+not account for is a finding; a near-total diff (a reflow or renumbering) means
+the diff cannot narrow anything: say so and review in full. No pin: review in
+full and say so.
+
 ## Outcome-mode (after a `DONE`)
 
 First confirm the commit is the artifact (step 0), then run all four checks in
@@ -68,8 +77,10 @@ files, the diff, and the operator's request in their own words
 (`request.md`). Rank findings by severity, each with a concrete failure
 scenario; return `REJECTED` when any finding must be fixed before it ships,
 else `APPROVED`. The router merges the lens verdicts into one per round. A
-re-check after fixes verdicts each prior finding ADDRESSED or NOT ADDRESSED and
-flags only new breakage in the fix.
+re-check after fixes, on any lane, still runs step 0 and the oracle or held-out
+suite; it verdicts each prior finding ADDRESSED or NOT ADDRESSED, reviews in
+full any path the fix touched that the verdict did not name, and skips only the
+re-read of judgment checks nothing touched.
 
 0. **The commit is the artifact.** Before testing anything, confirm
    the Implementer's work is committed, not sitting in a green working tree:

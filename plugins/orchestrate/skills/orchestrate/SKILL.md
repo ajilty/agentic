@@ -84,7 +84,17 @@ Run these in order on every invocation:
 5. **Drive lanes.** Dispatch, read results from disk, route, count retries with
    `ledger.sh retries <ticket>`. At T2, run `adr.sh reindex` before dispatching
    the planner, then dispatch a plan-mode verifier on the spec before any
-   implementer and journal its verdict with `"mode":"plan"`. When a writer has
+   implementer and journal its verdict with `"mode":"plan"`. For each
+   plan-mode dispatch: mint the `dispatch_id`, pin the spec as it stands to
+   `tickets/<ticket>/verdicts/<ticket>.<dispatch_id>.spec.md`, journal
+   `dispatched`, then dispatch. On a plan-mode `REJECTED` (it spends no
+   implementer retry), re-dispatch the planner with that verdict file and pin
+   path, then a plan-mode verifier with the same verdict and pin, the most
+   recent round only: it re-reads in full the tasks the diff or a finding
+   touches and confirms the rest by the diff. Lanes never wait on each other's
+   verifiers: dispatch a verifier the moment its lane returns, in parallel
+   with everything else; only a verifier whose check touches a shared target
+   waits its turn. When a writer has
    been out about 20 minutes, tell the operator in one plain sentence what it
    has done so far, from its commits ahead of the base.
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. When the
@@ -95,8 +105,15 @@ Run these in order on every invocation:
    `request.md`. A narrow edit may take one verifier holding all three lenses.
    Read the lens verdict files and journal one `verdict` per round: `REJECTED`
    if any lens rejects, with the findings merged into
-   `verdicts/<ticket>.round<N>.md`, which you write. After fixes, one verifier
-   re-checks only the fixes, as the next round.
+   `verdicts/<ticket>.round<N>.md`, which you write. On any lane a `REJECTED`
+   goes back to the implementer with the absolute path of the verdict file
+   (the merged round file on an instructions lane); attach only a file you
+   have read to its sentinel, else re-dispatch the verifier, not the
+   implementer. The next round is one verifier on either lane type (the lens
+   split is for the first review) given the fix diff and the files the
+   verdict named: it re-runs the commit check and the oracle, verdicts each
+   prior finding, reviews in full any path the fix touched that the verdict
+   did not name, and re-reads nothing else.
 7. **Land**, then `ledger.sh done <ticket>`. An instructions change never
    auto-lands: on `APPROVED`, open a pull request (or hand it over) and bring
    the operator every finding you did not fix, with a recommendation. In a long
@@ -120,7 +137,9 @@ Run these in order on every invocation:
   .agents/worktrees/<ticket> origin/<base>` yourself so reground sees it.
   Prefer disjoint tasks; landing and the verifier catch coupling.
 - **Hand over only the artifact:** the work item or spec task, the paths it
-  needs, its result path. Name any held-out path in an implementer's dispatch
+  needs, its result path; on a retry, the verdict file; on a plan revision,
+  the prior verdict and its pin; on a plan re-review, those two plus the
+  planner's change list (`<spec>.changes.md`). Name any held-out path in an implementer's dispatch
   as off-limits; hand that path to the verifier. For a bug fix, say the
   implementer writes a repro test first and shows it red.
 - **Mint result paths and read them from disk.** A researcher writes
@@ -261,7 +280,8 @@ operator.
 | `BLOCKED(reason, backing)` | the backing table below |
 | `DECISION_FORK(payload)` | halt that lane, surface the payload |
 | `APPROVED` | land |
-| `REJECTED` | implementer once (`ledger.sh retries <ticket>`), then the operator |
+| `REJECTED` (outcome) | implementer once (`ledger.sh retries <ticket>`) with the verdict file's path (`verdicts/<ticket>.<dispatch_id>.md`, or `round<N>.md` on an instructions lane), then the operator; the next verifier re-checks the fixes, not the whole change |
+| `REJECTED` (plan mode) | planner with the verdict and pin, then a plan-mode re-review; spends no implementer retry |
 | `INCONSISTENT_ORACLE` | the operator; never shape code to a bad test |
 
 | Reason | Required backing (else the operator) | Route if backed |
