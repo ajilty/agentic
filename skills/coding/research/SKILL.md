@@ -27,18 +27,17 @@ planner can safely build on it.
 
 ## Web and document research
 
-Source-based work adds a method on top of the labeling and provenance above.
+In judgment research over web or documents (a sweep stays a list), this method
+builds on the labeling and provenance above.
 
 - **Split first.** For a broad question, list the key questions that do not
-  overlap and together cover the objective, and state what each needs. A
-  dispatcher can give independent ones to separate researchers.
-- **Search loop.** Find what is missing, search with short varied queries, read
-  the full page behind anything you will rely on, and repeat.
+  overlap and together cover the objective, and state what each needs.
+- **Search loop.** Search with short varied queries, and read the full page
+  behind anything you will rely on.
 - **Stop** when the key questions are answered with sources, when no new
   information appears, or at about 15 search or fetch calls for one question.
-  Report the remainder as a gap.
-- **Weigh sources.** Prefer the primary source to an aggregator, separate
-  confirmed fact from speculation, show both sides when sources conflict, and on
-  recent topics trust current sources over memory.
-- **Report per key question**: takeaway, cited findings, inferences, gaps. A
-  claim with no source moves to gaps.
+  Report the remainder as unanswered.
+- **Weigh sources.** Prefer the primary source to an aggregator, show both sides
+  when sources conflict, and on recent topics trust current sources over memory.
+- **Report by key question**, in the role's own output format. A claim with no
+  source is an open question, not a finding.
