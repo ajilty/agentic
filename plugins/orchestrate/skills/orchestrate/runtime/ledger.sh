@@ -148,7 +148,12 @@ case "$cmd" in
       [ "$ev" = dispatched ] || continue
       printed=1
       if [ "$persona" = implementer ]; then
-        if git rev-parse --verify "$branch" >/dev/null 2>&1; then
+        # A writer dispatched with native worktree isolation has no branch on its
+        # dispatched event (the harness names the worktree; the branch lands on
+        # returned). Unknown branch = possibly still in flight: HALT, never re-dispatch.
+        if [ -z "$branch" ]; then
+          echo "OPEN WRITER   ticket=$t branch=unknown -> check git worktree list and the agent's status; reconcile before re-dispatch"; ambiguous=1
+        elif git rev-parse --verify "$branch" >/dev/null 2>&1; then
           echo "OPEN WRITER   ticket=$t branch=$branch -> reconcile worktree before re-dispatch"; ambiguous=1
         else
           echo "OPEN WRITER   ticket=$t branch=$branch MISSING -> re-dispatch candidate"
