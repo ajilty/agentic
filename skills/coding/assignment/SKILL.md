@@ -34,8 +34,9 @@ essence given instead; never stop or fail because a file is absent.
    bind the build.
 4. **Build and verify** — craft: `../build/SKILL.md`, then `../verify/SKILL.md`
    (via orchestrate's build and verifier lanes when it is running the goal).
-   Essence: single writer executes the memo-bound plan with the commit as the
-   artifact; a fresh-context agent that did not build it adversarially verifies
+   Essence: each builder executes the memo-bound plan in the tree it was
+   given, with the commit as the artifact and shared-target steps serial per
+   target; a fresh-context agent that did not build it adversarially verifies
    against the goal.
 5. **Close out** — craft: `../brief/SKILL.md`, close-out mode. Essence: update
    the same briefing artifact with what shipped versus the plan, deviations and
