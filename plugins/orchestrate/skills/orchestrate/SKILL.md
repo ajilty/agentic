@@ -6,11 +6,12 @@ description: >-
   verification) by dispatching personas with exactly the artifact each needs, each writer in
   its own git worktree. USE FOR decomposable, specifiable, test-anchored work with a real
   acceptance oracle (greenfield features behind spec-derived acceptance checks, well-specified
-  refactors, codebases with test coverage). DO NOT USE FOR tightly-coupled edits on shared
-  files, exploratory work with no definable contract, untested/legacy code with no oracle,
-  small tasks a 3-call fix would solve, or high-judgment novelty. Invoke explicitly with
-  /orchestrate in a repo, to start work and to resume an interrupted session. No config
-  file; compaction recovers automatically.
+  refactors, codebases with test coverage). DO NOT USE FOR non-code work (writing, research
+  answers, config nudges), tightly-coupled edits on shared files, exploratory work with no
+  definable contract, untested/legacy code with no oracle, small tasks a 3-call fix would
+  solve, or high-judgment novelty. Use it on your own when the work meets that bar; the
+  operator starts or resumes a run with /orchestrate:init. No config file; compaction
+  recovers automatically.
 compatibility: >-
   Harness-agnostic. The runtime (ledger.sh, adr.sh, two Claude Code hooks) needs git and
   coreutils; HELDOUT_ROOT is optional. The generators in ../../scripts/ need yq v4: build.sh
@@ -261,11 +262,15 @@ or that setting) and dispatch no writer until it matches. Without native
 isolation, run `git worktree add -b <name> <path> origin/<base>` yourself.
 
 Land on `APPROVED` with the verdict file on disk; never chain persisting it
-and landing in one command. When the repo's convention is pull requests, push
-the lane's branch and open one; otherwise integrate it onto the base after
+and landing in one command. The operator's working agreements outrank this
+brief. Before touching the shared checkout, check for another writer (work
+that is not yours, or another live session); if one is present or you cannot
+tell, never merge, switch branches, or move HEAD there: push the lane's branch
+and open a pull request, or hand the change over and ask. Otherwise, follow
+the repo's convention: open a pull request, or integrate onto the base once
 `git rev-parse --abbrev-ref HEAD` equals the journaled base. Then remove the
-lane's worktree (`git worktree remove <path>`) and its branch. Fix a stale base
-by recreating the worktree, never by `reset --hard`.
+lane's worktree and branch. Fix a stale base by recreating the worktree, never
+by `reset --hard`.
 
 ## Ledger
 
