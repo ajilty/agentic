@@ -16,7 +16,8 @@ bash_payload(){ jq -cn --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}'
 run_hook(){ ERR=$(printf '%s' "$2" | bash "$1" 2>&1 >/dev/null); RC=$?; }
 
 # Hermetic HOME/XDG so a developer's own rumdl config never leaks into a test.
-# Work dirs live under the tests dir, not /tmp: lint-markdown.sh deliberately skips /tmp/ paths.
-WORK="$HERE/.work"; mkdir -p "$WORK"; trap 'rm -rf "$WORK"' EXIT
+# Fixtures live in a temp dir; the ones that must be linted get their own `git init`
+# (lint-markdown.sh lints only inside a git work tree), so the checkout's location is irrelevant.
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 TESTHOME="$(mktemp -d "$WORK/home.XXXXXX")"; export HOME="$TESTHOME" XDG_CONFIG_HOME="$TESTHOME/.config"
 mktemp_repo(){ local d; d="$(mktemp -d "$WORK/repo.XXXXXX")"; ( cd "$d" && git init -q ); printf '%s\n' "$d"; }
