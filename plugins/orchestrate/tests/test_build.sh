@@ -164,3 +164,19 @@ if have_yq4; then
 else
   echo "(skip clarification binding: $YQ4_SKIP)"
 fi
+
+# --- Tier-table parity: SKILL.md's right-sizing table is prose the router reads; the
+#     agents.yaml tier is what the harness binds. Each persona's row must be exactly
+#     `| <persona> | <model> | <effort> |` and match cc_model(tier) and the effort, so
+#     the brief never tells the router one horsepower while the agent file runs another.
+if have_yq4; then
+  AGT="$SK/skills/orchestrate/references/agents.yaml"
+  SKMD="$SK/skills/orchestrate/SKILL.md"
+  . "$(cd "$SK/../.." && pwd)/scripts/harness-lib/claude-code.sh"   # function defs only
+  for p in $(yq '.personas | keys | .[]' "$AGT"); do
+    row="| $p | $(cc_model "$(yq ".personas.$p.tier.model" "$AGT")") | $(yq ".personas.$p.tier.effort" "$AGT") |"
+    if grep -qxF "$row" "$SKMD"; then pass; else fail "tier-table row missing from SKILL.md: '$row'"; fi
+  done
+else
+  echo "(skip tier-table parity: $YQ4_SKIP)"
+fi

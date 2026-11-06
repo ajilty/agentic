@@ -54,7 +54,7 @@ for s in $(yq '.hooks[] | select([.watch[] | test("^(file-read|shell|file-write|
 done
 grep -q "$SKD/runtime" "$o/plugins/orchestrate.ts" && pass || fail "opencode plugin points at the skill's runtime (single copy)"
 for c in init status feedback; do assert_file "$o/commands/orchestrate-$c.md"; done
-grep -q -- '--models=' "$o/commands/orchestrate-init.md" && pass || fail "opencode init command carries the --models flag contract"
+grep -q -- '--models=' "$o/commands/orchestrate-init.md" && fail "opencode init command still carries the dropped --models flag (ADR-0040)" || pass
 # command descriptions are parsed from the commands/*.md source frontmatter, never restated
 for c in init status feedback; do
   want="$(yq --front-matter=extract '.description' "$SK/commands/$c.md")"
