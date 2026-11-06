@@ -25,7 +25,24 @@ grep -q 'sandbox_mode = "workspace-write"' "$o/agents/actuator.toml" && pass || 
 assert_no_file "$o/hooks.json"
 assert_no_file "$o/config.toml"
 [ ! -d "$o/orchestrate-runtime" ] && pass || fail "codex no longer ships a second runtime copy at CODEX_HOME"
+# tiers (ADR-0041): the plugin ships no Codex model ID. With no ORCHESTRATE_*_MODEL set every
+# role inherits the parent's model; effort is always emitted, passed through unchanged.
+grep -q '^model = ' "$o"/agents/*.toml && fail "codex roles carry a model line with no ORCHESTRATE_*_MODEL set (must inherit)" || pass
+for p in researcher planner implementer verifier actuator; do
+  want="$(yq ".personas.$p.tier.effort" "$SK/skills/orchestrate/references/agents.yaml")"
+  grep -qx "model_reasoning_effort = \"$want\"" "$o/agents/$p.toml" && pass || fail "codex $p effort passes through as $want"
+done
 rm -rf "$o"
+o="${TMPDIR:-/tmp}/p4cxm.$$"; rm -rf "$o"
+ORCHESTRATE_STANDARD_MODEL=std-model ORCHESTRATE_ECONOMY_MODEL=eco-model \
+  bash "$SK/scripts/install-codex.sh" --scope project --dir "$o" >/dev/null 2>&1
+grep -qx 'model = "std-model"' "$o/agents/implementer.toml" && pass || fail "codex standard tier takes ORCHESTRATE_STANDARD_MODEL"
+grep -qx 'model = "eco-model"' "$o/agents/researcher.toml" && pass || fail "codex economy tier takes ORCHESTRATE_ECONOMY_MODEL"
+for p in planner verifier; do
+  grep -q '^model = ' "$o/agents/$p.toml" && fail "codex premium $p must never carry a model (inherits)" || pass
+done
+rm -rf "$o"
+( . "$(cd "$SK/../.." && pwd)/scripts/harness-lib/codex.sh"; [ "$(codex_effort max)" = max ] ) && pass || fail "codex_effort passes max through (no xhigh clamp)"
 # opencode: five personas in agents/ (plural, docs-current), native skill, plugin,
 # command parity — and no AGENTS.orchestrate.md
 o="${TMPDIR:-/tmp}/p4oc.$$"; rm -rf "$o"; bash "$SK/scripts/install-opencode.sh" --scope project --dir "$o" >/dev/null 2>&1
@@ -51,11 +68,19 @@ for c in init status feedback; do
   got="$(yq --front-matter=extract '.description' "$o/commands/orchestrate-$c.md")"
   assert_eq "$got" "$want" "opencode $c command description matches source frontmatter"
 done
-# tier -> model emission (D1: Anthropic ladder default, env-overridable)
-grep -q '^model: ' "$o/agents/planner.md" && pass || fail "opencode planner carries tier model"
-grep -q '^model: anthropic/' "$o/agents/researcher.md" && pass || fail "opencode researcher model defaults to the Anthropic ladder"
+# tier -> model emission (ADR-0041): no default model IDs; unset means inherit
+grep -q '^model:' "$o"/agents/*.md && fail "opencode agents carry a model with no ORCHESTRATE_*_MODEL set (must inherit)" || pass
 # permission: layer emitted alongside deprecated tools: (read-only persona denies edit+bash)
 grep -A3 '^permission:' "$o/agents/planner.md" | grep -q 'bash: deny' && pass || fail "opencode planner permission denies bash"
 grep -A3 '^permission:' "$o/agents/implementer.md" | grep -q 'bash: allow' && pass || fail "opencode implementer permission allows bash"
+rm -rf "$o"
+o="${TMPDIR:-/tmp}/p4ocm.$$"; rm -rf "$o"
+ORCHESTRATE_STANDARD_MODEL=prov/std-model ORCHESTRATE_ECONOMY_MODEL=prov/eco-model \
+  bash "$SK/scripts/install-opencode.sh" --scope project --dir "$o" >/dev/null 2>&1
+grep -qx "model: 'prov/std-model'" "$o/agents/implementer.md" && pass || fail "opencode standard tier takes ORCHESTRATE_STANDARD_MODEL"
+grep -qx "model: 'prov/eco-model'" "$o/agents/researcher.md" && pass || fail "opencode economy tier takes ORCHESTRATE_ECONOMY_MODEL"
+for p in planner verifier; do
+  grep -q '^model:' "$o/agents/$p.md" && fail "opencode premium $p must never carry a model (inherits)" || pass
+done
 rm -rf "$o"
 cd /; rm -rf "$d"

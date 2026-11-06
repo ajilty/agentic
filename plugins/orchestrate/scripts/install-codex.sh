@@ -61,8 +61,8 @@ for p in $(personas); do
     printf 'name = "%s"\n' "$p"
     printf 'description = "%s"\n' "${desc//\"/\\\"}"
     printf 'sandbox_mode = "%s"\n' "$sandbox"
-    [ -n "$model" ]  && printf 'model = "%s"\n' "$model"                       # tier -> model id
-    [ -n "$effort" ] && printf 'model_reasoning_effort = "%s"\n' "$effort"     # tier -> reasoning effort (low|medium|high|xhigh)
+    [ -n "$model" ]  && printf 'model = "%s"\n' "$model"                       # only when the operator set one (ADR-0041)
+    [ -n "$effort" ] && printf 'model_reasoning_effort = "%s"\n' "$effort"     # tier -> reasoning effort, passed through
     # Persona body goes in developer_instructions (NOT `instructions`). Emit ALL
     # root-level keys (incl. this one) BEFORE any [table] header below, or the table
     # would capture them.
@@ -75,7 +75,7 @@ for p in $(personas); do
       printf '[mcp_servers.%s]\n# command/args for your web/doc MCP go here (escape hatch; built-in web_search is the default).\n' "$WEB_MCP"
     fi
   } > "$AGENTS_DEST/$p.toml"
-  echo "  subagent -> $AGENTS_DEST/$p.toml   (sandbox: $sandbox, model: ${model:-default}, effort: ${effort:-default}, web: $web)"
+  echo "  subagent -> $AGENTS_DEST/$p.toml   (sandbox: $sandbox, model: ${model:-inherit}, effort: ${effort:-inherit}, web: $web)"
 done
 
 cat <<EOF

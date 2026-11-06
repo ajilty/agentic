@@ -9,10 +9,11 @@ cc_tools() { local p="$1" t=()
   case "$(p_cap "$p" run)" in full|tests-only) t+=(Bash);; esac
   ( IFS=, ; echo "${t[*]}" ); }
 
-# Abstract horsepower tier (agents.yaml, portable) -> concrete CC model. Effort passes
-# through (low|medium|high|xhigh|max are CC-native). Keeps the contract free of vendor
-# model IDs; each harness lib maps the same tier to its own models.
-cc_model() { case "$1" in economy) echo haiku;; standard) echo sonnet;; premium) echo opus;; *) echo "";; esac; }
+# Abstract horsepower tier (agents.yaml, portable) -> CC model alias (ADR-0041). premium
+# prints nothing: the agent file then carries no model: line and the persona inherits the
+# main loop, so it can never run above it. standard/economy are floating family aliases,
+# never dated IDs. Effort passes through (low|medium|high|xhigh|max are CC-native).
+cc_model() { case "$1" in economy) echo haiku;; standard) echo sonnet;; *) echo "";; esac; }
 
 # Terminal accent for the subagent, Claude Code's `color:` frontmatter field. Presentation
 # only — it grants nothing and subtracts nothing — so it lives HERE in the CC layer, not
@@ -23,7 +24,8 @@ cc_model() { case "$1" in economy) echo haiku;; standard) echo sonnet;; premium)
 # where the spend is going: cold = cheap, hot = expensive. Derived, never hand-assigned —
 # retune a tier in agents.yaml and the color follows, so it cannot drift into a lie. Model
 # tier is the dominant cost term; extended thinking (xhigh|max) bumps one rung because the
-# reasoning tokens it buys are billed as output.
+# reasoning tokens it buys are billed as output. Premium inherits the main loop, the most
+# expensive model in the run, so it stays the hottest tier.
 #   cyan   economy | green standard | yellow premium | red premium + extended thinking
 # Same tier -> same color BY DESIGN: two personas that cost the same should look the same.
 cc_color() { local c
@@ -36,7 +38,7 @@ cc_agent_md() { # <persona> <dest.md>
   local p="$1" dest="$2" mt ef cl iso extra=""
   mt="$(p_tier "$p" model)"; ef="$(p_tier "$p" effort)"; cl="$(cc_color "$mt" "$ef")"
   iso="$(yq ".personas.$p.isolation" "$AGENTS")"
-  [ "$mt" != null ] && [ -n "$mt" ] && extra="${extra}model: $(cc_model "$mt")\n"
+  [ -n "$(cc_model "$mt")" ] && extra="${extra}model: $(cc_model "$mt")\n"   # premium: none, inherits
   [ "$ef" != null ] && [ -n "$ef" ] && extra="${extra}effort: $ef\n"
   [ -n "$cl" ] && extra="${extra}color: $cl\n"
   [ "$iso" != null ] && [ -n "$iso" ] && extra="${extra}isolation: $iso\n"

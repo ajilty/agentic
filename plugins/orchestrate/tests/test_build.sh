@@ -14,19 +14,20 @@ for p in "${!WANT[@]}"; do
   assert_eq "$got" "${WANT[$p]}" "allowlist $p"
 done
 
-# --- Compiled model/effort tiers: horsepower right-sized by persona role. The abstract
-#     contract tier (economy/standard/premium) compiles to a concrete CC model; effort
-#     passes through. Judgment/correctness (planner/verifier) premium; reduction
-#     (researcher) economy. (CLAUDE_CODE_SUBAGENT_MODEL=inherit can override model at
-#     runtime — that's an operator env concern, not the compiled artifact.)
-declare -A WANT_MODEL=( [researcher]=haiku [planner]=opus [implementer]=sonnet [verifier]=opus [actuator]=sonnet )
-declare -A WANT_EFFORT=( [researcher]=medium [planner]=high [implementer]=high [verifier]=max [actuator]=high )
+# --- Compiled model/effort tiers: horsepower right-sized by persona role (ADR-0041). The
+#     abstract contract tier compiles to a Claude Code alias: premium emits NO model line
+#     (the persona inherits the main loop, so it can never run above it), standard -> sonnet,
+#     economy -> haiku. Effort passes through unchanged. An empty WANT_MODEL means "no
+#     model: line". (CLAUDE_CODE_SUBAGENT_MODEL can still override at runtime; that is an
+#     operator env concern, not the compiled artifact.)
+declare -A WANT_MODEL=( [researcher]=haiku [planner]= [implementer]=sonnet [verifier]= [actuator]=sonnet )
+declare -A WANT_EFFORT=( [researcher]=medium [planner]=high [implementer]=medium [verifier]=high [actuator]=high )
 # Compiled terminal accent (CC-only presentation; the map lives in build.sh, NOT agents.yaml
 # — see ADR-0007 / the contract's harness-neutrality header). The accent is a COST HEAT
 # DERIVED from the tier above: cold = cheap, hot = expensive, so a fan-out board shows where
 # the spend goes. Pinned here because the signal is only worth anything if it tracks the tier
 # — a color that stopped following model/effort would be a lie about cost, not a cosmetic bug.
-declare -A WANT_COLOR=( [researcher]=cyan [planner]=yellow [implementer]=green [verifier]=red [actuator]=green )
+declare -A WANT_COLOR=( [researcher]=cyan [planner]=yellow [implementer]=green [verifier]=yellow [actuator]=green )
 for p in "${!WANT_MODEL[@]}"; do
   gm="$(awk -F': ' '/^model: /{print $2; exit}' "$SK/agents/$p.md" 2>/dev/null)"
   ge="$(awk -F': ' '/^effort: /{print $2; exit}' "$SK/agents/$p.md" 2>/dev/null)"
@@ -34,15 +35,19 @@ for p in "${!WANT_MODEL[@]}"; do
   assert_eq "$gm" "${WANT_MODEL[$p]}" "model tier $p"
   assert_eq "$ge" "${WANT_EFFORT[$p]}" "effort tier $p"
   assert_eq "$gc" "${WANT_COLOR[$p]}" "color $p"
+  if [ -z "${WANT_MODEL[$p]}" ]; then   # premium: inherit means the line is ABSENT, not empty
+    grep -q '^model:' "$SK/agents/$p.md" && fail "$p must carry no model: line (premium inherits, ADR-0041)" || pass
+  fi
 done
 # Monotonicity: the heat ladder must order the personas the way COST does. Duplicates are
-# correct here (implementer/actuator are the same tier, so they must look the same); what
+# correct here (implementer/actuator are the same model tier, and planner/verifier are both
+# premium at high effort, so each pair must look the same); what
 # must never happen is a cheap persona reading hotter than an expensive one. This is the
 # check that catches a well-meaning "let's make the actuator red" from re-tainting the
 # scale with a second, contradictory meaning.
 declare -A HEAT=( [cyan]=1 [green]=2 [yellow]=3 [red]=4 )
 ladder_ok=1
-for pair in "researcher<implementer" "implementer=actuator" "actuator<planner" "planner<verifier"; do
+for pair in "researcher<implementer" "implementer=actuator" "actuator<planner" "planner=verifier"; do
   a="${pair%%[<=]*}"; b="${pair##*[<=]}"; op="${pair//[a-z]/}"
   ha="${HEAT[${WANT_COLOR[$a]}]:-0}"; hb="${HEAT[${WANT_COLOR[$b]}]:-0}"
   case "$op" in
@@ -169,12 +174,14 @@ fi
 #     agents.yaml tier is what the harness binds. Each persona's row must be exactly
 #     `| <persona> | <model> | <effort> |` and match cc_model(tier) and the effort, so
 #     the brief never tells the router one horsepower while the agent file runs another.
+#     cc_model premium emits nothing (no model: line), which the table spells `inherit`.
 if have_yq4; then
   AGT="$SK/skills/orchestrate/references/agents.yaml"
   SKMD="$SK/skills/orchestrate/SKILL.md"
   . "$(cd "$SK/../.." && pwd)/scripts/harness-lib/claude-code.sh"   # function defs only
   for p in $(yq '.personas | keys | .[]' "$AGT"); do
-    row="| $p | $(cc_model "$(yq ".personas.$p.tier.model" "$AGT")") | $(yq ".personas.$p.tier.effort" "$AGT") |"
+    m="$(cc_model "$(yq ".personas.$p.tier.model" "$AGT")")"
+    row="| $p | ${m:-inherit} | $(yq ".personas.$p.tier.effort" "$AGT") |"
     if grep -qxF "$row" "$SKMD"; then pass; else fail "tier-table row missing from SKILL.md: '$row'"; fi
   done
 else

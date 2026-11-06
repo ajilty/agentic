@@ -169,20 +169,28 @@ the oracle; a refactor-shaped T1 needs a planner-grade work item, not a bigger
 implementer.
 
 Each persona's model and effort live in its agent file, compiled from
-`agents.yaml`:
+`agents.yaml`. `inherit` means the agent file names no model, so the persona
+runs on the main loop's model:
 
 | persona | model | effort |
 |---------|-------|--------|
 | researcher | haiku | medium |
-| planner | opus | high |
-| implementer | sonnet | high |
-| verifier | opus | max |
+| planner | inherit | high |
+| implementer | sonnet | medium |
+| verifier | inherit | high |
 | actuator | sonnet | high |
 
-A persona never runs a bigger model than the main loop; override a single
-dispatch only for a named hard item, and journal the override on the
-`dispatched` event. A researcher whose findings eliminate design options is
-such an item; a "correctness-critical" platform is not.
+A persona never runs a bigger model than the main loop. An agent file's alias
+binds even when it sits above the main loop, so when the main loop is at or
+below a persona's alias, pass the main loop's own alias on the dispatch (the
+call takes an alias, never `inherit`) and the persona runs at the main loop.
+Override a single dispatch upward only for a named hard item, only within that
+ceiling, and journal the override on the `dispatched` event. A researcher whose
+findings eliminate design options is such an item; a "correctness-critical"
+platform is not. After a `REJECTED` verdict that reads as missed checks,
+re-dispatch the implementer at `high` effort on the same model; a rejection
+that reads as the wrong approach moves the model up one rung within the ceiling
+instead. `max` effort is not a default anywhere.
 
 ## Context economy
 

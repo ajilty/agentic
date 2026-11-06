@@ -22,7 +22,7 @@ mkdir -p "$PLUGIN_ROOT/agents"
 for p in $(personas); do
   cc_agent_md "$p" "$PLUGIN_ROOT/agents/$p.md"
   mt="$(p_tier "$p" model)"; ef="$(p_tier "$p" effort)"
-  echo "  agent  -> agents/$p.md   (tools: $(cc_tools "$p"), model: $(cc_model "$mt"), effort: ${ef}, color: $(cc_color "$mt" "$ef"))"
+  echo "  agent  -> agents/$p.md   (tools: $(cc_tools "$p"), model: $(m="$(cc_model "$mt")"; echo "${m:-inherit}"), effort: ${ef}, color: $(cc_color "$mt" "$ef"))"
 done
 
 # 2) hooks/hooks.json — auto-registered when the plugin is enabled; derived from

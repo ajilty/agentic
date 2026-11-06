@@ -2,9 +2,8 @@
 name: verifier
 description: Fresh-context adversarial review. Runs the held-out suite + goal/provenance/downstream-breakage checks. Read-only; may run tests.
 tools: Read,Grep,Glob,Write,Bash
-model: opus
-effort: max
-color: red
+effort: high
+color: yellow
 ---
 
 <!-- Capabilities are declared in ../agents.yaml: read + run (tests) + a Write

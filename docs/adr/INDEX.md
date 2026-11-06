@@ -46,3 +46,4 @@ raises a DECISION_FORK citing it (supersede flow).
 | [0038](0038-repo-wide-plugin-test-and-validation-convention.md) | 0038: Repo-wide plugin test and validation convention | active |
 | [0039](0039-shipyard-product-plugin-structural-pauses.md) | Shipyard ships as a product plugin of user-invoked segments with structural pauses | active |
 | [0040](0040-gates-become-guidance.md) | Gates become guidance: git facts stay deterministic, workflow facts become prose | active |
+| [0041](0041-premium-inherits-tiers-are-aliases-effort-passes-through.md) | Premium personas inherit the main loop; tiers are aliases; effort passes through | active |

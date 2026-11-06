@@ -39,7 +39,7 @@ pace 🟢 moving · 🟡 slow · 🔴 stalled; lane ✅ done · 🔄 running · 
    event`; the router skipped the journal, so model_mix and coverage undercount.
 2. 🌳 **Lanes**: a tree, one node per ticket with its status glyph; parallel lanes are
    siblings; writer lanes show worktree commits-ahead. When the `dispatched` events carry
-   `model`/`effort`, show them inline per lane (e.g. `verifier opus/max`), so the operator
+   `model`/`effort`, show them inline per lane (e.g. `verifier opus/high`), so the operator
    can see horsepower was right-sized.
 3. 🙋 **Needs you**: render this section **only if non-empty**: halted `DECISION_FORK`s,
    clarify-halts, prod changes waiting for the operator's confirmation, `INCONSISTENT_ORACLE`,

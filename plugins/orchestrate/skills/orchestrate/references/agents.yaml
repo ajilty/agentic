@@ -17,13 +17,16 @@
 # in its own git worktree.
 # The role body for each persona lives in personas/<name>.md.
 #
-# tier: { model, effort } is harness-neutral right-sizing. Tiers are steps DOWN the
-# model ladder from the main loop, which runs the best available tier (SKILL):
-# premium = one step below the main loop, standard = two below, economy = cheapest.
-# Each generator maps it:
-#   Codex 0.142.1 (install-codex.sh): model economy->gpt-5.4-mini, standard->gpt-5.4,
-#   premium->gpt-5.5; effort passthrough low|medium|high|xhigh, and `max`->xhigh
-#   (Codex has NO `max` effort; the API rejects it; xhigh is the real ceiling).
+# tier: { model, effort } is harness-neutral right-sizing (ADR-0041). No persona runs
+# a bigger model than the main loop:
+#   premium  = the main loop's own model (inherit). Generators emit NO model for it.
+#   standard, economy = the harness's cheaper aliases (Claude Code: sonnet, haiku), clamped
+#     at the main loop: when the main loop is at or below the alias, the router passes the
+#     main loop's alias on the dispatch so the persona runs at the main loop, not above it.
+#   effort = passed through unchanged on every harness (low|medium|high|xhigh|max); the
+#     harness or the model clamps an unsupported level itself. `max` is no default here.
+# Codex and OpenCode ship no model IDs: their installers emit a model for standard/economy
+# only when ORCHESTRATE_STANDARD_MODEL / ORCHESTRATE_ECONOMY_MODEL is set; unset inherits.
 
 version: 1
 
@@ -46,13 +49,13 @@ personas:
     description: "Builds one task from the signed spec in its own worktree (write + run + git). No external intake."
     capabilities: { read: true,  write: full,       run: full,        web: false }
     isolation:    worktree                              # each writer builds in its own tree; coupling is reconciled at landing and by the verifier
-    tier:         { model: standard, effort: high }     # executes a SIGNED spec; the hard judgment was upstream
+    tier:         { model: standard, effort: medium }   # executes a SIGNED spec; the hard judgment was upstream; re-dispatch at high after a missed-checks REJECTED
     # builds in its own worktree (write + run + git). No external intake by design.
   verifier:
     body: personas/verifier.md
     description: "Fresh-context adversarial review. Runs the held-out suite + goal/provenance/downstream-breakage checks. Read-only; may run tests."
     capabilities: { read: true,  write: results,      run: tests-only, web: false }
-    tier:         { model: premium,  effort: max }      # adversarial correctness — the one place cheaping out defeats the point
+    tier:         { model: premium,  effort: high }     # adversarial correctness at the main loop's model; xhigh only for a named hard ticket
     # fresh context; may run the held-out suite, edits nothing in the repo. Writes only its
     # verdict + reasoning to verdicts/ (durable, attributed; ADR-0014).
   actuator:

@@ -3,7 +3,7 @@ name: implementer
 description: Builds one task from the signed spec in its own worktree (write + run + git). No external intake.
 tools: Read,Grep,Glob,Write,Edit,Bash
 model: sonnet
-effort: high
+effort: medium
 color: green
 isolation: worktree
 ---

@@ -38,6 +38,19 @@ TOMLs for Codex, persona agents for OpenCode. They wire no hooks. OpenCode also
 gets the `/orchestrate-{init,status,feedback}` command wrappers and a small
 plugin that puts the runtime on `PATH` and reruns reground after compaction.
 
+The planner and verifier inherit the session's model on every harness. The
+plugin ships no Codex or OpenCode model ID, so the researcher, implementer, and
+actuator inherit too unless you name cheaper models before installing:
+
+```text
+export ORCHESTRATE_STANDARD_MODEL=<id>   # implementer, actuator
+export ORCHESTRATE_ECONOMY_MODEL=<id>    # researcher
+```
+
+Use the harness's own model ID (OpenCode: `provider/model-id`). Pick models no
+bigger than the one you run the session on, and rerun the installer after
+changing either variable (ADR-0041).
+
 Installers are idempotent; `yq` v4 (mikefarah) is required at install time only.
 
 ## Use

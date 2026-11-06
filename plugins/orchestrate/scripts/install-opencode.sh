@@ -55,7 +55,7 @@ BRAINADD
 
 for p in $(personas); do
   oc_agent_md "$p" "$AGENTS_DEST/$p.md"
-  echo "  subagent -> $AGENTS_DEST/$p.md   (model: $(oc_model "$(p_tier "$p" model)"))"
+  echo "  subagent -> $AGENTS_DEST/$p.md   (model: $(m="$(oc_model "$(p_tier "$p" model)")"; echo "${m:-inherit}"))"
 done
 
 # Command parity (OpenCode commands support \$ARGUMENTS): compiled from the same
@@ -74,7 +74,7 @@ cat <<EOF
 OpenCode install complete ($SCOPE scope).
   skill     -> $SKILL_DEST/  (SKILL.md + references/ + runtime/; OpenCode reads
                .agents/skills natively: the skill tool loads it on demand; ADR-0034)
-  subagents -> $AGENTS_DEST/{...}.md   (tools: + permission: = real subtraction; model from tier)
+  subagents -> $AGENTS_DEST/{...}.md   (tools: + permission: = real subtraction; model only from ORCHESTRATE_{STANDARD,ECONOMY}_MODEL, else inherit)
   commands  -> $CMDS_DEST/orchestrate-{init,status,feedback}.md  (/orchestrate-init etc.)
   plugin    -> $PLUGIN_DEST/orchestrate.ts   (PATH injection + session.compacted recovery)
 

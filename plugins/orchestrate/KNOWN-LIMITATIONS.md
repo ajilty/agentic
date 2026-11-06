@@ -57,10 +57,16 @@ result file. Prefer leaving agent teams off in repos where you run orchestrate.
 
 Earlier Claude Code versions ignored a plugin agent's `model:` frontmatter, so
 every persona silently inherited the parent's model (issues #44385 / #43869).
-That is fixed upstream: the compiled `model:` and `effort:` in `agents/*.md`
-bind. A `model` passed on the dispatch call itself still takes precedence, so
-the router passes one only for a named hard item and journals it on the
-`dispatched` event; `metrics model_mix` shows what was actually spent.
+That is fixed upstream: on 2.1.318 the compiled `model:` binds, and it binds
+upward too (a haiku main loop dispatching an agent file that names opus ran
+opus). So the premium personas (planner, verifier) carry no `model:` and
+inherit the main loop, and the router clamps the standard and economy aliases
+at dispatch: a `model` passed on the call outranks the agent file and takes an
+alias only (ADR-0041). The ledger journals what was passed on the `dispatched`
+event; `metrics model_mix` shows what was actually spent.
+
+`effort:` frontmatter is documented to bind but not re-tested: effort, unlike
+the model, is not self-reportable.
 
 ## Compaction cannot be triggered or timed by a plugin (Claude Code)
 
@@ -117,7 +123,7 @@ and every other rule are prose in the briefs.
 
 | # | Codex behavior | Status |
 |---|----------------|--------|
-| 1 | `effort: max` has **no Codex equivalent** (Codex tops out at `xhigh`). | **Live limitation.** The verifier's max-effort lane runs at `xhigh` on Codex. Documented, not blocking. |
+| 1 | Model IDs are accepted per account and go stale: on Codex 0.166.0 with a ChatGPT account, `gpt-5.5`, `gpt-5.4`, and `gpt-5.4-mini` were all rejected. Effort `max` was accepted. | **By design (ADR-0041).** The plugin ships no Codex model ID. Every role inherits the parent session's model unless the operator sets `ORCHESTRATE_STANDARD_MODEL` / `ORCHESTRATE_ECONOMY_MODEL` before installing; effort passes through unchanged. |
 | 2 | `sandbox_mode` is coarse (`workspace-write`); `writable_roots` is **additive** (adds writable dirs, never subtracts source) and is ignored in `read-only` mode. | **Live limitation.** Every persona that writes or runs anything compiles to `workspace-write`; the narrower scope (a researcher's result file, a verifier's verdict) is the brief's prose, as on every harness. |
 
 `docs/notes/codex-support.md` records the earlier Codex enforcement work that

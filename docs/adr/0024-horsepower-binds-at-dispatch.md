@@ -23,6 +23,7 @@ inherit-up is the measured anti-pattern), and **batch by tier** (a dispatch runs
 hardest item's tier, so mechanical work must not be bundled with sharp work).
 
 ## Considered options
+
 - **Rely on frontmatter and wait for the upstream fix** — rejected: the bug is 3+ months
   old with no ETA, and the cost is 5-30x per dispatch. Explicit-at-dispatch also remains
   correct post-fix (the dispatch param outranks frontmatter by design).
@@ -33,12 +34,21 @@ hardest item's tier, so mechanical work must not be bundled with sharp work).
   explicit-at-dispatch was already the Codex mechanism; this aligns Claude Code with it.
 
 ## Consequences
+
 - SKILL §2a′ carries the concrete persona→model/effort table and the two behavioral rules;
   §3a orders the explicit pass + journal. KNOWN-LIMITATIONS documents the harness bug.
 - The compiled `model:` frontmatter stays (harmless, correct if the bug is fixed, and other
   harnesses may honor it), but nothing relies on it.
 - Costs shift from "silently flagship" to "tier by default, escalation visible in
   model_mix" — the operator can audit right-sizing per run (0.8.9 feature).
+
+## Amended by ADR-0041
+
+Frontmatter binds on current Claude Code, upward as well as down, so the agent
+files are the default again. Premium personas carry no model and inherit the
+main loop; the per-dispatch `model` is now the clamp that holds standard and
+economy at or below the main loop, and the lever for a journaled override, not
+a restatement of the agent file on every call.
 
 ## Status
 

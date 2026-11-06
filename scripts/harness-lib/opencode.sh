@@ -16,15 +16,17 @@ oc_tools() { local p="$1" read web write run rd=false gp=false gl=false wf=false
     "$([ "$bash" = true ] && echo allow || echo deny)" \
     "$([ "$wf" = true ] && echo allow || echo deny)"; }
 
-# agents.yaml tier -> OpenCode model id (provider-qualified). Defaults are the
-# Anthropic ladder; override per tier via env for non-Anthropic rigs. Effort has
-# no OpenCode agent-level equivalent, so the tier's effort half is carried by the
-# model choice alone here.
+# agents.yaml tier -> OpenCode model (ADR-0041). OpenCode has no alias or tier keyword,
+# only concrete provider/model IDs, so the plugin ships none: standard/economy take the
+# operator's ORCHESTRATE_STANDARD_MODEL / ORCHESTRATE_ECONOMY_MODEL, resolved here at
+# install time (OpenCode does not apply {env:...} substitution inside agent markdown
+# frontmatter, only in its JSON config). Unset, and always for premium, print nothing:
+# the agent omits model and inherits the invoking session's model. Effort has no
+# OpenCode agent-level equivalent, so the tier's effort half is not emitted here.
 oc_model() { case "$1" in
-  economy)  echo "${ORCHESTRATE_OC_MODEL_ECONOMY:-anthropic/claude-haiku-4-5}" ;;
-  standard) echo "${ORCHESTRATE_OC_MODEL_STANDARD:-anthropic/claude-sonnet-5}" ;;
-  premium)  echo "${ORCHESTRATE_OC_MODEL_PREMIUM:-anthropic/claude-opus-5}" ;;
-  *)        echo "" ;;   # unknown/empty tier -> omit model line (inherit session default)
+  economy)  echo "${ORCHESTRATE_ECONOMY_MODEL:-}" ;;
+  standard) echo "${ORCHESTRATE_STANDARD_MODEL:-}" ;;
+  *)        echo "" ;;   # premium / unknown / empty -> omit model line (inherit)
 esac; }
 
 # Emit one subagent markdown (frontmatter rewritten to OpenCode keys + persona body).
@@ -32,7 +34,7 @@ oc_agent_md() { # <persona> <dest.md>
   local p="$1" dest="$2" m
   m="$(oc_model "$(p_tier "$p" model)")"
   { printf -- '---\ndescription: %s\nmode: subagent\n' "$(yaml_q "$(p_desc "$p")")"
-    [ -n "$m" ] && printf 'model: %s\n' "$m"
+    [ -n "$m" ] && printf 'model: %s\n' "$(yaml_q "$m")"
     oc_tools "$p"; printf -- '---\n\n'; body "$(p_body "$p")"; } > "$dest"
 }
 
