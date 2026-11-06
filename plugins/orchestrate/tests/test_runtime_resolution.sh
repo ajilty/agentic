@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # test_runtime_resolution.sh — the bin/ shims expose the runtime helpers on PATH so the
-# LLM-facing bare `ledger.sh` / `adr.sh` / `worktree.sh` (SKILL.md, personas) resolve in
+# LLM-facing bare `ledger.sh` / `adr.sh` (SKILL.md, personas) resolve in
 # every execution context, where ${CLAUDE_PLUGIN_ROOT} is not injected (ADR-0018).
 BIN="$HERE/../bin"
 
 # 1) each helper has a committed, executable shim.
-for n in ledger adr worktree; do
+for n in ledger adr; do
   assert_file "$BIN/$n.sh"
   [ -x "$BIN/$n.sh" ] && pass || fail "bin/$n.sh is executable"
 done

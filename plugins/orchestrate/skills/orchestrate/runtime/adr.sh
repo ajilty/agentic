@@ -49,13 +49,13 @@ case "$cmd" in
     for f in "$ADRDIR/$num"-*.md; do
       [ -e "$f" ] || continue
       if grep -qi '^_status:' "$f"; then
-        sed -i -E "s/^_[Ss]tatus:.*/_Status: superseded by ${by}_/" "$f"
+        sed -E "s/^_[Ss]tatus:.*/_Status: superseded by ${by}_/" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
       else
         printf '\n_Status: superseded by %s_\n' "$by" >> "$f"
       fi
     done
     # ...and flip the index row in place if present (reindex would reproduce this).
-    [ -f "$INDEX" ] && sed -i -E "/\| \[$num\]/ s/\| active \|/| superseded by $by |/" "$INDEX"
+    [ -f "$INDEX" ] && { sed -E "/\| \[$num\]/ s/\| active \|/| superseded by $by |/" "$INDEX" > "$INDEX.tmp" && mv "$INDEX.tmp" "$INDEX"; }
     : ;;
 
   reindex)   # rebuild INDEX.md from docs/adr/*.md (files = source of truth), so ADRs
@@ -79,7 +79,11 @@ case "$cmd" in
           *[Ss]upersed*)
             status="$(printf '%s' "$sline" | grep -oiE 'superseded by [0-9A-Za-z-]+' || true)"
             [ -z "$status" ] && status="superseded" ;;
-          *) status="active" ;;
+          *) status="active"
+             # An active ADR amended by a later one says so, so a planner reading the
+             # index alone does not take the original title as the whole decision.
+             am="$(grep -oE '^## Amended by ADR-[0-9]+' "$f" 2>/dev/null | grep -oE '[0-9]+$' | paste -sd, - || true)"
+             [ -n "$am" ] && status="active, amended by ${am//,/, }" ;;
         esac
         printf '| [%s](%s) | %s | %s |\n' "$num" "$base" "$title" "$status"
       done

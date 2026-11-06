@@ -1,6 +1,6 @@
 # Tier 3 (Codex clarify-gate precondition, deterministic) — the O6 front-door clarify-gate
 # selects a clarification mechanism by FIRST-PRESENT down grill-with-docs -> grill-me ->
-# brainstorming -> inline (SKILL §2b). On a stock Codex install only `find-skills` ships in
+# brainstorming -> inline (SKILL.md loop step 3). On a stock Codex install only `find-skills` ships in
 # ~/.codex/skills; grill-me / brainstorming are NOT present. Per ADR-0015 the gate must
 # therefore fall through to `inline` (a non-interactive session's clarification is still a
 # clarification). This asserts the PRECONDITION that makes that fall-through faithful: the

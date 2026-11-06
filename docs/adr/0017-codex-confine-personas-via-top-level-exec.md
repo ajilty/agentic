@@ -86,3 +86,5 @@ so the native per-persona hook floor stands.
 ## Status
 
 active (implemented in 0.8.0)
+
+_Status: superseded by 0040_

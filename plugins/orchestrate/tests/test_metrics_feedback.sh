@@ -1,4 +1,4 @@
-# Tier 3c, Layer 3 — ledger-derived §8 metrics + the durable feedback record
+# Tier 3c, Layer 3: ledger-derived metrics + the durable feedback record
 # (deterministic, no live model). Backs the /orchestrate:feedback command.
 R="$HERE/../skills/orchestrate/runtime/ledger.sh"
 d="$(mktemp_repo)"; cd "$d"
@@ -13,7 +13,8 @@ bash "$R" append '{"ticket":"T1","event":"verdict","verdict":"APPROVED"}'
 bash "$R" append '{"ticket":"T1","event":"done"}'
 bash "$R" append '{"ticket":"T2","event":"fork","state":"halted","fork_id":"F1"}'
 bash "$R" append '{"ticket":"T2","event":"decision","fork_id":"F1","adr":"0099"}'
-bash "$R" append '{"ticket":"T2","event":"lease-conflict","persona":"actuator","key":"db"}'
+# legacy 0.8.x row, read but no longer written (so it is added raw, not via append)
+printf '%s\n' '{"ts":"2026-08-01T00:00:00Z","ticket":"T2","event":"lease-conflict","persona":"actuator","key":"db"}' >> .agents/runs/orchestrate/board.jsonl
 bash "$R" append '{"event":"denied","hook":"run-scope","persona":"verifier","note":"git checkout -- x"}'
 
 m="$(bash "$R" metrics)"

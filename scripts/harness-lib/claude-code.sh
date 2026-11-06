@@ -5,14 +5,15 @@
 cc_tools() { local p="$1" t=()
   [ "$(p_cap "$p" read)" = true ] && t+=(Read Grep Glob)
   [ "$(p_cap "$p" web)"  = true ] && t+=(WebSearch WebFetch)
-  case "$(p_cap "$p" write)" in full) t+=(Write Edit);; spec-only|results-only) t+=(Write);; esac
+  case "$(p_cap "$p" write)" in full) t+=(Write Edit);; results) t+=(Write);; esac
   case "$(p_cap "$p" run)" in full|tests-only) t+=(Bash);; esac
   ( IFS=, ; echo "${t[*]}" ); }
 
-# Abstract horsepower tier (agents.yaml, portable) -> concrete CC model. Effort passes
-# through (low|medium|high|xhigh|max are CC-native). Keeps the contract free of vendor
-# model IDs; each harness lib maps the same tier to its own models.
-cc_model() { case "$1" in economy) echo haiku;; standard) echo sonnet;; premium) echo opus;; *) echo "";; esac; }
+# Abstract horsepower tier (agents.yaml, portable) -> CC model alias (ADR-0041). premium
+# prints nothing: the agent file then carries no model: line and the persona inherits the
+# main loop, so it can never run above it. standard/economy are floating family aliases,
+# never dated IDs. Effort passes through (low|medium|high|xhigh|max are CC-native).
+cc_model() { case "$1" in economy) echo haiku;; standard) echo sonnet;; *) echo "";; esac; }
 
 # Terminal accent for the subagent, Claude Code's `color:` frontmatter field. Presentation
 # only — it grants nothing and subtracts nothing — so it lives HERE in the CC layer, not
@@ -23,7 +24,8 @@ cc_model() { case "$1" in economy) echo haiku;; standard) echo sonnet;; premium)
 # where the spend is going: cold = cheap, hot = expensive. Derived, never hand-assigned —
 # retune a tier in agents.yaml and the color follows, so it cannot drift into a lie. Model
 # tier is the dominant cost term; extended thinking (xhigh|max) bumps one rung because the
-# reasoning tokens it buys are billed as output.
+# reasoning tokens it buys are billed as output. Premium inherits the main loop, the most
+# expensive model in the run, so it stays the hottest tier.
 #   cyan   economy | green standard | yellow premium | red premium + extended thinking
 # Same tier -> same color BY DESIGN: two personas that cost the same should look the same.
 cc_color() { local c
@@ -33,44 +35,46 @@ cc_color() { local c
 
 # Emit one plugin agent markdown (frontmatter from the contract + persona body).
 cc_agent_md() { # <persona> <dest.md>
-  local p="$1" dest="$2" mt ef cl extra=""
+  local p="$1" dest="$2" mt ef cl iso extra=""
   mt="$(p_tier "$p" model)"; ef="$(p_tier "$p" effort)"; cl="$(cc_color "$mt" "$ef")"
-  [ "$mt" != null ] && [ -n "$mt" ] && extra="${extra}model: $(cc_model "$mt")\n"
+  iso="$(yq ".personas.$p.isolation" "$AGENTS")"
+  [ -n "$(cc_model "$mt")" ] && extra="${extra}model: $(cc_model "$mt")\n"   # premium: none, inherits
   [ "$ef" != null ] && [ -n "$ef" ] && extra="${extra}effort: $ef\n"
   [ -n "$cl" ] && extra="${extra}color: $cl\n"
+  [ "$iso" != null ] && [ -n "$iso" ] && extra="${extra}isolation: $iso\n"
   { printf -- '---\nname: %s\ndescription: %s\ntools: %s\n%b---\n\n' \
       "$p" "$(p_desc "$p")" "$(cc_tools "$p")" "$extra"
-    body "$(p_body "$p")"; } > "$dest"
+    body "$(p_body "$p")" | sed '/./,$!d'; } > "$dest"   # drop leading blanks (MD012)
 }
 
 # Emit hooks.json derived from the contract's hooks: block (script + watch, in
-# document order). CC watch-class mapping: file-read+shell -> ONE "Read|Bash"
-# group (scripts self-guard, so over-matching is safe and saves a group),
-# file-write -> "Write|Edit", dispatch -> "Task|Agent" (PreToolUse on the
-# dispatch tool — SubagentStart does not fire, ADR-0011), post-compaction ->
-# SessionStart(compact). Extra pairs ("matcher:script.sh") append CC-only
-# SessionStart groups the contract deliberately does not carry.
-cc_hooks_json() { # <out.json> <hook-path-prefix> [<matcher>:<script>...]
-  local out="$1" H="$2"; shift 2
-  _cc_entries() { local i=0 n=$# s
-    for s in "$@"; do i=$((i+1))
-      if [ "$i" -lt "$n" ]; then printf '        { "type": "command", "command": "\\"%s/%s\\"" },\n' "$H" "$s"
-      else printf '        { "type": "command", "command": "\\"%s/%s\\"" } ] }' "$H" "$s"; fi
-    done; }
-  local RB WE DP PC
-  RB=($(hooks_watching 'file-read|shell')); WE=($(hooks_watching 'file-write'))
-  DP=($(hooks_watching 'dispatch'));        PC=($(hooks_watching 'post-compaction'))
-  {
-    printf '{\n  "hooks": {\n    "PreToolUse": [\n'
-    printf '      { "matcher": "Read|Bash", "hooks": [\n';  _cc_entries "${RB[@]}"; printf ',\n'
-    printf '      { "matcher": "Write|Edit", "hooks": [\n'; _cc_entries "${WE[@]}"; printf ',\n'
-    printf '      { "matcher": "Task|Agent", "hooks": [\n'; _cc_entries "${DP[@]}"; printf ' ],\n'
-    printf '    "SessionStart": [\n'
-    printf '      { "matcher": "compact", "hooks": [\n';    _cc_entries "${PC[@]}"
-    local pair
-    for pair in "$@"; do
-      printf ',\n      { "matcher": "%s", "hooks": [\n' "${pair%%:*}"; _cc_entries "${pair#*:}"
+# document order). CC watch-class mapping: shell -> PreToolUse matcher "Bash",
+# post-compaction -> SessionStart matcher "compact". A class with no hooks emits
+# no group, so the JSON is valid for any subset of the contract.
+cc_hooks_json() { # <out.json> <hook-path-prefix>
+  local out="$1" H="$2" cls s
+  _cc_group() { # <matcher> <script>...  (one group, no trailing comma)
+    local m="$1" first=1; shift
+    printf '      { "matcher": "%s", "hooks": [\n' "$m"
+    for s in "$@"; do
+      [ "$first" = 1 ] || printf ',\n'
+      first=0; printf '        { "type": "command", "command": "\\"%s/%s\\"" }' "$H" "$s"
     done
-    printf ' ]\n  }\n}\n'
+    printf ' ] }'
+  }
+  _cc_event() { # <Event> <matcher> <class-regex>; prints nothing when the class is empty
+    local ev="$1" m="$2" arr
+    arr=($(hooks_watching "$3"))
+    [ "${#arr[@]}" -gt 0 ] || return 0
+    [ -z "$_cc_sep" ] || printf ',\n'
+    _cc_sep=1
+    printf '    "%s": [\n' "$ev"; _cc_group "$m" "${arr[@]}"; printf '\n    ]'
+  }
+  local _cc_sep=""
+  {
+    printf '{\n  "hooks": {\n'
+    _cc_event PreToolUse Bash 'shell'
+    _cc_event SessionStart compact 'post-compaction'
+    printf '\n  }\n}\n'
   } > "$out"
 }

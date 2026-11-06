@@ -27,12 +27,9 @@ case "$out2" in *"0080-final.md"*) pass;; *) fail "reground surfaces the LATEST 
 bash "$L" goal "wire up rate limiting" "docs/adr/0080-final.md" "blank-slate"
 grep -q '"base":"blank-slate"' "$board" && pass || fail "goal records the integration base"
 
-# model_policy (ADR-0033): optional 4th arg rides the goal anchor; reground surfaces it
-grep -q '"model_policy"' "$board" && fail "no model_policy field unless the operator set one" || pass
+# the model-policy argument is retired (ADR-0040): a 4th arg is ignored, never journaled
 bash "$L" goal "wire up rate limiting" "docs/adr/0080-final.md" "blank-slate" "quick"
-grep -q '"model_policy":"quick"' "$board" && pass || fail "goal records the model policy"
-out3="$(bash "$L" reground 2>&1)"
-case "$out3" in *"[models: quick]"*) pass;; *) fail "reground surfaces the model policy (got: $out3)";; esac
+grep -q '"model_policy"' "$board" && fail "goal no longer writes model_policy" || pass
 
 # missing note -> nonzero (don't journal an empty goal)
 bash "$L" goal >/dev/null 2>&1

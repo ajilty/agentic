@@ -31,7 +31,7 @@ else
     grep -q '42' "$absq" && pass || fail "read-lane: findings carry the researched value (read from disk, not chat)"
     grep -q 'orchestrate:complete' "$absq" && pass || fail "read-lane: completion sentinel present (router can detect completion without a notification)"
     # the researcher stayed in its lane: it must NOT have written the TRUSTED findings
-    # path (that is the router's promotion target; a direct write would bypass the §4 gate)
+    # path (that is the router's promotion target; a direct write would bypass the router's quarantine (SKILL.md "Quarantine"))
     [ ! -f "$repo/.agents/runs/orchestrate/tickets/T1/findings/probe.md" ] && pass || fail "read-lane: researcher did NOT write the trusted findings path (gate not bypassed)"
   else
     skip "researcher did not produce the result file this run (model declined) — read lane not exercised"

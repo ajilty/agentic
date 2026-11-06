@@ -52,3 +52,11 @@
   table is drift-checked against the contract.
 - Supersedes nothing; extends ADR-0007/0016/0017/0034. The plan's D5 (Codex
   `.codex-plugin` packaging) remains deferred and unaffected.
+
+## Amended by ADR-0041
+
+OpenCode no longer emits tier models by default, and the `ORCHESTRATE_OC_MODEL_*`
+overrides are gone. Standard and economy personas carry a model on Codex and
+OpenCode only when `ORCHESTRATE_STANDARD_MODEL` or `ORCHESTRATE_ECONOMY_MODEL`
+is set at install time; premium never does. The Codex and OpenCode hook wiring
+listed above was removed separately by ADR-0040.

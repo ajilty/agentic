@@ -49,3 +49,5 @@ incompatibility:
 ## Status
 
 active
+
+_Status: superseded by 0040_

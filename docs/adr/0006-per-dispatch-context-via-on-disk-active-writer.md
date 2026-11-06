@@ -37,3 +37,5 @@ accepted
   forcing reconcile (`writer-ctx clear`) so a stale, already-acked record can't
   bypass the gate on a later dispatch. It does not auto-clear — at compaction the
   record may belong to a live writer.
+
+_Status: superseded by 0040_

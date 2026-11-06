@@ -37,3 +37,9 @@ w="$(bash "$R" append '{"event":"goal","note":"proper anchor","base":"master"}' 
 
 # suite invariant that would have caught the field gap: every line carries ts
 assert_eq "$(grep -cv '"ts":"' "$B" || true)" 0 "every board line carries ts"
+
+# 0.9.0 canonical set drops lease-conflict and gate-blocked (read on old boards, never written)
+w="$(bash "$R" append '{"ticket":"T1","event":"lease-conflict"}' 2>&1)"
+case "$w" in *"not canonical"*) pass;; *) fail "lease-conflict is no longer canonical ($w)";; esac
+w="$(bash "$R" append '{"ticket":"T1","event":"gate-blocked"}' 2>&1)"
+case "$w" in *"not canonical"*) pass;; *) fail "gate-blocked is no longer canonical ($w)";; esac

@@ -36,3 +36,5 @@ exit 0.
 ## Status
 
 active
+
+_Status: superseded by 0040_

@@ -5,9 +5,9 @@
 # orchestrate chain PRODUCES a conformant trace on the actual CC dispatch path (the
 # exact thing the namespaced-persona / dead-SubagentStart bugs silently broke).
 #
-# Router sets the active-writer record, then drives: dispatch implementer (the
-# writer_writeahead hook auto-journals `dispatched`) -> dispatch verifier -> append the
-# verdict in-loop (as the real router does). Then `ledger.sh conformance
+# Router drives: journal `dispatched` for the implementer and dispatch it -> dispatch
+# verifier -> append the verdict in-loop (as the real router does; no hook journals
+# dispatches any more, ADR-0040). Then `ledger.sh conformance
 # dispatched:implementer verdict` must pass against the REAL board.jsonl. Robust to
 # model nondeterminism: skip if the chain didn't run.
 if ! have_claude; then
@@ -17,9 +17,8 @@ elif ! have_live_auth; then
 else
   h="$(mk_authed_home)"; repo="$(mk_repo)"
   LEDGER="$PLUGIN_DIR/skills/orchestrate/runtime/ledger.sh"
-  ( cd "$repo" && bash "$LEDGER" writer-ctx set T-cf implementer feat/cf )
   prompt="You are the orchestrate router. Do these steps strictly in order:
-1. Use the Task tool to dispatch a subagent of type orchestrate:implementer with instruction: 'use your Write tool to create a file done.txt containing the text ok, then reply DONE'.
+1. Run EXACTLY this Bash command: bash $LEDGER append '{\"ticket\":\"T-cf\",\"event\":\"dispatched\",\"persona\":\"implementer\"}'. Then use the Task tool to dispatch a subagent of type orchestrate:implementer with instruction: 'use your Write tool to create a file done.txt containing the text ok, then reply DONE'.
 2. Use the Task tool to dispatch a subagent of type orchestrate:verifier with instruction: 'check that the file done.txt exists in the current directory and reply APPROVED if it does, REJECTED otherwise'.
 3. After the verifier replies, record its verdict by running EXACTLY this Bash command: bash $LEDGER append '{\"ticket\":\"T-cf\",\"event\":\"verdict\",\"verdict\":\"APPROVED\"}'
 Then stop."

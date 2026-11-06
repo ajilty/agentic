@@ -23,3 +23,15 @@ case "$out" in *"no result on disk"*) fail "reground still asks to re-dispatch a
 case "$out" in *"result on disk"*) pass;; *) fail "reground reports the read-only result is present";; esac
 
 cd /; rm -rf "$d"
+
+# --- in-flight writer with no branch on its dispatched event (native worktree
+#     isolation: the harness names the worktree, the branch lands on returned):
+#     the normal in-flight state. reground reports it with the re-dispatch check and
+#     does NOT halt (exit 0).
+r="$(mktemp_repo)"
+( cd "$r" && git commit -qm init --allow-empty && bash "$HERE/../skills/orchestrate/runtime/ledger.sh" append '{"ticket":"W1","event":"dispatched","persona":"implementer","dispatch_id":"d1"}' >/dev/null 2>&1 )
+out="$(cd "$r" && bash "$HERE/../skills/orchestrate/runtime/ledger.sh" reground 2>&1)"; rc=$?
+assert_eq "$rc" "0" "reground: implementer dispatched with unknown branch is in flight, not a HALT"
+case "$out" in *"OPEN WRITER   ticket=W1 persona=implementer branch=unknown -> in flight or crashed; before any re-dispatch, match each unclaimed worktree by this ticket id in its commit subjects"*) pass;; *) fail "reground names the unknown-branch writer lane with the re-dispatch check: $out";; esac
+case "$out" in *HALT*) fail "unknown-branch writer must not print HALT";; *) pass;; esac
+rm -rf "$r"

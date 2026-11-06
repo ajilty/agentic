@@ -36,3 +36,7 @@ the richer, key-carrying record for that one gate.
 ## Status
 
 active
+
+## Amended by ADR-0040
+
+Only the shared-checkout floor journals denials now; the other enforcement hooks are removed.

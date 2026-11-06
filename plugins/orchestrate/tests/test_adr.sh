@@ -18,4 +18,5 @@ grep -q 'Use Baz over Qux' "$p" && pass || fail "title written into the ADR file
 # supersede flips the active row's status
 bash "$A" supersede 0008 0009
 grep -q 'superseded by 0009' docs/adr/INDEX.md && pass || fail "supersede flips status in INDEX"
+[ -z "$(find . -name '*-E' -not -path './.git/*')" ] && pass || fail "supersede leaves no stray *-E sed backup file"
 cd /; rm -rf "$d"

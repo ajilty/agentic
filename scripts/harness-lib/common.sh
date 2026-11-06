@@ -63,7 +63,8 @@ install_skill() { # <dest_skill_dir>   (addendum on stdin)
   mkdir -p "$dest/runtime" "$dest/references"
   cp -r "$SKILL_DIR/runtime/." "$dest/runtime/"
   cp -r "$SKILL_DIR/references/." "$dest/references/"
-  chmod +x "$dest/runtime"/*.sh "$dest/runtime"/hooks/*.sh
+  chmod +x "$dest/runtime"/*.sh
+  for h in "$dest/runtime"/hooks/*.sh; do [ -e "$h" ] && chmod +x "$h"; done
   cat "$SKILL_DIR/SKILL.md" > "$dest/SKILL.md"
   cat >> "$dest/SKILL.md"
 }

@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "orchestrate",
-      "description": "Standing operator loop with capability-subtracted personas and fail-closed safety guarantees.",
+      "description": "Standing operator loop: feed goals of any altitude; capability-scoped personas work in parallel worktrees, shared-target steps run one at a time, verification is independent, and every run is journaled for retrospectives.",
       "source": "./plugins/orchestrate",
       "author": {
         "name": "ajilty",

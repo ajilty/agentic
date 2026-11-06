@@ -30,3 +30,5 @@ the spec must never present confinement as a guarantee (same honesty as the
 held-out boundary, orchestrate §7). Defense-in-depth backs it: deterministic
 lease + best-effort creds + reviewed diff + the Verifier's independent probe; no
 single layer is trusted to be sufficient.
+
+_Status: superseded by 0040_

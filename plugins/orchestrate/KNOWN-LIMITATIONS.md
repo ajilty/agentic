@@ -21,60 +21,52 @@ delivered through a notification channel that can be unreliable:
 | # | Harness behavior | How orchestrate compensates |
 |---|------------------|-----------------------------|
 | 1 | A task-notification can carry the **wrong agent's label** (result attribution is wrong). | Every dispatch is keyed by a router-minted `dispatch_id` baked into the result **filename**; the router reads the exact path it minted, never a notification label (ADR-0014). |
-| 2 | A finished agent's **final output can be lost** before the idle transition. | Read-only personas write their result to disk (`results-only` write, hook-scoped) as their final action; the router reads it **from disk**, so nothing depends on the final message arriving (ADR-0014). |
+| 2 | A finished agent's **final output can be lost** before the idle transition. | Read-only personas write their result to disk as their final action (a Write tool whose scope, the minted result path, is stated in the brief); the router reads it **from disk**, so nothing depends on the final message arriving (ADR-0014). |
 | 3 | `SendMessage` to an **idle agent no-ops** instead of replaying/re-engaging. | The result is already a durable file — the router never needs to re-fetch it from the agent. If the file is absent, the dispatch simply re-runs (reground keys on the file's presence). |
 | 4 | Idle pings (`{"type":"idle_notification","idleReason":"available"}`) are **noisy and content-free**. | The router polls the scoped result path + its `<!-- orchestrate:complete -->` sentinel for completion, so idle pings are irrelevant to control flow. |
 
-Net: a dispatched read-only agent (researcher/verifier) can complete and have its
-result silently dropped by the channel — and orchestrate still recovers it, because
-the result lives on disk, not in the notification. This is the read-channel twin of
-the write-channel protection below.
+Net: a dispatched read-only agent (researcher, planner, verifier) can complete
+and have its result silently dropped by the channel, and orchestrate still
+recovers it, because the result lives on disk, not in the notification. A
+writer's result is its commits on its worktree branch, which the router reads
+from git the same way.
 
-## Worktree isolation lands on the main checkout (Claude Code)
+## Native worktree isolation cuts from `origin/HEAD` (Claude Code)
 
-The harness `isolation:worktree` can place an agent on the **primary checkout**
-instead of an isolated worktree, and can cut a worktree from a **stale** default
-branch (`origin/HEAD`) rather than your current branch. orchestrate compensates:
+The harness's `isolation: worktree` cuts each writer's tree from the repo's
+default branch (`origin/HEAD`), or from the current local `HEAD` when the
+project sets `worktree.baseRef: "head"`. A plugin cannot set that. If
+`origin/HEAD` points at a stale branch, writers start from the wrong base. The
+router checks at intake that the harness's base equals the goal's journaled
+base and, on a mismatch, stops with the fix
+(`git remote set-head origin <base>`, or the setting) before dispatching any
+writer. Separately, the
+shared-checkout floor (ADR-0013) stops discarding git commands in the primary
+checkout if a writer ever ends up there.
 
-- A persona-independent floor (`guard-shared-checkout.sh`, ADR-0013) refuses
-  working-tree/history-discarding git ops (`reset --hard`, `clean -f`,
-  `checkout -f`/`.`/`--`, `switch --discard-changes`) against the primary checkout.
-- The router creates worktrees via `runtime/worktree.sh`, cutting from the
-  **current** branch (never `origin/HEAD`) and realigning `origin/HEAD` so the
-  harness path benefits too.
-
-Existing stale worktrees are not retroactively fixed; if you upgraded into the fix,
-run `git remote set-head origin <your-canonical-branch>` and `git worktree prune`
-once.
-
-## Agent teams undermines isolation (Claude Code)
+## Agent teams (Claude Code)
 
 Claude Code's experimental **agent teams** (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`,
-off by default) turns dispatched subagents into peer-messaging *teammates* with a shared
-task list and `SendMessage`. That is the opposite of orchestrate's model — isolated
-dispatch-and-return personas whose only channel is disk, and control-state that lives only
-in the board (ADR-0012). Under agent teams a persona can message peers and relay a control
-signal (a "halt", a "commit now") the router must never take secondhand.
+off by default) turns dispatched subagents into peer-messaging teammates, the
+opposite of orchestrate's isolated dispatch-and-return personas whose only
+channel is disk (ADR-0012). The router passes `isolation: worktree` on every
+implementer dispatch and takes no control signal from a persona except its
+result file. Prefer leaving agent teams off in repos where you run orchestrate.
 
-Unlike the other rows here, orchestrate **cannot compensate**: there is no per-dispatch
-opt-out to force isolated subagents (verified 2026-07-06). The only lever is detection — a
-`SessionStart` hook (`warn-agent-teams.sh`) warns when the variable is set (ADR-0023).
-**Recommendation:** disable agent teams in any repo where you run orchestrate (unset
-`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, or remove it from `.claude/settings.json`); with it
-on, treat orchestrate's single-writer / no-peer-control / disk-only-control guarantees as
-advisory, not enforced.
+## Agent-definition `model:` frontmatter (Claude Code)
 
-## Agent-definition `model:` frontmatter is ignored (Claude Code)
+Earlier Claude Code versions ignored a plugin agent's `model:` frontmatter, so
+every persona silently inherited the parent's model (issues #44385 / #43869).
+That is fixed upstream: on 2.1.318 the compiled `model:` binds, and it binds
+upward too (a haiku main loop dispatching an agent file that names opus ran
+opus). So the premium personas (planner, verifier) carry no `model:` and
+inherit the main loop, and the router clamps the standard and economy aliases
+at dispatch: a `model` passed on the call outranks the agent file and takes an
+alias only (ADR-0041). The ledger journals what was passed on the `dispatched`
+event; `metrics model_mix` shows what was actually spent.
 
-A plugin agent's compiled `model:` (and the documented resolution order) does not bind:
-subagents silently inherit the parent session's model unless the **caller passes `model`
-on the dispatch call itself** (issues #44385 / #43869, confirmed bugs, no fix ETA as of
-2026-07-14). Measured impact: a live run billed every persona at the parent flagship while
-the definitions said haiku/sonnet/opus. `effort:` frontmatter appears to bind; only
-`model:` is broken. orchestrate compensates: the router passes each persona's tier model +
-effort **explicitly on every dispatch** (SKILL §2a′ table) and journals them on the
-`dispatched` event, so `metrics model_mix` makes any drift visible. If the bug is fixed
-upstream, the explicit param remains correct (it takes precedence by design).
+`effort:` frontmatter is documented to bind but not re-tested: effort, unlike
+the model, is not self-reportable.
 
 ## Compaction cannot be triggered or timed by a plugin (Claude Code)
 
@@ -86,6 +78,7 @@ silently ignored, issue #63186), unreliable on 1M-context models (#53801), and s
 inert (#52390, #36381). Verified 2026-07-10.
 
 orchestrate compensates on both sides instead:
+
 - **Recovery** — control state is disk-first and the `SessionStart(compact)` hook injects a
   reground board as authoritative, telling the router to **re-invoke the orchestrate skill**
   (compaction re-injects invoked skill bodies truncated at ~5k tokens, so the post-compaction
@@ -96,12 +89,12 @@ orchestrate compensates on both sides instead:
   authoritative` (check fill with `/context`). The operator stays the trigger; orchestrate
   contributes the timing judgment.
 
-## Credential confinement is advisory (all harnesses)
+## Credential confinement is yours (all harnesses)
 
-The actuator's credential scoping is **advisory** (ADR-0002): orchestrate cannot
-enforce "no credentials for an unleased target" from inside the harness. The
-guaranteed layer is lease **serialization** (single-writer per target). Scope the
-actuator lane's creds to its leased targets in your deployment.
+orchestrate cannot confine the actuator's credentials from inside the harness.
+Scope the actuator lane's credentials to the target it changes, and a
+live-environment oracle's credentials to the verifier, in your deployment.
+Before an actuator touches anything tagged `prod`, the router asks you.
 
 ## Testing the plugin live (gotchas for the next tester)
 
@@ -112,36 +105,27 @@ but all three will confuse you if you don't know them going in:
 | # | Behavior | What to do about it |
 |---|----------|---------------------|
 | 1 | **Task-list leakage into the parent session (CC).** Driving `claude -p` scenario sessions from *inside* a Claude Code session leaks the children's task items (TaskCreate) into the parent's task list via inherited session env — you'll see phantom "Implementer: …" / "Verifier: …" tasks that belong to dead child sessions and never complete. | Cosmetic; ignore or run the fleet from a plain shell. Don't chase the "stuck" tasks — their sessions are gone. |
-| 2 | **A shared `--plugin-dir` is shared *mutable* enforcement.** Agents under test can edit the plugin's own hook scripts. Observed live: a router patched `keep-on-branch.sh` mid-run to unblock a (real) false-deny — with parallel scenarios sharing the dir, the patch leaked across scenarios *and into the plugin repo's working tree*, contaminating both the experiment and the checkout. | Give each scenario its **own copy** of the plugin dir, and `git diff` the real plugin dir after any live run. (The self-disarm hole itself is tracked in TODO.md as a hardening item.) |
+| 2 | **A shared `--plugin-dir` is shared mutable state.** Agents under test can edit the plugin's own files, hook scripts included. Observed live: a router patched a hook script mid-run to get past a false deny; with parallel scenarios sharing the dir, the patch leaked across scenarios and into the plugin repo's working tree. | Give each scenario its **own copy** of the plugin dir, and `git diff` the real plugin dir after any live run. |
 | 3 | **Managed/remote environments carry OAuth in env, not in `~/.claude/.credentials.json`.** `claude -p` works fine, but any auth gate that only checks the credentials file (as `have_live_auth` did) makes live tiers self-skip while a hand-run probe succeeds — a confusing split. | Fixed in `tests/integration/lib.sh` (`have_live_auth` now also accepts `CLAUDE_CODE_OAUTH_TOKEN*` env). If you write new live gates, probe capability, not one credential shape. |
 
-Also useful to know: a live fleet like this is the layer that catches what unit
-tests structurally can't — the `keep-on-branch.sh` false-deny (hook cwd ≠ subagent
-cwd under CC) shipped green through 292 unit assertions and fell over in the first
-20 minutes of live dispatch. Budget a live pass before calling hook changes done.
+Also useful to know: a live fleet catches what unit tests structurally can't.
+Under Claude Code a hook's process cwd is not the subagent shell's cwd, which is
+why the shared-checkout floor resolves the checkout per statement (tracking `cd`,
+`pushd`, subshells, and `git -C` from the payload's `cwd`) rather than its own cwd; a
+hook bug of that class shipped green through hundreds of unit assertions and
+fell over in the first minutes of live dispatch. Budget a live pass before
+calling hook changes done.
 
-## Codex-specific (codex-cli 0.142.1)
+## Codex-specific (codex-cli 0.166.0)
 
-A live probe (`codex exec` headless) confirmed Codex's PreToolUse hooks **block for
-the MAIN agent's hooked tools** (exit 2 + stderr contract, Claude-Code-shaped wire).
-They do **not** reach a spawned subagent's tool calls, nor the `apply_patch` tool, so
-the enforcement story was **scoped, not full parity** (ADR-0016). As of 0.8.0 (ADR-0017)
-orchestrate dispatches each confined persona on Codex as its own top-level `codex exec --cd
-<lane>`, so its writes are **OS-confined to its result subtree** (stronger than the CC
-hook) rather than relying on the inert per-role `sandbox_mode`. The runtime hooks need no
-per-harness fork; the items below are Codex behaviors orchestrate now compensates for, not
-orchestrate bugs.
+Since 0.9.0 (ADR-0040) Codex gets the skill and one persona TOML per agent, with
+no hooks; personas are dispatched natively. On Codex the shared-checkout floor
+and every other rule are prose in the briefs.
 
-| # | Codex behavior | Status / how orchestrate compensates |
-|---|----------------|--------------------------------------|
-| 1 | A Writer could read the held-out oracle by shelling out (`cat`/`sed`) around the Read-tool path. | **Resolved in 0.6.1.** `deny-heldout-read.sh` now inspects `tool_input.command`, so the shell path is denied too. Harness-neutral. Note (per #6): on Codex this only covers the main agent; a spawned persona's shell reads are bounded by `sandbox_mode`, not this hook. |
-| 2 | A wired hook silently **NO-OPS (fails OPEN)** unless its sha256 is trusted in `[hooks.state]` (or `--dangerously-bypass-hook-trust` is passed). | **Resolved (auto-seeded + self-verified).** The installer now **seeds** `[hooks.state]` so the floor is live on first run — no manual TUI approval. The `trusted_hash` is **never guessed**: the installer asks codex for the value codex itself computes (`codex app-server` → `hooks/list` → `currentHash`, which is deterministic and stable), keyed as `<hooks.json path>:<snake_case_event>:<group_idx>:<hook_idx>` (e.g. `…/hooks.json:pre_tool_use:0:0`). Because a **wrong** hash would fail open silently, the installer then **self-verifies**: it runs a deny probe under `codex exec` with **no** `--dangerously-bypass-hook-trust` and confirms the hook fires. If the probe does **not** fire (a codex version/format **drift** in the key or hash recipe), the installer **strips the seeds** and **loudly** falls back to documenting the two manual paths (TUI approve, or `--dangerously-bypass-hook-trust` for vetted CI) — it never leaves the operator believing the floor is live when it isn't. If codex/auth is unavailable at install time, the oracle + self-verify can't run, so the installer is honest about that (`docs-only`) and prints the manual paths. (ADR-0016.) |
-| 3 | `effort: max` has **no Codex equivalent** (Codex tops out at `xhigh`). | **Live limitation.** The Verifier's max-effort adversarial lane runs at `xhigh` on Codex. Documented, not blocking. |
-| 4 | Actuator credential confinement is **advisory** (ADR-0002), as on every harness. | Unchanged. Lease serialization is the only guaranteed layer; scope the actuator lane's creds in your deployment. |
-| 5 | `sandbox_mode` is coarse (`workspace-write`); `writable_roots` is **additive** (adds writable dirs, never subtracts source) and is ignored in `read-only` mode. | **Compensated (0.8.0).** `writable_roots` cannot narrow a persona to its lane — so instead each persona is dispatched as its own `codex exec --cd <result-dir>` (ADR-0017), whose cwd subtree IS the OS-level writable boundary. For the main agent, `write-scope.sh` adds finer lane checks on top. |
-| 6 | **PreToolUse does not fire inside a spawned subagent**, and `spawn_agent` shares the session sandbox (no per-agent knob). | **Resolved (0.8.0) via ADR-0017.** orchestrate no longer dispatches confined personas through `spawn_agent` on Codex; it runs each as its own top-level `codex exec --cd <result-dir>` (`dispatch-persona.sh`), so the OS sandbox confines its writes to its lane (source/prod refused at the syscall, sub-spawn-proof) AND the main-agent hook floor fires — OS-enforced, stronger than the CC hook. Requires the router's `network_access = true` (installer-set) so the nested persona session can reach the model. Validated live (out-of-lane write → `read-only file system`). The earlier claim that per-role `sandbox_mode` confines a spawn was wrong (corrected by live probe); this replaces that mechanism. |
-| 7 | **`apply_patch` writes.** Codex top-level writes surface as the `apply_patch` tool; the old matcher `^(Read|Edit|Write|Bash)$` missed it entirely. | **Resolved (0.7.1), main-agent floor.** The installer wires `^(Read|Edit|Write|Bash|apply_patch)$` (routed), and `write-scope.sh` parses the patch body (`*** Add/Update/Delete File:`, `*** Move to:`) to confine every target — ANY out-of-scope target denies the whole patch (fail-closed). The same change made `write-scope` **tool-aware**, so the shared Codex matcher no longer makes it deny a confined persona's reads/test-runs. Verified live end-to-end: an out-of-scope `apply_patch` write is blocked with trust seeded, no bypass flag (`tests/integration/test_codex_apply_patch_route.sh`). Caveat (per #6): this is the **main-agent** floor; a spawned persona's `apply_patch` is still unhooked. |
-| 8 | **SubagentStart does not fire in `codex exec` headless.** | **Live limitation.** Per-subagent model override via the `on-writer-dispatch` SubagentStart hook is **inert** headlessly. The role `.toml` `model` field sets the tier instead (verified working), so the `.toml` schema fix is the actual carrier of per-persona tiers. |
+| # | Codex behavior | Status |
+|---|----------------|--------|
+| 1 | Model IDs are accepted per account and go stale: on Codex 0.166.0 with a ChatGPT account, `gpt-5.5`, `gpt-5.4`, and `gpt-5.4-mini` were all rejected. Effort `max` was accepted. | **By design (ADR-0041).** The plugin ships no Codex model ID. Every role inherits the parent session's model unless the operator sets `ORCHESTRATE_STANDARD_MODEL` / `ORCHESTRATE_ECONOMY_MODEL` before installing; effort passes through unchanged. |
+| 2 | `sandbox_mode` is coarse (`workspace-write`); `writable_roots` is **additive** (adds writable dirs, never subtracts source) and is ignored in `read-only` mode. | **Live limitation.** Every persona that writes or runs anything compiles to `workspace-write`; the narrower scope (a researcher's result file, a verifier's verdict) is the brief's prose, as on every harness. |
 
-See `docs/notes/codex-support.md` for the verdict, the enforcement scope, and the
-installer fixes still required.
+`docs/notes/codex-support.md` records the earlier Codex enforcement work that
+ADR-0040 removed.

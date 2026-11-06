@@ -32,3 +32,5 @@ out; the current-branch fallback remains for boards without a goal base. Covered
 ## Status
 
 active
+
+_Status: superseded by 0040_

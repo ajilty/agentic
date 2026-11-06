@@ -1,5 +1,5 @@
 # Tier 3c (live) — TEST THE ROUTER: on an ambiguous goal, the router must recognize the
-# ambiguity, SELECT the first-present clarification skill (§2b, first-present-wins), and
+# ambiguity, SELECT the first-present clarification skill (SKILL.md loop step 3, first-present-wins), and
 # JOURNAL that decision (`ledger.sh clarify <skill>`) so it's a checkable trace. This is
 # the one choreography step that was previously invisible (clarification runs in router
 # context, not a persona dispatch, so it left no ledger event). We seed the sandbox HOME
@@ -24,7 +24,7 @@ else
 
 GOAL: \"Add caching.\"
 
-This goal is deliberately ambiguous — which layer, what TTL, which keys, which store are all open #UNKNOWNs. Follow SKILL.md §2b intake clarification: select the configured clarification skill by first-present-wins preference order, and BEFORE invoking it, journal your selection by running this exact Bash command (substitute the skill you selected): bash $LEDGER clarify <skill>. The ledger helper is at $LEDGER. You do not need to complete the interactive clarification in this non-interactive run — journaling the selection is enough. Then stop."
+This goal is deliberately ambiguous: which layer, what TTL, which keys, which store are all open #UNKNOWNs. Follow SKILL.md loop step 3 (clarify if no oracle is nameable): select the configured clarification skill by first-present-wins preference order, and BEFORE invoking it, journal your selection by running this exact Bash command (substitute the skill you selected): bash $LEDGER clarify <skill>. The ledger helper is at $LEDGER. You do not need to complete the interactive clarification in this non-interactive run: journaling the selection is enough. Then stop."
   printf '%s' "$prompt" | ( cd "$repo" && HOME="$h" timeout 300 claude -p --plugin-dir "$PLUGIN_DIR" --allowedTools "Bash,Skill,Read,Task" ) >/dev/null 2>&1
 
   board="$repo/.agents/runs/orchestrate/board.jsonl"
