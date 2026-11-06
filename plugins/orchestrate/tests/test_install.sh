@@ -14,7 +14,6 @@ grep -q 'Codex dispatch addendum' "$SKD/SKILL.md" && pass || fail "codex skill c
 grep -q "export PATH=\"$SKD/runtime" "$SKD/SKILL.md" && pass || fail "addendum embeds the absolute runtime PATH line (ADR-0018)"
 assert_file "$SKD/references/resume.md"
 test -x "$SKD/runtime/ledger.sh" && pass || fail "codex ships ledger.sh executable inside the skill"
-test -x "$SKD/runtime/dispatch-persona.sh" && pass || fail "codex ships dispatch-persona.sh executable (ADR-0017)"
 for p in researcher planner implementer verifier actuator; do assert_file "$SKD/runtime/personas/$p.md"; done
 # capability -> sandbox_mode mapping: any write- or run-capable persona = workspace-write.
 # Under the disk-first read lane (ADR-0014) the researcher writes its own findings, so it

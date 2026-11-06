@@ -49,13 +49,13 @@ case "$cmd" in
     for f in "$ADRDIR/$num"-*.md; do
       [ -e "$f" ] || continue
       if grep -qi '^_status:' "$f"; then
-        sed -i -E "s/^_[Ss]tatus:.*/_Status: superseded by ${by}_/" "$f"
+        sed -E "s/^_[Ss]tatus:.*/_Status: superseded by ${by}_/" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
       else
         printf '\n_Status: superseded by %s_\n' "$by" >> "$f"
       fi
     done
     # ...and flip the index row in place if present (reindex would reproduce this).
-    [ -f "$INDEX" ] && sed -i -E "/\| \[$num\]/ s/\| active \|/| superseded by $by |/" "$INDEX"
+    [ -f "$INDEX" ] && { sed -E "/\| \[$num\]/ s/\| active \|/| superseded by $by |/" "$INDEX" > "$INDEX.tmp" && mv "$INDEX.tmp" "$INDEX"; }
     : ;;
 
   reindex)   # rebuild INDEX.md from docs/adr/*.md (files = source of truth), so ADRs

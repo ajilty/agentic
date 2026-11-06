@@ -1,40 +1,32 @@
-# Tier 3c — VERIFICATION IS NOT OPTIONAL (the enforcement half). The infra-log analysis
-# showed the router self-verifies inline and ships without a Verifier. Teaching alone
-# (context-economy §2a′, §2b) didn't override that pull, so `ledger.sh done <ticket>` is
-# FAIL-CLOSED: a verifying lane (T1/T2) may not be marked done without a verdict on the
-# board. T0 (one Implementer vs the oracle — the oracle IS the check) is exempt. Unknown
-# tier -> require a verdict (fail-closed). This makes "ship unverified" impossible, not
-# just discouraged.
+# `ledger.sh done <ticket>` is guidance, not a gate (ADR-0040). It always appends the done
+# event; a non-T0 lane closed without a verdict gets a stderr warning (exit 0), and
+# verify_coverage in `metrics` is the retrospective signal. T0 (the oracle is the check)
+# and a lane that has a verdict close silently.
 R="$HERE/../skills/orchestrate/runtime/ledger.sh"
 board=".agents/runs/orchestrate/board.jsonl"
 
-# 1) T2 WITH a verdict -> done allowed
+# 1) T1 without a verdict -> done appended, warning on stderr, exit 0
 d="$(mktemp_repo)"; cd "$d"
-bash "$R" append '{"ticket":"T1","event":"intake","tier":"T2"}'
-bash "$R" append '{"ticket":"T1","event":"verdict","verdict":"APPROVED"}'
-bash "$R" done T1 >/dev/null 2>&1
-assert_eq "$?" "0" "T2 with a verdict -> done allowed"
-grep -q '"ticket":"T1".*"event":"done"' "$board" && pass || fail "done event journaled for the verified lane"
+bash "$R" append '{"ticket":"T1","event":"intake","tier":"T1"}'
+err="$(bash "$R" done T1 2>&1 >/dev/null)"; code=$?
+assert_eq "$code" "0" "T1 without a verdict -> exit 0"
+grep -q '"ticket":"T1".*"event":"done"' "$board" && pass || fail "done event appended despite the missing verdict"
+case "$err" in *warning*T1*"without a Verifier verdict"*"tier=T1"*) pass;; *) fail "warning names ticket and tier: $err";; esac
+assert_eq "$(bash "$R" metrics | grep -o 'verify_coverage=[0-9/]*')" "verify_coverage=0/1" "verify_coverage shows the gap"
 cd /; rm -rf "$d"
 
-# 2) T2 (T2-min) WITHOUT a verdict -> REFUSED (the load-bearing gate)
+# 2) T1 with a verdict -> no warning
 d="$(mktemp_repo)"; cd "$d"
-bash "$R" append '{"ticket":"T2","event":"intake","tier":"T2-min"}'
-out="$(bash "$R" done T2 2>&1)"; code=$?
-assert_eq "$code" "3" "T2 without a verdict -> done REFUSED (verification not optional)"
-grep -q '"event":"done"' "$board" 2>/dev/null && fail "no done event should be written when refused" || pass
-case "$out" in *erif*) pass;; *) fail "refusal names the missing verifier/verdict: $out";; esac
+bash "$R" append '{"ticket":"T2","event":"intake","tier":"T1"}'
+bash "$R" append '{"ticket":"T2","event":"verdict","verdict":"APPROVED"}'
+err="$(bash "$R" done T2 2>&1 >/dev/null)"; assert_eq "$?" "0" "T1 with a verdict -> exit 0"
+assert_eq "$err" "" "T1 with a verdict -> no warning"
+grep -q '"ticket":"T2".*"event":"done"' "$board" && pass || fail "done event appended for the verified lane"
 cd /; rm -rf "$d"
 
-# 3) T0 WITHOUT a verdict -> allowed (the oracle is the check; no Verifier in a T0 lane)
+# 3) T0 without a verdict -> no warning
 d="$(mktemp_repo)"; cd "$d"
 bash "$R" append '{"ticket":"T3","event":"intake","tier":"T0"}'
-bash "$R" done T3 >/dev/null 2>&1
-assert_eq "$?" "0" "T0 without a verdict -> done allowed (oracle is the check)"
-cd /; rm -rf "$d"
-
-# 4) UNKNOWN tier (no intake) without a verdict -> fail-closed REFUSE
-d="$(mktemp_repo)"; cd "$d"
-bash "$R" done T4 >/dev/null 2>&1
-assert_eq "$?" "3" "unknown tier without a verdict -> fail-closed refuse"
+err="$(bash "$R" done T3 2>&1 >/dev/null)"; assert_eq "$?" "0" "T0 without a verdict -> exit 0"
+assert_eq "$err" "" "T0 without a verdict -> no warning"
 cd /; rm -rf "$d"

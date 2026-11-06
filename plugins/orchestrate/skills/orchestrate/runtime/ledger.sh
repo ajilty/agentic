@@ -19,8 +19,6 @@ set -euo pipefail
 _gcd="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 case "$_gcd" in */.git) _base="${_gcd%/.git}/";; *) _base="";; esac
 ROOT="${_base}.agents/runs/orchestrate"; LEDGER="$ROOT/board.jsonl"
-LEASES="$ROOT/leases"
-enc(){ printf '%s' "$1" | sed 's#/#%2F#g'; }   # only '/' needs encoding on Linux
 val() { sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" <<< "$1"; }
 
 cmd="${1:-}"; shift || true
@@ -38,14 +36,14 @@ case "$cmd" in
     esac
     ev="$(val "$line" event)"
     case "$ev" in
-      goal|intake|clarify|dispatched|returned|verdict|fork|decision|lease-conflict|gate-blocked|denied|lane|done|feedback) ;;
+      goal|intake|clarify|dispatched|returned|verdict|fork|decision|denied|lane|done|feedback) ;;
       *) echo "ledger.sh append: WARNING event '${ev:-<missing>}' is not canonical — invisible to reground/metrics/conformance (vocabulary: references/resume.md)" >&2 ;;
     esac
     # A hand-built goal with the wrong field name is a measured drift ("goal": instead
     # of "note":) that makes the anchor INVISIBLE to reground. Warn; the goal helper
     # gets it right for free.
     if [ "$ev" = goal ]; then case "$line" in *'"note":'*) ;;
-      *) echo "ledger.sh append: WARNING goal event without a \"note\" field — reground's goal anchor reads note (use: ledger.sh goal '<note>' [spec] [base] [policy])" >&2 ;;
+      *) echo "ledger.sh append: WARNING goal event without a \"note\" field — reground's goal anchor reads note (use: ledger.sh goal '<note>' [spec] [base])" >&2 ;;
     esac; fi
     printf '%s\n' "$line" >> "$LEDGER" ;;
 
@@ -167,11 +165,11 @@ case "$cmd" in
         fi
       fi
     done
-    # (b) disk ground truth: any worktree on a worktree-agent-* branch with
+    # (b) disk ground truth: any worktree on a worktree-* or worktree-agent-* branch with
     #     uncommitted work, even if no ledger event exists (missed append / crash).
     if git rev-parse --git-dir >/dev/null 2>&1; then
       while IFS=$'\t' read -r wt br; do
-        case "$br" in *worktree-agent-*)
+        case "$br" in worktree-*|*worktree-agent-*)
           dirt="$(git -C "$wt" status --porcelain 2>/dev/null)"
           if [ -n "$dirt" ]; then
             # board.jsonl-only dirt is hook-telemetry RESIDUE (pre-0.8.25 hooks
@@ -187,31 +185,6 @@ case "$cmd" in
       done < <(git worktree list --porcelain 2>/dev/null | awk '
         /^worktree /{p=$2} /^branch /{b=$2; sub("refs/heads/","",b); print p"\t"b}')
     fi
-    # (c) target leases: reconcile — release a done ticket's lease (so it can't
-    #     block a later ticket on the same target); HALT on a lease whose ticket
-    #     never reached 'done' (crashed/in-flight), fail-closed.
-    if [ -d "$LEASES" ]; then
-      for f in "$LEASES"/*; do
-        [ -e "$f" ] || continue
-        lt="$(val "$(cat "$f")" ticket)"; lk="$(val "$(cat "$f")" key)"
-        done_evt=0
-        if [ -f "$LEDGER" ]; then grep -q "\"ticket\":\"$lt\".*\"event\":\"done\"" "$LEDGER" && done_evt=1; fi
-        [ "$done_evt" = 1 ] && { rm -f "$f"; continue; }   # reconcile: release the done ticket's lease
-        echo "OPEN LEASE $lk ticket=$lt -> release or reconcile before re-dispatch"; ambiguous=1; printed=1
-      done
-    fi
-    # (d) dangling active-writer record (ADR-0006): a writer that did not cleanly
-    #     close (router crashed between writer-ctx set and clear). A stale record
-    #     can let a later dispatch read an already-acked context and bypass the
-    #     pre-apply gate, so treat it as an ambiguous in-flight writer and HALT for
-    #     reconcile (the operator/router clears it via `writer-ctx clear`). We do
-    #     NOT auto-clear: at compaction the record may belong to a live writer.
-    if [ -f "$ROOT/active-writer.json" ]; then
-      awt="$(sed -n 's/^ticket=//p' "$ROOT/active-writer.json")"
-      awp="$(sed -n 's/^persona=//p' "$ROOT/active-writer.json")"
-      echo "OPEN WRITER   active-writer ticket=$awt persona=$awp -> reconcile (ledger.sh writer-ctx clear) before re-dispatch"
-      ambiguous=1; printed=1
-    fi
     # Run-level anchor (ADR-0020): the latest `goal` event carries the north star + a
     # pointer to where the plan durably lives (spec/ADR). Surface it so a clean board
     # never reads as "finished" and resume doesn't depend on external prose.
@@ -223,25 +196,6 @@ case "$cmd" in
     [ "$printed" = 0 ] && echo "board: no open lanes${gline:+ (goal above is open unless the plan is complete — verify before concluding done)}"
     [ "$ambiguous" = 1 ] && { echo "REGROUND: ambiguous writer lane(s) -> HALT for human re-attach"; exit 3; }
     echo "REGROUND: clean" ;;
-
-  lease-key) printf '%s\n' "$(enc "${1:?key}")" ;;
-
-  lease-acquire)   # exit 0 if free or self-owned, 4 if held by another ticket
-    tk="${1:?ticket}"; key="${2:?key}"; f="$LEASES/$(enc "$key")"
-    mkdir -p "$LEASES"
-    if [ -f "$f" ]; then
-      owner="$(val "$(cat "$f")" ticket)"
-      [ "$owner" = "$tk" ] && exit 0 || exit 4
-    fi
-    printf '{"key":"%s","ticket":"%s","ts":"%s"}\n' "$key" "$tk" "$(date -u +%FT%TZ)" > "$f" ;;
-
-  lease-release) key="${1:?key}"; rm -f "$LEASES/$(enc "$key")" ;;
-
-  lease-check)   key="${1:?key}"; [ -f "$LEASES/$(enc "$key")" ] && exit 4 || exit 0 ;;
-
-  ack)   # operator confirms a prod-level mutation target for a ticket (pre-apply gate, SKILL §6b)
-    tk="${1:?ticket}"; key="${2:?key}"; m="$ROOT/tickets/$tk/ack-$(enc "$key")"
-    mkdir -p "$(dirname "$m")"; : > "$m" ;;
 
   decision)   # record a resolved DECISION_FORK to the board (judgment-memory capture, SKILL §11)
     tk="${1:?ticket}"; fid="${2:?fork_id}"; adr="${3:-}"; mkdir -p "$ROOT"
@@ -259,48 +213,24 @@ case "$cmd" in
               # north star + next-step location across compaction — resume then depends on
               # an external prose doc. This event anchors the board to the goal (ADR-0020).
               # Run-level, so no ticket field (reground's lane loop skips no-ticket lines).
-    note="${1:?goal note}"; spec="${2:-}"; base="${3:-}"; pol="${4:-}"; mkdir -p "$ROOT"
+    note="${1:?goal note}"; spec="${2:-}"; base="${3:-}"; mkdir -p "$ROOT"
     nl="${note//\\/\\\\}"; nl="${nl//\"/\\\"}"          # escape backslash + quote in free text
-    # model_policy (ADR-0033): dynamic (default, §2a′ tier table) | quick (dynamic,
-    # lean cheaper/faster) | inherit (subagents run the main loop's model/effort).
-    # Rides the goal anchor: latest goal wins on reground, survives compaction.
-    printf '{"ts":"%s","event":"goal","note":"%s","spec":"%s","base":"%s"%s}\n' \
-      "$(date -u +%FT%TZ)" "$nl" "$spec" "$base" "${pol:+,\"model_policy\":\"$pol\"}" >> "$LEDGER" ;;
+    printf '{"ts":"%s","event":"goal","note":"%s","spec":"%s","base":"%s"}\n' \
+      "$(date -u +%FT%TZ)" "$nl" "$spec" "$base" >> "$LEDGER" ;;
 
-  done)       # close a lane FAIL-CLOSED on unverified ships: a verifying tier (T1/T2)
-              # may not be marked done without a verdict for that ticket. T0 (one
-              # Implementer vs the oracle — the oracle IS the check) is exempt; unknown
-              # tier requires a verdict (fail-closed). The ENFORCEMENT half of
-              # "verification is not optional" — the router under-delegates verification,
-              # so the gate makes a ship without a Verifier impossible, not just discouraged.
+  done)       # close a lane. Verification is guidance, not a gate: a non-T0 lane with no
+              # verdict still closes, with a stderr warning; verify_coverage in `metrics`
+              # is the retrospective signal. T0 (the oracle is the check) never warns.
     tk="${1:?ticket}"; mkdir -p "$ROOT"; tier=""; hv=0
     if [ -f "$LEDGER" ]; then
       tier="$(grep "\"ticket\":\"$tk\".*\"event\":\"intake\"" "$LEDGER" 2>/dev/null | sed -n 's/.*"tier":"\([^"]*\)".*/\1/p' | tail -1 || true)"
       grep -q "\"ticket\":\"$tk\".*\"event\":\"verdict\"" "$LEDGER" 2>/dev/null && hv=1 || true
     fi
     case "$tier" in
-      T0*|t0*) ;;   # T0 baseline lane: the acceptance oracle is the check, no Verifier
-      *) if [ "$hv" != 1 ]; then
-           echo "orchestrate: refusing 'done' for $tk — no Verifier verdict on the board (tier=${tier:-unknown}). A T1/T2 lane must pass a Verifier first: dispatch the verifier, record its verdict, then mark done. (T0 baseline lanes are exempt — set tier=T0 at intake.)" >&2
-           exit 3
-         fi ;;
+      T0*|t0*) ;;
+      *) [ "$hv" = 1 ] || echo "orchestrate: warning: $tk closed without a Verifier verdict (tier=${tier:-unknown}); verify_coverage will show the gap" >&2 ;;
     esac
     printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER" ;;
 
-  writer-ctx)  # per-dispatch enforcement context (ADR-0006): the router writes this
-               # BEFORE dispatching a writer; the hooks read it (CC passes no router
-               # env to subagent hooks). Line format -> no jq needed. Single active
-               # writer (single-writer rail), cleared on lane close.
-    sub="${1:-}"; shift || true; f="$ROOT/active-writer.json"
-    case "$sub" in
-      set)   # set <ticket> <persona> <assigned_branch> [prod_target...]
-        wt="${1:?ticket}"; wp="${2:?persona}"; wb="${3:-}"; pt="${*:4}"; mkdir -p "$ROOT"
-        printf 'ticket=%s\npersona=%s\nassigned_branch=%s\nprod_targets=%s\nts=%s\n' \
-          "$wt" "$wp" "$wb" "$pt" "$(date -u +%FT%TZ)" > "$f" ;;
-      get)   k="${1:?key}"; [ -f "$f" ] || exit 0; sed -n "s/^$k=//p" "$f" ;;
-      clear) rm -f "$f" ;;
-      *) echo "usage: ledger.sh writer-ctx set <ticket> <persona> <branch> [prod...] | get <key> | clear" >&2; exit 64 ;;
-    esac ;;
-
-  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|done <ticket>|lease-{key,acquire,release,check}|ack|decision <ticket> <fork_id> [adr]|writer-ctx set|get|clear}" >&2; exit 64 ;;
+  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr]|goal <note> [spec] [base]|done <ticket>}" >&2; exit 64 ;;
 esac

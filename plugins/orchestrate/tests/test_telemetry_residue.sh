@@ -3,7 +3,7 @@
 # HALTed on "ambiguous in-flight writer" for lanes that were done (4 false HALTs).
 # Fixes under test: ledger.sh anchors the board at the MAIN checkout root from any
 # worktree cwd; reground classifies board.jsonl-only dirt as residue (no HALT) while
-# real work still fails closed; worktree.sh inspect is the read-only reconcile window.
+# real work still fails closed (worktree-* and worktree-agent-* branches both count).
 R="$HERE/../skills/orchestrate/runtime"
 d="$(mktemp -d)"; ( cd "$d" && git init -q && git config user.email t@t && git config user.name t
   mkdir -p .agents/runs/orchestrate && echo '{"event":"goal","note":"g"}' > .agents/runs/orchestrate/board.jsonl
@@ -27,12 +27,12 @@ echo x >> "$wt/real-work.txt"
 ( cd "$d" && bash "$R/ledger.sh" reground >/dev/null 2>&1 ); rc=$?
 assert_eq "$rc" 3 "real uncommitted work still HALTs reground"
 
-# 4) inspect: read-only window sees the lane, counts dirt and telemetry separately
-out="$(cd "$d" && bash "$R/worktree.sh" inspect)"
-case "$out" in *"worktree-agent-T1-implementer"*"dirty=2(telemetry=1)"*) pass;; *) fail "inspect reports dirty/telemetry counts ($out)";; esac
-out="$(cd "$d" && bash "$R/worktree.sh" inspect T1)"
-case "$out" in *"worktree-agent-T1-implementer"*) pass;; *) fail "inspect filters by ticket ($out)";; esac
-out="$(cd "$d" && bash "$R/worktree.sh" inspect OTHER)"
-[ -z "$out" ] && pass || fail "inspect ticket filter excludes non-matching lanes ($out)"
+# 4) the harness's native worktree branch names (worktree-<name>) are watched too
+git -C "$d" worktree add -q -b worktree-native .agents/worktrees/native HEAD 2>/dev/null
+rm -f "$wt/real-work.txt"; git -C "$wt" checkout -q -- . 2>/dev/null
+echo y > "$d/.agents/worktrees/native/work.txt"
+out="$(cd "$d" && bash "$R/ledger.sh" reground)"; rc=$?
+assert_eq "$rc" 3 "dirty worktree-* branch HALTs reground"
+case "$out" in *"DIRTY WORKTREE"*"worktree-native"*) pass;; *) fail "reground names the native worktree ($out)";; esac
 
 rm -rf "$d"

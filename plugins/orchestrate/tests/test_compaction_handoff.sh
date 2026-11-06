@@ -23,13 +23,15 @@ case "$out" in *AUTHORITATIVE*) pass;; *) fail "clean board still frames the han
 case "$out" in *"no open lanes"*) pass;; *) fail "clean board -> no open lanes injected";; esac
 cd /; rm -rf "$d"
 
-# 3) an AMBIGUOUS in-flight writer (dangling active-writer record) -> the handoff HALTs
-#    the new instance instead of letting it dispatch past an unreconciled writer.
+# 3) a DIRTY writer worktree (uncommitted work on a worktree-* branch) -> the handoff HALTs
+#    the new instance instead of letting it dispatch past an unreconciled lane.
 d="$(mktemp_repo)"; cd "$d"
-bash "$R" writer-ctx set T9 implementer worktree-agent-T9-implementer >/dev/null 2>&1
+git commit -qm init --allow-empty
+git worktree add -q -b worktree-T9-implementer .agents/worktrees/T9 HEAD 2>/dev/null
+echo x > .agents/worktrees/T9/work.txt
 out="$(bash "$HOOK" 2>&1)"
-case "$out" in *HALT*) pass;; *) fail "ambiguous writer after compaction -> HALT injected (fail-closed handoff)";; esac
-case "$out" in *T9*) pass;; *) fail "HALT names the unreconciled writer";; esac
+case "$out" in *HALT*) pass;; *) fail "dirty writer worktree after compaction -> HALT injected (fail-closed handoff)";; esac
+case "$out" in *"DIRTY WORKTREE"*) pass;; *) fail "HALT names the unreconciled worktree";; esac
 cd /; rm -rf "$d"
 
 # 4) the SessionStart contract: with jq present the payload is the required envelope
