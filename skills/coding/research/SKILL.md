@@ -24,3 +24,21 @@ planner can safely build on it.
   the one or two decision forks the findings expose. No raw dumps.
 - **Durable artifact**: write findings to a file the next phase can cite, not
   only into conversation.
+
+## Web and document research
+
+Source-based work adds a method on top of the labeling and provenance above.
+
+- **Split first.** For a broad question, list the key questions that do not
+  overlap and together cover the objective, and state what each needs. A
+  dispatcher can give independent ones to separate researchers.
+- **Search loop.** Find what is missing, search with short varied queries, read
+  the full page behind anything you will rely on, and repeat.
+- **Stop** when the key questions are answered with sources, when no new
+  information appears, or at about 15 search or fetch calls for one question.
+  Report the remainder as a gap.
+- **Weigh sources.** Prefer the primary source to an aggregator, separate
+  confirmed fact from speculation, show both sides when sources conflict, and on
+  recent topics trust current sources over memory.
+- **Report per key question**: takeaway, cited findings, inferences, gaps. A
+  claim with no source moves to gaps.
