@@ -24,3 +24,20 @@ planner can safely build on it.
   the one or two decision forks the findings expose. No raw dumps.
 - **Durable artifact**: write findings to a file the next phase can cite, not
   only into conversation.
+
+## Web and document research
+
+In judgment research over web or documents (a sweep stays a list), this method
+builds on the labeling and provenance above.
+
+- **Split first.** For a broad question, list the key questions that do not
+  overlap and together cover the objective, and state what each needs.
+- **Search loop.** Search with short varied queries, and read the full page
+  behind anything you will rely on.
+- **Stop** when the key questions are answered with sources, when no new
+  information appears, or at about 15 search or fetch calls for one question.
+  Report the remainder as unanswered.
+- **Weigh sources.** Prefer the primary source to an aggregator, show both sides
+  when sources conflict, and on recent topics trust current sources over memory.
+- **Report by key question**, in the role's own output format. A claim with no
+  source is an open question, not a finding.
