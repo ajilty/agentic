@@ -96,6 +96,22 @@ orchestrate compensates on both sides instead:
   authoritative` (check fill with `/context`). The operator stays the trigger; orchestrate
   contributes the timing judgment.
 
+## Writer records are per persona, not per ticket (all harnesses)
+
+The hooks learn a writer's ticket, branch and prod targets from an on-disk record
+the router writes before dispatch (ADR-0006). Since 0.8.29 there is one record per
+persona (`active-writer.implementer.json`, `active-writer.actuator.json`,
+ADR-0039), so a builder lane can no longer blank or retarget the actuator's
+pre-apply gate, and an actuator with no record is denied rather than run ungated.
+What remains:
+
+| # | Behavior | What to do about it |
+|---|---|---|
+| 1 | Two **registered builders** share one implementer record; the second `set` overwrites the first's assigned branch and the first's next commit is refused. | Run registered builders one at a time (SKILL §9b). Per-ticket records are the next step if parallel builders earn it. |
+| 2 | The gate covers **Actuator subagents only**. An apply the router runs inline in its own shell never passes it. | Dispatch an Actuator for prod applies, or accept that the operator go-ahead and CI are the only controls and say so in the ticket. |
+| 3 | The records live in the repo's run dir, so **two sessions in one repo share them**; one session's `writer-ctx clear` removes the other's context, and reground HALTs on the other session's open writer. | One `/orchestrate` session per repo (DESIGN.md). Before `clear`, read the record and confirm it is yours. |
+| 4 | On Codex and OpenCode the launchers pass no `TICKET`/`PROD_TARGETS` env, so the actuator gate relies on the same on-disk record there. With the fail-closed gate, an Actuator dispatched without `writer-ctx set` is denied on every command. | Register the Actuator before dispatch on every harness; a denied-everything Actuator means the registration step was skipped. |
+
 ## Credential confinement is advisory (all harnesses)
 
 The actuator's credential scoping is **advisory** (ADR-0002): orchestrate cannot

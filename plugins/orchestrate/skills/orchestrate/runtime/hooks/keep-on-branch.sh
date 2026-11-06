@@ -35,7 +35,7 @@ case "$cmd" in
     echo "orchestrate: branch is router-owned (SKILL §9b)" >&2; exit 2 ;;
 esac
 if printf '%s' "$cmd" | grep -q 'git commit'; then
-  ab="${ASSIGNED_BRANCH:-$(bash "$RT/ledger.sh" writer-ctx get assigned_branch)}"
+  ab="${ASSIGNED_BRANCH:-$(bash "$RT/ledger.sh" writer-ctx get implementer assigned_branch)}"   # the IMPLEMENTER record only (ADR-0039)
   if [ -n "$ab" ]; then
     # Effective commit dir, in precedence order: an explicit `git -C <dir>`, else the
     # last `cd <dir>` in a compound command (the implementer's normal shape:

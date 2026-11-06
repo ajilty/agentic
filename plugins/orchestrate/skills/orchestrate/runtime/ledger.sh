@@ -206,10 +206,18 @@ case "$cmd" in
     #     pre-apply gate, so treat it as an ambiguous in-flight writer and HALT for
     #     reconcile (the operator/router clears it via `writer-ctx clear`). We do
     #     NOT auto-clear: at compaction the record may belong to a live writer.
+    #     One record per persona (ADR-0039); each is surfaced on its own. A legacy
+    #     single-slot file left by a pre-0.8.29 plugin is never read as context but
+    #     still HALTs, so an upgrade mid-run cannot silently drop a writer.
+    for awf in "$ROOT"/active-writer.*.json; do
+      [ -f "$awf" ] || continue
+      awt="$(sed -n 's/^ticket=//p' "$awf")"; awp="${awf##*/active-writer.}"; awp="${awp%.json}"
+      echo "OPEN WRITER   active-writer ticket=$awt persona=$awp -> reconcile (ledger.sh writer-ctx clear $awp) before re-dispatch"
+      ambiguous=1; printed=1
+    done
     if [ -f "$ROOT/active-writer.json" ]; then
       awt="$(sed -n 's/^ticket=//p' "$ROOT/active-writer.json")"
-      awp="$(sed -n 's/^persona=//p' "$ROOT/active-writer.json")"
-      echo "OPEN WRITER   active-writer ticket=$awt persona=$awp -> reconcile (ledger.sh writer-ctx clear) before re-dispatch"
+      echo "OPEN WRITER   legacy single-slot active-writer.json ticket=$awt (pre-0.8.29; not read by hooks) -> reconcile (ledger.sh writer-ctx clear) before re-dispatch"
       ambiguous=1; printed=1
     fi
     # Run-level anchor (ADR-0020): the latest `goal` event carries the north star + a
@@ -289,17 +297,25 @@ case "$cmd" in
 
   writer-ctx)  # per-dispatch enforcement context (ADR-0006): the router writes this
                # BEFORE dispatching a writer; the hooks read it (CC passes no router
-               # env to subagent hooks). Line format -> no jq needed. Single active
-               # writer (single-writer rail), cleared on lane close.
-    sub="${1:-}"; shift || true; f="$ROOT/active-writer.json"
+               # env to subagent hooks). Line format -> no jq needed. ONE record PER
+               # PERSONA (ADR-0039): active-writer.<persona>.json, so a builder's
+               # set/clear can never blank or retarget the actuator's gate context.
+               # Each hook reads only its own persona's file. The pre-0.8.29 single
+               # slot (active-writer.json) is never read; reground HALTs on it.
+    sub="${1:-}"; shift || true
     case "$sub" in
       set)   # set <ticket> <persona> <assigned_branch> [prod_target...]
         wt="${1:?ticket}"; wp="${2:?persona}"; wb="${3:-}"; pt="${*:4}"; mkdir -p "$ROOT"
         printf 'ticket=%s\npersona=%s\nassigned_branch=%s\nprod_targets=%s\nts=%s\n' \
-          "$wt" "$wp" "$wb" "$pt" "$(date -u +%FT%TZ)" > "$f" ;;
-      get)   k="${1:?key}"; [ -f "$f" ] || exit 0; sed -n "s/^$k=//p" "$f" ;;
-      clear) rm -f "$f" ;;
-      *) echo "usage: ledger.sh writer-ctx set <ticket> <persona> <branch> [prod...] | get <key> | clear" >&2; exit 64 ;;
+          "$wt" "$wp" "$wb" "$pt" "$(date -u +%FT%TZ)" > "$ROOT/active-writer.$wp.json" ;;
+      get)   # get <persona> <key>  (empty output when that persona has no record)
+        wp="${1:-}"; k="${2:-}"
+        [ -n "$wp" ] && [ -n "$k" ] || { echo "usage: ledger.sh writer-ctx get <persona> <key>" >&2; exit 64; }
+        f="$ROOT/active-writer.$wp.json"; [ -f "$f" ] || exit 0; sed -n "s/^$k=//p" "$f" ;;
+      clear) # clear [persona]  (no persona: every persona record plus the legacy slot)
+        if [ -n "${1:-}" ]; then rm -f "$ROOT/active-writer.$1.json"
+        else rm -f "$ROOT"/active-writer.*.json "$ROOT/active-writer.json"; fi ;;
+      *) echo "usage: ledger.sh writer-ctx set <ticket> <persona> <branch> [prod...] | get <persona> <key> | clear [persona]" >&2; exit 64 ;;
     esac ;;
 
   *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|done <ticket>|lease-{key,acquire,release,check}|ack|decision <ticket> <fork_id> [adr]|writer-ctx set|get|clear}" >&2; exit 64 ;;

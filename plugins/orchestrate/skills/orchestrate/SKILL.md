@@ -740,13 +740,23 @@ Distinct from intake clarification (§2b): that gates on *ambiguity*; this gates
 - The Planner tags each mutation target with a `consequence` (`prod | safe`);
   **undeclared/unknown is treated as `prod`** (fail-closed).
 - Before dispatching the Actuator, the router writes the per-dispatch context to
-  the on-disk **active-writer record** (`ledger.sh writer-ctx set <ticket> actuator
+  the on-disk **actuator record** (`ledger.sh writer-ctx set <ticket> actuator
   <branch> <prod-targets…>`) and **pauses for operator ack**, showing the planned
   action and the already-reviewed diff. On ack it records `ledger.sh ack <ticket>
-  <key>`; on lane close it runs `ledger.sh writer-ctx clear`. The hooks read this
-  record because **CC passes no router env to subagent hooks** (ADR-0006); env is
-  the Codex/OpenCode fallback. The same record carries `assigned_branch` for the
-  branch-guard.
+  <key>`; on lane close it runs `ledger.sh writer-ctx clear actuator`. The hooks
+  read this record because **CC passes no router env to subagent hooks**
+  (ADR-0006); env is the Codex/OpenCode fallback. **Records are per persona**
+  (`active-writer.<persona>.json`, ADR-0039): the Implementer's record carries
+  `assigned_branch` for the branch-guard (§9b) and a builder's `set`/`clear`
+  never touches the actuator's. **The gate fails closed:** an Actuator with no
+  record (and no env) is denied on every command, so a forgotten `set` stalls
+  the lane instead of running ungated. A registered Actuator whose record lists
+  no prod targets is declared safe and runs freely.
+- **Scope, stated plainly:** the gate sees only Actuator *subagents*. An apply
+  the router runs inline in its own shell is never gated by this hook; its only
+  controls are the operator's go-ahead and whatever CI the repo has. Route a
+  prod apply through an Actuator dispatch to get the gate, and say so in the
+  ticket when you do not.
 - Enforcement is **two-layer**, because `SubagentStart` is **non-blocking** on
   shell harnesses (a deny there is ignored and its hooks run in parallel):
   1. **Hard floor —** `gate-prod-apply.sh` at **`PreToolUse`** denies the
@@ -886,7 +896,22 @@ branches**. The naming convention (in `references/agents.yaml`) defaults to
 `worktree-agent-<ticket>-<persona>`. Enforcement (fail-closed):
 
 - A commit/branch guard hook rejects `git checkout -b` / `git switch -c` and any
-  commit that moves HEAD off the assigned branch (sketch in the appendix).
+  commit that moves HEAD off the assigned branch (sketch in the appendix). The
+  assigned branch comes from the **implementer record**: right after
+  `worktree.sh create`, and immediately before the dispatch, the router runs
+  `ledger.sh writer-ctx set <ticket> implementer <branch>`; at lane close,
+  `ledger.sh writer-ctx clear implementer`. Without the record the off-branch
+  commit check is skipped (only the branch-create denial remains), and the
+  write-ahead has no ticket to journal, so an unregistered builder is invisible
+  to reground until it dirties its worktree.
+- **One implementer record at a time.** The record is per persona, not per
+  ticket, so a second registered builder overwrites the first's assigned branch
+  and the first's next commit is denied for the wrong branch (measured
+  2026-11-06: a 23-minute stall). Until records are per ticket, a registered
+  builder runs alone: dispatch the next one after the current one returns. The
+  §6 independence protocol still governs *whether* lanes may overlap; this is
+  the enforcement limit on *builders* specifically. Actuators are unaffected
+  (their record is separate).
 - The merge step **enumerates `worktree-agent-*` deterministically** rather than
   guessing — so even a drifted branch can't silently no-op the merge.
 

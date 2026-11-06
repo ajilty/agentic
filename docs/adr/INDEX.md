@@ -44,3 +44,4 @@ raises a DECISION_FORK citing it (supersede flow).
 | [0036](0036-plugin-taxonomy-enable-boundary.md) | Plugins are enable boundaries; skills carry the trigger | active |
 | [0037](0037-harness-emitters-live-in-repo-level-lib.md) | ADR-0037: Harness emitters live in a repo-level lib; the contract carries the wire map | active |
 | [0038](0038-repo-wide-plugin-test-and-validation-convention.md) | 0038: Repo-wide plugin test and validation convention | active |
+| [0039](0039-per-persona-writer-records-gate-fails-closed.md) | Writer records are per persona; the pre-apply gate fails closed on a missing record | active |

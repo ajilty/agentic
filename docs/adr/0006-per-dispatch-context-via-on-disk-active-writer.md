@@ -30,7 +30,9 @@ accepted
 - Gate + branch-guard enforce under CC once the record exists.
 - **Single-writer** makes one record sufficient; **parallel writers** would need
   per-`agent_id` records — deferred (matches the existing single-router/serialized
-  -writer assumptions).
+  -writer assumptions). *Amended by ADR-0039 (2026-11-06): the record is now one
+  file per persona, after a live builder-plus-actuator overlap left the gate inert;
+  per-ticket records remain deferred.*
 - The router writing/clearing the record is loop discipline (like the other
   in-loop ledger appends), via `ledger.sh writer-ctx set|clear`.
 - `reground` HALTs on a dangling record (a writer that didn't cleanly close),

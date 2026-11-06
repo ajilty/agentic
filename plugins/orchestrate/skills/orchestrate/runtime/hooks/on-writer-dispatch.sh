@@ -20,11 +20,12 @@ persona="$(J .tool_input.subagent_type)"; [ -n "$persona" ] || persona="$(J .age
 [ -n "$persona" ] || persona="${PERSONA:-${CLAUDE_AGENT_TYPE:-${CODEX_AGENT:-}}}"
 persona="${persona##*:}"   # strip plugin namespace: CC sends <plugin>:<persona>
 case "$persona" in implementer|actuator) ;; *) exit 0 ;; esac
-ts="$(date -u +%FT%TZ)"; t="${TICKET:-$(bash "$RT/ledger.sh" writer-ctx get ticket)}"; d="${DISPATCH_ID:-$RANDOM}"
+ts="$(date -u +%FT%TZ)"; d="${DISPATCH_ID:-$RANDOM}"
+t="${TICKET:-$(bash "$RT/ledger.sh" writer-ctx get "$persona" ticket)}"   # the DISPATCHED persona's own record (ADR-0039)
 [ -n "$t" ] || exit 0    # no ticket context -> nothing to write-ahead
 
 if [ "$persona" = implementer ]; then
-  b="${ASSIGNED_BRANCH:-$(bash "$RT/ledger.sh" writer-ctx get assigned_branch)}"   # CC: no env; read the router's active-writer record (ADR-0006)
+  b="${ASSIGNED_BRANCH:-$(bash "$RT/ledger.sh" writer-ctx get implementer assigned_branch)}"   # CC: no env; read the router's active-writer record (ADR-0006)
   bash "$RT/ledger.sh" append "{\"ts\":\"$ts\",\"ticket\":\"$t\",\"event\":\"dispatched\",\"persona\":\"implementer\",\"branch\":\"$b\",\"dispatch_id\":\"$d\"}"
   lease=".agents/runs/orchestrate/tickets/$t/lease"; mkdir -p "$(dirname "$lease")"
   printf '{"dispatch_id":"%s","session":"%s","pid":%s,"ts":"%s"}\n' "$d" "${SESSION_ID:-?}" "$$" "$ts" > "$lease"
@@ -33,7 +34,7 @@ fi
 
 # actuator: ledger hygiene for the pre-apply gate — if a prod-level target lacks an
 # operator ack, leave NO trace (no dispatched/lease) so reground isn't poisoned.
-pts="${PROD_TARGETS:-$(bash "$RT/ledger.sh" writer-ctx get prod_targets)}"
+pts="${PROD_TARGETS:-$(bash "$RT/ledger.sh" writer-ctx get actuator prod_targets)}"
 for key in $pts; do
   [ -f ".agents/runs/orchestrate/tickets/$t/ack-$(bash "$RT/ledger.sh" lease-key "$key")" ] || {
     bash "$RT/ledger.sh" append "{\"ts\":\"$ts\",\"ticket\":\"$t\",\"event\":\"gate-blocked\",\"persona\":\"actuator\",\"key\":\"$key\"}"

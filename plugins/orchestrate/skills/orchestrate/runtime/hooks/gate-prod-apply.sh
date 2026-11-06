@@ -6,10 +6,13 @@
 # Input source: persona from Claude Code's stdin JSON (agent_type), env fallback.
 # Contract: ALLOW = exit 0 no stdout; DENY = journal gate-blocked + stderr + exit 2.
 #
-# NOTE: PROD_TARGETS/TICKET are per-dispatch context. CC does not pass router-set
-# env to subagent hooks, so under CC these come up empty and the gate cannot yet
-# enforce — it must read them from on-disk ticket state keyed by agent_id (TODO,
-# part 2). Persona detection is correct now; the disk lookup makes it enforce.
+# Per-dispatch context (TICKET, PROD_TARGETS) comes from env (Codex/OpenCode) or,
+# under CC, from the router's on-disk ACTUATOR record (ADR-0006; one record per
+# persona, ADR-0039, so a builder lane can never blank or retarget it). FAIL CLOSED:
+# an actuator with no ticket from either source is unregistered and is denied on
+# every command; the router registers it with `ledger.sh writer-ctx set <ticket>
+# actuator <branch> [prod...]` before dispatch. A registered actuator with no prod
+# targets is declared safe and runs freely.
 set -uo pipefail
 RT="$(cd "$(dirname "$0")/.." && pwd)"
 in=""; [ -t 0 ] || in="$(cat 2>/dev/null || true)"
@@ -19,8 +22,12 @@ persona="${persona##*:}"   # strip plugin namespace: CC sends agent_type as <plu
 [ "$persona" = actuator ] || exit 0
 # per-dispatch context: env (Codex/OpenCode) first, else the on-disk active-writer
 # record the router wrote at dispatch (ADR-0006 — CC passes no router env to hooks).
-t="${TICKET:-$(bash "$RT/ledger.sh" writer-ctx get ticket)}"; ts="$(date -u +%FT%TZ)"
-pts="${PROD_TARGETS:-$(bash "$RT/ledger.sh" writer-ctx get prod_targets)}"
+t="${TICKET:-$(bash "$RT/ledger.sh" writer-ctx get actuator ticket)}"; ts="$(date -u +%FT%TZ)"
+pts="${PROD_TARGETS:-$(bash "$RT/ledger.sh" writer-ctx get actuator prod_targets)}"
+if [ -z "$t" ]; then
+  bash "$RT/ledger.sh" append "{\"ts\":\"$ts\",\"ticket\":\"\",\"event\":\"gate-blocked\",\"persona\":\"actuator\",\"key\":\"unregistered\"}"
+  echo "orchestrate: pre-apply gate — actuator has no active-writer record (register: ledger.sh writer-ctx set <ticket> actuator <branch> [prod...])" >&2; exit 2
+fi
 blocked=0; bkey=""
 for key in $pts; do
   m=".agents/runs/orchestrate/tickets/$t/ack-$(bash "$RT/ledger.sh" lease-key "$key")"

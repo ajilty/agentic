@@ -45,7 +45,9 @@ o="$(PERSONA= bash "$RT/gate-prod-apply.sh" 2>/dev/null)"; rc=$?
 assert_eq "$rc" "0" "gate: exit 0 for non-actuator"
 assert_eq "$o" "" "gate: silent stdout on allow"
 PERSONA=actuator TICKET= PROD_TARGETS= bash "$RT/gate-prod-apply.sh" >/dev/null 2>&1; rc=$?
-assert_eq "$rc" "0" "gate: exit 0 for actuator with no ticket/targets (no :? abort)"
+assert_eq "$rc" "2" "gate: unregistered actuator (no ticket from env or record) is denied, with no :? abort"
+PERSONA=actuator TICKET=T0 PROD_TARGETS= bash "$RT/gate-prod-apply.sh" >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "0" "gate: registered actuator with no prod targets is allowed"
 
 # --- write-scope.sh (planner spec/ADR write confinement; fail-closed) ---
 o="$(PERSONA= bash "$RT/write-scope.sh" 2>/dev/null)"; rc=$?
@@ -128,7 +130,10 @@ if command -v jq >/dev/null 2>&1; then
   assert_eq "$rc" "0" "keep-on-branch: allows main session (no agent_type) via stdin (CC path)"
   printf '{"agent_type":"actuator","tool_input":{"command":"terraform apply"}}' \
     | bash "$RT/gate-prod-apply.sh" >/dev/null 2>&1; rc=$?
-  assert_eq "$rc" "0" "gate: detects actuator via stdin; no prod targets -> allow"
+  assert_eq "$rc" "2" "gate: detects actuator via stdin; unregistered (no record, no env) -> deny"
+  printf '{"agent_type":"actuator","tool_input":{"command":"terraform apply"}}' \
+    | TICKET=T0 bash "$RT/gate-prod-apply.sh" >/dev/null 2>&1; rc=$?
+  assert_eq "$rc" "0" "gate: detects actuator via stdin; registered with no prod targets -> allow"
   printf '{"agent_type":"planner","tool_name":"Write","tool_input":{"file_path":"src/x.py"}}' \
     | bash "$RT/write-scope.sh" >/dev/null 2>&1; rc=$?
   assert_eq "$rc" "2" "write-scope: denies planner write to src via stdin (CC path)"

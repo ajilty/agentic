@@ -117,9 +117,9 @@ fresh-context Verifier) — validated on its own construction.
   clears it on reconcile. Chose HALT over auto-clear because at compaction the
   record may belong to a live writer. Closes the stale-ack gate-bypass window.
 - ✅ **DONE — overwrite test** for `writer-ctx set` (the per-dispatch refresh).
-- **active-writer `persona` field is written but never read** (minor). Either use
-  it as a gate cross-check (`record.persona == actuator` before applying its
-  prod_targets) or drop the field. Benign under single-writer; currently dead.
+- ✅ **DONE (ADR-0039) — the persona is now the record's file name**
+  (`active-writer.<persona>.json`), so each hook reads only its own persona's
+  record; the in-file `persona` field stays for display only.
 
 ## Medium
 
