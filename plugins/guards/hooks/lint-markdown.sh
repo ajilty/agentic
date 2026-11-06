@@ -37,7 +37,9 @@ command -v rumdl >/dev/null 2>&1 || exit 0
 
 dir=$(dirname "$f"); base=$(basename "$f")
 if command -v git >/dev/null 2>&1; then
-  [ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || exit 0
+  # env -u: an inherited GIT_DIR (git hook environments export one) would make
+  # every path look like it is inside that repo.
+  [ "$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || exit 0
 fi
 # rumdl's [config warning] lines keep ANSI colour even under --color never; strip
 # escapes so nothing but text reaches the model.
