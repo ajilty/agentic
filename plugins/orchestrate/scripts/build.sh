@@ -17,7 +17,7 @@ LIB="${HARNESS_LIB:-$(cd "$PLUGIN_ROOT/../.." && pwd)/scripts/harness-lib}"
 . "$LIB/common.sh"; . "$LIB/claude-code.sh"
 require_yq4
 
-# 1) agents/<persona>.md — frontmatter (name/description/tools/tier/color) + persona body
+# 1) agents/<persona>.md — frontmatter (name/description/tools/tier/color/isolation) + persona body
 mkdir -p "$PLUGIN_ROOT/agents"
 for p in $(personas); do
   cc_agent_md "$p" "$PLUGIN_ROOT/agents/$p.md"
@@ -26,11 +26,9 @@ for p in $(personas); do
 done
 
 # 2) hooks/hooks.json — auto-registered when the plugin is enabled; derived from
-#    the contract's hooks: block. warn-agent-teams is CC-ONLY (ADR-0023 detects a
-#    CC-specific feature) so it rides as an extra group here, not in the contract.
+#    the contract's hooks: block (the two survivors, ADR-0040).
 mkdir -p "$PLUGIN_ROOT/hooks"
 cc_hooks_json "$PLUGIN_ROOT/hooks/hooks.json" \
-  '${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks' \
-  'startup|resume:warn-agent-teams.sh'
+  '${CLAUDE_PLUGIN_ROOT}/skills/orchestrate/runtime/hooks'
 echo "  hooks  -> hooks/hooks.json (derived from agents.yaml hooks: block)"
 echo "build complete (agents/ + hooks/hooks.json regenerated from agents.yaml)"

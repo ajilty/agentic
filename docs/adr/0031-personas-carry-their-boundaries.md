@@ -38,3 +38,7 @@ that ignores its briefing, not the mechanism by which it learns the rules.
 ## Status
 
 active
+
+## Amended by ADR-0040
+
+Boundaries are the whole syllabus: hooks are no longer a backstop. Each persona brief states what it does and does not do, and nothing enforces it beyond the shared-checkout floor.

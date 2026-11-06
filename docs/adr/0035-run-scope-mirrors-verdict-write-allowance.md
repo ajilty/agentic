@@ -36,3 +36,5 @@ to prevent). The verifier boundary section now states the Bash path is sanctione
 ## Status
 
 active
+
+_Status: superseded by 0040_

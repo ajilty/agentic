@@ -37,3 +37,5 @@ roots (`/tmp/`, `/var/tmp/`, `$TMPDIR`); everything else stays denied exactly as
 ## Status
 
 active
+
+_Status: superseded by 0040_

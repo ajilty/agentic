@@ -57,3 +57,5 @@ honestly as `run_scope: { fail_closed: false }`.
 ## Status
 
 active
+
+_Status: superseded by 0040_

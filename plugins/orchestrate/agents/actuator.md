@@ -1,6 +1,6 @@
 ---
 name: actuator
-description: The single writer for downstream live-environment mutations (terraform/kubectl/db). run + target-scoped creds; edits no source. The ops-lane writer.
+description: Makes one declared downstream live-environment mutation (terraform/kubectl/db). run + target-scoped creds; edits no source. The ops-lane writer.
 tools: Read,Grep,Glob,Bash
 model: sonnet
 effort: high

@@ -51,15 +51,45 @@ for pair in "researcher<implementer" "implementer=actuator" "actuator<planner" "
   esac
 done
 [ "$ladder_ok" = 1 ] && pass || fail "color heat ladder must follow cost order"
-# Negatives (disk-first read lane, ADR-0014): read-only personas now carry a
-# PATH-SCOPED Write (results-only: findings/_quarantine for researcher, verdicts
-# for verifier; enforced by write-scope.sh) so their results survive interruption.
-# They must still NOT carry Edit (they create new result files, never edit source),
-# and the actuator (writes live state via run, not source via Write) carries neither.
+# Negatives (disk-first read lane, ADR-0014): read-only personas carry a Write tool
+# (write: results; findings/_quarantine for researcher, verdicts for verifier; the
+# scope is prose in their briefs) so their results survive interruption. They must
+# still NOT carry Edit (they create new result files, never edit source), and the
+# actuator (writes live state via run, not source via Write) carries neither.
 for p in researcher verifier; do
-  if grep -qE '^tools: .*Edit' "$SK/agents/$p.md"; then fail "$p must not have Edit (results-only Write, no source edits)"; else pass; fi
+  if grep -qE '^tools: .*Edit' "$SK/agents/$p.md"; then fail "$p must not have Edit (results Write, no source edits)"; else pass; fi
 done
 if grep -qE '^tools: .*(Write|Edit)' "$SK/agents/actuator.md"; then fail "actuator must not have Write/Edit"; else pass; fi
+
+# --- Hook groups: the contract declares two hooks, so hooks.json carries exactly two
+#     groups (PreToolUse/Bash -> shared-checkout floor, SessionStart/compact -> reground).
+assert_eq "$(grep -c '"matcher"' "$SK/hooks/hooks.json")" 2 "hooks.json has exactly two hook groups"
+if grep -q '"matcher": "Bash"' "$SK/hooks/hooks.json" && grep -q '"matcher": "compact"' "$SK/hooks/hooks.json"; then pass; else fail "hooks.json matchers are Bash and compact"; fi
+
+# --- Native worktree isolation: the implementer is dispatched into its own worktree.
+if grep -q '^isolation: worktree' "$SK/agents/implementer.md"; then pass; else fail "implementer.md carries isolation: worktree"; fi
+for p in researcher planner verifier actuator; do
+  if grep -q '^isolation:' "$SK/agents/$p.md"; then fail "$p must not carry isolation"; else pass; fi
+done
+
+# --- cc_hooks_json with an empty watch class: no empty group, valid JSON (a contract
+#     with only the shell hook, and one with no hooks at all).
+if have_yq4; then
+  LIBD="$(cd "$SK/../.." && pwd)/scripts/harness-lib"
+  tmpc="$(mktemp -d)"
+  yq 'del(.hooks.compaction_reground)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/shell-only.yaml"
+  yq '.hooks = {}' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/none.yaml"
+  for c in shell-only none; do
+    ( AGENTS="$tmpc/$c.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; . "$LIBD/claude-code.sh"
+      cc_hooks_json "$tmpc/$c.json" '${CLAUDE_PLUGIN_ROOT}/h' )
+    if yq -p=json -o=json '.' "$tmpc/$c.json" >/dev/null 2>&1; then pass; else fail "cc_hooks_json ($c) emits valid JSON"; fi
+  done
+  assert_eq "$(grep -c '"matcher"' "$tmpc/shell-only.json")" 1 "cc_hooks_json shell-only emits one group"
+  assert_eq "$(grep -c '"matcher"' "$tmpc/none.json")" 0 "cc_hooks_json with no hooks emits no group"
+  rm -rf "$tmpc"
+else
+  echo "(skip empty-class hooks.json: $YQ4_SKIP)"
+fi
 
 # --- Hook-path resolution: every ${CLAUDE_PLUGIN_ROOT}/... command in hooks.json
 #     resolves to an executable script inside the plugin.
@@ -120,38 +150,6 @@ if have_yq4; then
   if [ -d "$rdir" ] && [ -f "$rdir/.claude-plugin/plugin.json" ]; then pass; else fail "marketplace source '$src' does not resolve to a plugin dir"; fi
 else
   echo "(skip manifest validity: $YQ4_SKIP)"
-fi
-
-# --- SKILL §2a' dispatch tier table vs the contract: the table is the OPERATIVE
-#     tier carrier on Claude Code (the router passes model/effort explicitly at
-#     dispatch — registered agent model: does not reliably bind), so it must agree
-#     with agents.yaml. The researcher rows are dispatch FLAVORS: the sweep row is
-#     the tier baseline (economy), judgment/troubleshooter are documented
-#     escalations — so researcher pins to its sweep row, everyone else exactly.
-if have_yq4; then
-  AGY="$SK/skills/orchestrate/references/agents.yaml"
-  SKM="$SK/skills/orchestrate/SKILL.md"
-  cc_tier_model() { case "$1" in economy) echo haiku;; standard) echo sonnet;; premium) echo opus;; esac; }
-  row_for() { grep -E "^\| *$1 *\|" "$SKM" | head -1; }
-  # The tier column is relative with today's concrete model in parens — "T-1 (opus)",
-  # "floor (haiku)" — so the cross-check reads the parenthesized model.
-  cell_model() { m="$(printf '%s' "$1" | awk -F'|' '{gsub(/ /,"",$3); print $3}')"
-    case "$m" in *\(*\)*) m="${m#*\(}"; m="${m%%\)*}";; esac; printf '%s' "$m"; }
-  for p in planner implementer actuator verifier; do
-    want_m="$(cc_tier_model "$(yq ".personas.$p.tier.model" "$AGY")")"
-    want_e="$(yq ".personas.$p.tier.effort" "$AGY")"
-    row="$(row_for "$p")"
-    got_m="$(cell_model "$row")"
-    got_e="$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$4); print $4}')"
-    assert_eq "$got_m" "$want_m" "SKILL §2a' model for $p tracks agents.yaml"
-    assert_eq "$got_e" "$want_e" "SKILL §2a' effort for $p tracks agents.yaml"
-  done
-  base_row="$(grep -E '^\| *researcher — sweep' "$SKM" | head -1)"
-  want_m="$(cc_tier_model "$(yq '.personas.researcher.tier.model' "$AGY")")"
-  got_m="$(cell_model "$base_row")"
-  assert_eq "$got_m" "$want_m" "SKILL §2a' researcher baseline (sweep) tracks agents.yaml tier"
-else
-  echo "(skip §2a' tier-table parity: $YQ4_SKIP)"
 fi
 
 # --- Clarification binding (§2b front-door gate): the router-prose config that binds

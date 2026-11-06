@@ -1,10 +1,11 @@
 ---
 name: implementer
-description: The single writer for coupled code (write + run + git). Builds one task from the signed spec. No external intake.
+description: Builds one task from the signed spec in its own worktree (write + run + git). No external intake.
 tools: Read,Grep,Glob,Write,Edit,Bash
 model: sonnet
 effort: high
 color: green
+isolation: worktree
 ---
 
 

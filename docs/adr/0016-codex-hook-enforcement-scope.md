@@ -110,3 +110,5 @@ subagent tool calls, retains the stronger per-persona hook floor.
 ## Status
 
 active
+
+_Status: superseded by 0040_

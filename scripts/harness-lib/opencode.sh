@@ -8,7 +8,7 @@ oc_tools() { local p="$1" read web write run rd=false gp=false gl=false wf=false
   read="$(p_cap "$p" read)"; web="$(p_cap "$p" web)"
   write="$(p_cap "$p" write)"; run="$(p_cap "$p" run)"
   [ "$read" = true ] && { rd=true; gp=true; gl=true; }; [ "$web" = true ] && wf=true
-  case "$write" in full) wr=true; ed=true;; spec-only|results-only) wr=true;; esac   # results-only: scoped Write, no Edit (ADR-0014); write-scope hook confines the path
+  case "$write" in full) wr=true; ed=true;; results|spec-only|results-only) wr=true;; esac   # results-only: scoped Write, no Edit (ADR-0014); write-scope hook confines the path
   case "$run" in full|tests-only) bash=true;; esac
   printf 'tools:\n  read: %s\n  grep: %s\n  glob: %s\n  webfetch: %s\n  write: %s\n  edit: %s\n  bash: %s\n' "$rd" "$gp" "$gl" "$wf" "$wr" "$ed" "$bash"
   printf 'permission:\n  edit: %s\n  bash: %s\n  webfetch: %s\n' \
