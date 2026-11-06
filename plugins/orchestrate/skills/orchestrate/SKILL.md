@@ -74,7 +74,11 @@ Run these in order on every invocation:
 5. **Drive lanes.** Dispatch, read results from disk, route, count retries with
    `ledger.sh retries <ticket>`. When a writer has been out about 20 minutes,
    give the operator one line from its commits ahead of the base.
-6. **Verify** every T1 and T2 change with an outcome-mode verifier.
+6. **Verify** every T1 and T2 change with an outcome-mode verifier. When the
+   change is itself instructions (a skill, a persona brief, a hook message, an
+   agent definition, operator preferences), dispatch three verifiers with one
+   lens each: act (what an agent would do with it), fit (the rules around it),
+   break (what defeats it); after fixes, one verifier re-checks only the fixes.
 7. **Land**, then `ledger.sh done <ticket>`. In a long session, a closed lane
    on a quiet board is the cheapest compaction point: tell the operator "clean
    boundary: good time for `/compact keep the goal and open lanes; the board on

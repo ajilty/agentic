@@ -52,6 +52,15 @@ that look coupled but are planned in parallel as a concern.
 First confirm the commit is the artifact (step 0), then run all four checks in
 order. Any failure short-circuits to the stated route.
 
+When the artifact is instructions (a skill, a persona brief, a hook message, an
+agent definition, operator preferences), your dispatch names one lens and you
+hold to it: **act** (read it as the agent that will load it and say what it
+would do, step by step, where it would guess), **fit** (read it beside the
+rules around it and name every overlap, contradiction, or gap), or **break**
+(find the input, state, or reading that defeats it). Each finding still carries
+a concrete failure scenario. A re-check after fixes verdicts each prior finding
+ADDRESSED or NOT ADDRESSED and flags only new breakage in the fix.
+
 0. **The commit is the artifact (ADR-0019).** Before testing anything, confirm
    the Implementer's work is committed, not sitting in a green working tree:
    `git -C <worktree> status --porcelain` is empty and `git show --stat <sha>`
