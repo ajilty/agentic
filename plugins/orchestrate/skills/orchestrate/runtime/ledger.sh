@@ -6,6 +6,7 @@
 #   ledger.sh append '<json-object>'   # one event line (write-ahead before dispatch)
 #   ledger.sh retries <ticket>         # COUNT of outcome REJECTED verdict rows (one per round; no-loop budget, derived)
 #   ledger.sh reground                 # reconstruct open lanes; reconcile vs this run's git worktrees
+#                                       # first archives run-state files no current version reads (0.8.x leases/, active-writer.json)
 #                                       # exit 0 = report (act on it), exit 3 = lane worktree the board lost -> HALT
 #   ledger.sh goal <note> [spec] [base] [main_model]  # journal the run-level goal (ADR-0020)
 # Runs under bash 3.2 (macOS /bin/bash): no associative arrays.
@@ -146,6 +147,27 @@ case "$cmd" in
     exit 1 ;;
 
   reground)
+    # Legacy run state: 0.8.x kept a writer lease and target leases on disk. Nothing reads
+    # them since 0.9.0, but a leftover copy reads to a human or an agent as a live
+    # single-writer limit (measured 2026-11-06). Archive, never delete, and say so once.
+    # Never a failure path: an unwritable run dir or a second session that already
+    # moved the files leaves reground's report intact (a non-zero exit here would
+    # read as a HALT after compaction). Only the mover announces.
+    legacy=""
+    for f in active-writer.json leases "$ROOT"/tickets/*/lease "$ROOT"/tickets/*/ack-*; do
+      case "$f" in "$ROOT"/*) [ -e "$f" ] && legacy="$legacy ${f#"$ROOT/"}" ;; *) [ -e "$ROOT/$f" ] && legacy="$legacy $f" ;; esac
+    done
+    if [ -n "$legacy" ]; then
+      dest="$ROOT/legacy/$(date -u +%Y%m%dT%H%M%SZ)"; moved=""
+      if mkdir -p "$dest" 2>/dev/null; then
+        for f in $legacy; do
+          case "$f" in */*) mkdir -p "$dest/${f%/*}" 2>/dev/null || continue ;; esac
+          mv "$ROOT/$f" "$dest/$f" 2>/dev/null && moved="$moved $f"
+        done
+      fi
+      [ -n "$moved" ] && echo "LEGACY STATE: moved${moved} to ${dest#"$_base"} (written by orchestrate 0.8.x; no current version reads them, so they carry no writer limit; delete the folder when convenient)"
+      rmdir "$dest" 2>/dev/null || true
+    fi
     # bash 3.2 safe (macOS /bin/bash): no associative arrays. One awk pass over the board
     # prints a T row per ticket (has-dispatched flag + its last lane event) and a B row per
     # branch the board names; the worktree scan then judges only trees this run knows.

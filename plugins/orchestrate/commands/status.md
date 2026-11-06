@@ -6,7 +6,8 @@ description: "Operator status update: glanceable, zoomed-out to detail, surfaces
 
 Give the **operator** a re-entry status update for the current orchestrate run, read **only
 from durable disk state** so it survives a context switch or compaction. Do not rely on
-conversation memory. This is a **read-only projection: write nothing** (no `STATUS.md`).
+conversation memory. This is a **read-only projection: write nothing** (no `STATUS.md`; the one exception is
+reground's own archive of 0.8.x run state, which it announces).
 
 Gather, keeping raw output OUT of your reply (glance, don't dump):
 

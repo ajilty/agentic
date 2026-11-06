@@ -40,7 +40,7 @@ fi
 cap=9500
 room=$(( cap - ${#head} - ${#halt} - 2 ))
 if [ "${#board}" -gt "$room" ]; then
-  sre='^(GOAL:|board:|OTHER WORKTREES|REGROUND:)'; wre='^(OPEN WRITER|DIRTY WORKTREE|OPEN LANE)'
+  sre='^(GOAL:|board:|OTHER WORKTREES|REGROUND:|LEGACY STATE:)'; wre='^(OPEN WRITER|DIRTY WORKTREE|OPEN LANE)'
   summ="$(printf '%s\n' "$board" | grep -E "$sre" || true)"
   wl="$(printf '%s\n' "$board" | grep -E "$wre" || true)"
   rl="$(printf '%s\n' "$board" | grep -vE "$sre" | grep -vE "$wre" || true)"

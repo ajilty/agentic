@@ -48,6 +48,12 @@ ignored, and nothing writes them any more. A 0.8.x lane left open (last event
 `dispatched` with a `branch`) closes when you append its `returned` from what is
 on disk, or `ledger.sh done` once it has landed.
 
+0.8.x also kept run state outside the board: `active-writer.json` (the single
+writer's lease), `leases/` (target leases), and per-ticket `lease` and `ack-*`
+files. No current version reads them, and a leftover copy is not a writer limit. Reground moves them into
+`.agents/runs/orchestrate/legacy/<timestamp>/` and prints a `LEGACY STATE:` line
+the first time it sees them; tell the operator, and delete the folder whenever.
+
 ## Derived, never held
 
 The retry budget is **counted from the ledger at each decision**
