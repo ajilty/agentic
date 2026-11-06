@@ -7,7 +7,7 @@
 # when the ROUTER dispatches a writer. The dispatched persona arrives as
 # tool_input.subagent_type (the parent's own agent_type is null); Codex/OpenCode wire
 # it to their subagent-start event, where the persona is agent_type / PERSONA env.
-# The router writes active-writer.json before dispatch (ADR-0006), so the ticket/branch/
+# The router writes active-writer.<persona>.json before dispatch (ADR-0006/0039), so the ticket/branch/
 # targets are on disk when this fires. As a PreToolUse hook it must NEVER block the
 # dispatch: ledger side-effects only, ALWAYS exit 0 — never decision JSON, never aborts.
 set -uo pipefail

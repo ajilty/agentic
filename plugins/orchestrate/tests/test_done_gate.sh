@@ -33,6 +33,14 @@ bash "$R" done T3 >/dev/null 2>&1
 assert_eq "$?" "0" "T0 without a verdict -> done allowed (oracle is the check)"
 cd /; rm -rf "$d"
 
+# 3b) field order does not matter: a verdict journaled event-first still counts
+d="$(mktemp_repo)"; cd "$d"
+bash "$R" append '{"event":"intake","ticket":"T3b","tier":"T2"}'
+bash "$R" append '{"event":"verdict","ticket":"T3b","verdict":"APPROVED"}'
+bash "$R" done T3b >/dev/null 2>&1
+assert_eq "$?" "0" "event-first verdict row satisfies the done gate"
+cd /; rm -rf "$d"
+
 # 4) UNKNOWN tier (no intake) without a verdict -> fail-closed REFUSE
 d="$(mktemp_repo)"; cd "$d"
 bash "$R" done T4 >/dev/null 2>&1

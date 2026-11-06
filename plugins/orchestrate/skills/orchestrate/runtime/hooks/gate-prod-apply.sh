@@ -6,8 +6,8 @@
 # Input source: persona from Claude Code's stdin JSON (agent_type), env fallback.
 # Contract: ALLOW = exit 0 no stdout; DENY = journal gate-blocked + stderr + exit 2.
 #
-# Per-dispatch context (TICKET, PROD_TARGETS) comes from env (Codex/OpenCode) or,
-# under CC, from the router's on-disk ACTUATOR record (ADR-0006; one record per
+# Per-dispatch context (TICKET, PROD_TARGETS) comes from env when a launcher passes
+# both, else from the router's on-disk ACTUATOR record (ADR-0006; one record per
 # persona, ADR-0039, so a builder lane can never blank or retarget it). FAIL CLOSED:
 # an actuator with no ticket from either source is unregistered and is denied on
 # every command; the router registers it with `ledger.sh writer-ctx set <ticket>
@@ -22,8 +22,12 @@ persona="${persona##*:}"   # strip plugin namespace: CC sends agent_type as <plu
 [ "$persona" = actuator ] || exit 0
 # per-dispatch context: env (Codex/OpenCode) first, else the on-disk active-writer
 # record the router wrote at dispatch (ADR-0006 — CC passes no router env to hooks).
-t="${TICKET:-$(bash "$RT/ledger.sh" writer-ctx get actuator ticket)}"; ts="$(date -u +%FT%TZ)"
-pts="${PROD_TARGETS:-$(bash "$RT/ledger.sh" writer-ctx get actuator prod_targets)}"
+ts="$(date -u +%FT%TZ)"
+# Env counts as registration only when a launcher passes BOTH TICKET and PROD_TARGETS
+# (PROD_TARGETS may be empty = declared safe). A lone TICKET inherited from the
+# operator's shell (ticket tooling uses that name) must not arm an empty target list.
+if [ -n "${TICKET:-}" ] && [ -n "${PROD_TARGETS+x}" ]; then t="$TICKET"; pts="$PROD_TARGETS"
+else t="$(bash "$RT/ledger.sh" writer-ctx get actuator ticket)"; pts="$(bash "$RT/ledger.sh" writer-ctx get actuator prod_targets)"; fi
 if [ -z "$t" ]; then
   bash "$RT/ledger.sh" append "{\"ts\":\"$ts\",\"ticket\":\"\",\"event\":\"gate-blocked\",\"persona\":\"actuator\",\"key\":\"unregistered\"}"
   echo "orchestrate: pre-apply gate — actuator has no active-writer record (register: ledger.sh writer-ctx set <ticket> actuator <branch> [prod...])" >&2; exit 2

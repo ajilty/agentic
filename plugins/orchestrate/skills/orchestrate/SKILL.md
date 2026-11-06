@@ -745,13 +745,15 @@ Distinct from intake clarification (§2b): that gates on *ambiguity*; this gates
   action and the already-reviewed diff. On ack it records `ledger.sh ack <ticket>
   <key>`; on lane close it runs `ledger.sh writer-ctx clear actuator`. The hooks
   read this record because **CC passes no router env to subagent hooks**
-  (ADR-0006); env is the Codex/OpenCode fallback. **Records are per persona**
+  (ADR-0006); a launcher that passes both `TICKET` and `PROD_TARGETS` in env
+  takes precedence (none of the shipped launchers do). **Records are per persona**
   (`active-writer.<persona>.json`, ADR-0039): the Implementer's record carries
   `assigned_branch` for the branch-guard (§9b) and a builder's `set`/`clear`
   never touches the actuator's. **The gate fails closed:** an Actuator with no
   record (and no env) is denied on every command, so a forgotten `set` stalls
   the lane instead of running ungated. A registered Actuator whose record lists
-  no prod targets is declared safe and runs freely.
+  no prod targets is declared safe and runs freely. `ledger.sh done <ticket>`
+  also retires that ticket's records, so an acked record cannot outlive its lane.
 - **Scope, stated plainly:** the gate sees only Actuator *subagents*. An apply
   the router runs inline in its own shell is never gated by this hook; its only
   controls are the operator's go-ahead and whatever CI the repo has. Route a

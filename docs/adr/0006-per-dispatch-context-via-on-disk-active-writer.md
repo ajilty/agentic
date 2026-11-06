@@ -10,7 +10,8 @@ gate/branch hooks no-op under CC (held-out + capability allowlists still hold).
 **Decision.** The router writes an on-disk **active-writer record** —
 `.agents/runs/orchestrate/active-writer.json` `{ticket, persona, prod_targets,
 assigned_branch, ts}` — immediately before dispatching a writer, and clears it on
-lane close. The hooks read it (env stays the Codex/OpenCode fallback). This is
+lane close. *(Since ADR-0039 the file is per persona:
+`active-writer.<persona>.json`.)* The hooks read it (env stays the Codex/OpenCode fallback). This is
 "disk is the source of truth" applied to the hook layer: per-dispatch context
 travels through a durable artifact, not env.
 

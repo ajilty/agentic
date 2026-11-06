@@ -17,6 +17,17 @@ bash "$RT/ledger.sh" writer-ctx get ticket >/dev/null 2>&1; rc=$?
 assert_eq "$rc" "64" "writer-ctx get without a persona is a usage error"
 bash "$RT/ledger.sh" writer-ctx clear actuator
 assert_no_file "$AW/active-writer.actuator.json"
+# persona names are normalized like the hooks do, and only the two writers are accepted
+bash "$RT/ledger.sh" writer-ctx set T7n orchestrate:actuator "" 'tfstate:prod/n'
+assert_file "$AW/active-writer.actuator.json"
+assert_eq "$(bash "$RT/ledger.sh" writer-ctx get orchestrate:actuator ticket)" "T7n" "namespaced persona reads the same record"
+bash "$RT/ledger.sh" writer-ctx clear orchestrate:actuator
+assert_no_file "$AW/active-writer.actuator.json"
+bash "$RT/ledger.sh" writer-ctx set T7x planner "" >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "64" "a non-writer persona is refused"
+bash "$RT/ledger.sh" writer-ctx set T7x ../escape "" >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "64" "a path-shaped persona is refused"
+[ -z "$(ls "$AW" | grep -v '^board.jsonl$\|^tickets$\|^leases$' )" ] && pass || fail "refused persona left no stray file: $(ls "$AW")"
 
 # --- gate ENFORCES from the actuator record with NO per-dispatch env (the CC scenario) ---
 bash "$RT/ledger.sh" writer-ctx set T7 actuator "" 'tfstate:prod/db'
@@ -88,6 +99,18 @@ bash "$RT/ledger.sh" writer-ctx set TA actuator "" 'a:1'
 bash "$RT/ledger.sh" writer-ctx set TB actuator "" 'b:2'
 assert_eq "$(bash "$RT/ledger.sh" writer-ctx get actuator ticket)" "TB" "writer-ctx set overwrites prior record (ticket)"
 assert_eq "$(bash "$RT/ledger.sh" writer-ctx get actuator prod_targets)" "b:2" "writer-ctx set overwrites prior record (targets)"
+bash "$RT/ledger.sh" writer-ctx clear
+
+# --- lane close retires that ticket's records only ---
+bash "$RT/ledger.sh" writer-ctx set TD actuator "" 'tfstate:prod/d'
+bash "$RT/ledger.sh" ack TD 'tfstate:prod/d'
+bash "$RT/ledger.sh" writer-ctx set TE implementer br-e
+bash "$RT/ledger.sh" append '{"ticket":"TD","event":"intake","tier":"T0"}'
+bash "$RT/ledger.sh" done TD >/dev/null 2>&1
+assert_no_file "$AW/active-writer.actuator.json"
+assert_file "$AW/active-writer.implementer.json"
+PERSONA=actuator bash "$GATE" >/dev/null 2>&1; rc=$?
+assert_eq "$rc" "2" "after lane close an acked record no longer arms the next actuator"
 bash "$RT/ledger.sh" writer-ctx clear
 
 # --- bare clear removes every persona record and the legacy file ---

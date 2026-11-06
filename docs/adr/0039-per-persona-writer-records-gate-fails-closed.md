@@ -24,8 +24,13 @@ anywhere in that repo's run history, so the gate had in practice never engaged.
    `on-writer-dispatch.sh` the record of the persona being dispatched.
 2. The gate fails closed: an Actuator whose ticket resolves from neither env nor
    its own record is denied on every command and journals `gate-blocked` with
-   `key=unregistered`. A registered Actuator with no prod targets is declared
-   safe and runs freely, which keeps "absent" and "safe" distinguishable.
+   `key=unregistered`. Env counts only when a launcher passes `TICKET` and
+   `PROD_TARGETS` together, so a ticket variable inherited from the operator's
+   shell cannot arm an empty target list. A registered Actuator with no prod
+   targets is declared safe and runs freely, which keeps "absent" and "safe"
+   distinguishable. `ledger.sh done <ticket>` retires that ticket's records.
+   The persona is normalized (`orchestrate:actuator` is `actuator`) and must be
+   `implementer` or `actuator`; anything else is a usage error, never a stray file.
 3. The legacy `active-writer.json` is never read as context. `reground` HALTs on
    it, as on any per-persona record, so an upgrade mid-run cannot drop a writer.
 4. The Implementer is registered too, immediately before its dispatch, and the
@@ -58,9 +63,14 @@ dispatched persona's record).
 - A builder lane can no longer blank or retarget the Actuator's gate context,
   and the Actuator's record cannot deny a builder's commit.
 - A skipped `writer-ctx set … actuator` now stalls the Actuator on its first
-  command instead of running it ungated. On Codex and OpenCode, whose launchers
-  pass no `TICKET`/`PROD_TARGETS` env, registration is the only way the gate
-  arms; an Actuator denied on everything means the step was skipped.
+  command instead of running it ungated. The shipped launchers pass no
+  `TICKET`/`PROD_TARGETS` env, so registration is the only way the gate arms on
+  any harness where it fires (Codex personas run as top-level `codex exec` with
+  the hook floor, ADR-0017; OpenCode is unverified); an Actuator denied on
+  everything means the step was skipped.
+- The second builder collision is not fixed in code: two registered builders
+  still share one record. The skill rule (run registered builders one at a
+  time) is the control until records are per ticket.
 - Two registered builders still share one record (KNOWN-LIMITATIONS); the skill
   tells the router to run registered builders one at a time.
 - The gate still sees only Actuator subagents. An apply the router runs inline is

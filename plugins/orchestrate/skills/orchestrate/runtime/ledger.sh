@@ -283,8 +283,10 @@ case "$cmd" in
               # so the gate makes a ship without a Verifier impossible, not just discouraged.
     tk="${1:?ticket}"; mkdir -p "$ROOT"; tier=""; hv=0
     if [ -f "$LEDGER" ]; then
-      tier="$(grep "\"ticket\":\"$tk\".*\"event\":\"intake\"" "$LEDGER" 2>/dev/null | sed -n 's/.*"tier":"\([^"]*\)".*/\1/p' | tail -1 || true)"
-      grep -q "\"ticket\":\"$tk\".*\"event\":\"verdict\"" "$LEDGER" 2>/dev/null && hv=1 || true
+      # match the ticket and the event as separate fields: JSON field order is not
+      # fixed (a verdict journaled event-first was refused as missing, 2026-11-06)
+      tier="$(grep "\"ticket\":\"$tk\"" "$LEDGER" 2>/dev/null | grep '"event":"intake"' | sed -n 's/.*"tier":"\([^"]*\)".*/\1/p' | tail -1 || true)"
+      grep "\"ticket\":\"$tk\"" "$LEDGER" 2>/dev/null | grep -q '"event":"verdict"' && hv=1 || true
     fi
     case "$tier" in
       T0*|t0*) ;;   # T0 baseline lane: the acceptance oracle is the check, no Verifier
@@ -293,7 +295,13 @@ case "$cmd" in
            exit 3
          fi ;;
     esac
-    printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER" ;;
+    printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER"
+    # Lane close retires this ticket's writer records (ADR-0039), so a forgotten
+    # `writer-ctx clear actuator` cannot leave an already-acked prod context armed
+    # for the next dispatch. Other tickets' records are untouched.
+    for awf in "$ROOT"/active-writer.*.json; do
+      [ -f "$awf" ] && [ "$(sed -n 's/^ticket=//p' "$awf")" = "$tk" ] && rm -f "$awf"
+    done; true ;;
 
   writer-ctx)  # per-dispatch enforcement context (ADR-0006): the router writes this
                # BEFORE dispatching a writer; the hooks read it (CC passes no router
@@ -303,17 +311,22 @@ case "$cmd" in
                # Each hook reads only its own persona's file. The pre-0.8.29 single
                # slot (active-writer.json) is never read; reground HALTs on it.
     sub="${1:-}"; shift || true
+    # The persona names the file, so normalize it the way the hooks do (strip a
+    # plugin namespace such as orchestrate:actuator) and accept only the two
+    # writer personas; anything else is a usage error, never a stray file.
+    wpers(){ local p="${1##*:}"; case "$p" in implementer|actuator) printf '%s' "$p" ;;
+             *) echo "writer-ctx: persona must be implementer or actuator (got '${1:-}')" >&2; return 64 ;; esac; }
     case "$sub" in
       set)   # set <ticket> <persona> <assigned_branch> [prod_target...]
-        wt="${1:?ticket}"; wp="${2:?persona}"; wb="${3:-}"; pt="${*:4}"; mkdir -p "$ROOT"
+        wt="${1:?ticket}"; wp="$(wpers "${2:-}")" || exit 64; wb="${3:-}"; pt="${*:4}"; mkdir -p "$ROOT"
         printf 'ticket=%s\npersona=%s\nassigned_branch=%s\nprod_targets=%s\nts=%s\n' \
           "$wt" "$wp" "$wb" "$pt" "$(date -u +%FT%TZ)" > "$ROOT/active-writer.$wp.json" ;;
       get)   # get <persona> <key>  (empty output when that persona has no record)
-        wp="${1:-}"; k="${2:-}"
-        [ -n "$wp" ] && [ -n "$k" ] || { echo "usage: ledger.sh writer-ctx get <persona> <key>" >&2; exit 64; }
+        k="${2:-}"; [ -n "${1:-}" ] && [ -n "$k" ] || { echo "usage: ledger.sh writer-ctx get <persona> <key>" >&2; exit 64; }
+        wp="$(wpers "$1")" || exit 64
         f="$ROOT/active-writer.$wp.json"; [ -f "$f" ] || exit 0; sed -n "s/^$k=//p" "$f" ;;
       clear) # clear [persona]  (no persona: every persona record plus the legacy slot)
-        if [ -n "${1:-}" ]; then rm -f "$ROOT/active-writer.$1.json"
+        if [ -n "${1:-}" ]; then wp="$(wpers "$1")" || exit 64; rm -f "$ROOT/active-writer.$wp.json"
         else rm -f "$ROOT"/active-writer.*.json "$ROOT/active-writer.json"; fi ;;
       *) echo "usage: ledger.sh writer-ctx set <ticket> <persona> <branch> [prod...] | get <persona> <key> | clear [persona]" >&2; exit 64 ;;
     esac ;;

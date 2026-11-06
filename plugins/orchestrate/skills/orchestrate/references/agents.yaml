@@ -95,8 +95,10 @@ hooks:
     intent: >-
       Pre-apply consequence gate (SKILL §6b), the hard floor: deny the actuator's
       commands while any prod-level mutation target (PROD_TARGETS — undeclared/
-      unknown -> prod, fail-closed) lacks an operator ack. The ledger half lives in
-      on-writer-dispatch.sh, which leaves no dispatched/lease trace when unacked.
+      unknown -> prod, fail-closed) lacks an operator ack, and deny an actuator that
+      has no per-dispatch context at all (no actuator record, no env: ADR-0039).
+      The ledger half lives in on-writer-dispatch.sh, which leaves no
+      dispatched/lease trace when unacked.
     fail_closed: true
   run_scope:
     script: run-scope.sh

@@ -132,7 +132,7 @@ if command -v jq >/dev/null 2>&1; then
     | bash "$RT/gate-prod-apply.sh" >/dev/null 2>&1; rc=$?
   assert_eq "$rc" "2" "gate: detects actuator via stdin; unregistered (no record, no env) -> deny"
   printf '{"agent_type":"actuator","tool_input":{"command":"terraform apply"}}' \
-    | TICKET=T0 bash "$RT/gate-prod-apply.sh" >/dev/null 2>&1; rc=$?
+    | TICKET=T0 PROD_TARGETS= bash "$RT/gate-prod-apply.sh" >/dev/null 2>&1; rc=$?
   assert_eq "$rc" "0" "gate: detects actuator via stdin; registered with no prod targets -> allow"
   printf '{"agent_type":"planner","tool_name":"Write","tool_input":{"file_path":"src/x.py"}}' \
     | bash "$RT/write-scope.sh" >/dev/null 2>&1; rc=$?

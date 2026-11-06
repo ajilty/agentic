@@ -9,9 +9,12 @@ grep -q '"event":"gate-blocked".*"key":"tfstate:prod/net"' .agents/runs/orchestr
 bash "$RT/ledger.sh" ack T1 'tfstate:prod/net'
 PERSONA=actuator TICKET=T1 PROD_TARGETS='tfstate:prod/net' bash "$GATE" >/dev/null 2>&1
 assert_eq "$?" "0" "acked prod target -> gate allows"
-# no prod targets declared -> allow
-PERSONA=actuator TICKET=T2 bash "$GATE" >/dev/null 2>&1
+# registered via env with no prod targets declared -> allow
+PERSONA=actuator TICKET=T2 PROD_TARGETS= bash "$GATE" >/dev/null 2>&1
 assert_eq "$?" "0" "no prod targets -> gate allows"
+# a lone TICKET env (no PROD_TARGETS, no record) is not registration -> deny
+PERSONA=actuator TICKET=JIRA-1 bash "$GATE" >/dev/null 2>&1
+assert_eq "$?" "2" "TICKET env without PROD_TARGETS does not arm an empty target list"
 # non-actuator persona -> no-op allow
 PERSONA=researcher TICKET=T3 PROD_TARGETS='tfstate:prod/net' bash "$GATE" >/dev/null 2>&1
 assert_eq "$?" "0" "non-actuator -> gate no-op"
