@@ -165,7 +165,7 @@ Several hooks were compensation for bugs that no longer exist.
 
 ### Prose (the product)
 
-- `skills/orchestrate/SKILL.md`: a router brief under 300 lines. Keep: trust model,
+- `skills/orchestrate/SKILL.md`: a router brief as short as the decisions allow (365 lines at 0.9.0, from 996). Keep: trust model,
   the loop (reground, intake, clarify, right-size, drive lanes, verify, land,
   feedback), routing tables, right-sizing tiers, context economy, quarantine, ledger
   vocabulary pointer, judgment memory. Rewrite in directive voice. Remove: every

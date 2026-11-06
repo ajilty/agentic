@@ -63,8 +63,9 @@ every line it prints:
 1. **Ledger intent**, by each ticket's last event; a `done` (or a closed
    `lane`) lane is not listed.
    - `OPEN WRITER ... persona=implementer branch=unknown`: dispatched, no
-     `returned`; in flight or crashed. Before any re-dispatch, look for a
-     worktree whose branch no `returned` row names: it may hold this writer's
+     `returned`; in flight or crashed. Before any re-dispatch, match each
+     unclaimed worktree by this ticket's id in its commit subjects (`git -C
+     <path> log --oneline origin/<base>..HEAD`): a match may hold this writer's
      commits, so adopt them (journal `returned`) or ask the operator.
    - `OPEN WRITER ... persona=actuator`: in flight or crashed. Never re-dispatch
      an actuator without confirming with the operator; it is never a re-dispatch
@@ -86,7 +87,10 @@ every line it prints:
    - `DIRTY WORKTREE ... in flight or crashed; confirm before re-dispatch`: a
      lane of this run with uncommitted work and a `dispatched` row.
    - `DIRTY WORKTREE ... no dispatched row`: uncommitted work in a lane the
-     ledger lost. This is the only HALT (exit 3).
+     ledger lost. A HALT (exit 3).
+   - `UNJOURNALED WRITER`: a dirty `worktree-agent-*` tree (orchestrate's own
+     naming) that no board row names. HALT (exit 3); reconcile before
+     dispatching. Harness-named `worktree-*` trees stay in `OTHER WORKTREES`.
    - `TELEMETRY RESIDUE`: a tree dirty only with `board.jsonl`, in any
      worktree; reported, safe to discard.
 

@@ -176,7 +176,7 @@ case "$cmd" in
               echo "OPEN WRITER   ticket=$t persona=actuator -> in flight or crashed; never re-dispatch an actuator without confirming with the operator" ;;
             implementer)
               if [ -z "$branch" ]; then
-                echo "OPEN WRITER   ticket=$t persona=implementer branch=unknown -> in flight or crashed; before any re-dispatch, look for a worktree whose branch no returned row names: if one exists it may hold this writer's commits (adopt them, or ask the operator)"
+                echo "OPEN WRITER   ticket=$t persona=implementer branch=unknown -> in flight or crashed; before any re-dispatch, match each unclaimed worktree by this ticket id in its commit subjects (git -C <path> log --oneline origin/<base>..HEAD): a match may hold this writer's commits (adopt them, or ask the operator)"
               elif git rev-parse --verify -q "$branch" >/dev/null 2>&1; then
                 echo "OPEN WRITER   ticket=$t persona=implementer branch=$branch -> in flight or crashed; reconcile that branch before any re-dispatch"
               else
@@ -237,6 +237,13 @@ case "$cmd" in
         # worktree's own board copy), not writer work, in any tree: report, never halt.
         if [ -n "$dirt" ] && [ -z "$(printf '%s\n' "$dirt" | grep -v '\.agents/runs/orchestrate/board\.jsonl$' || true)" ]; then
           echo "TELEMETRY RESIDUE $wt ($br) -> board.jsonl-only dirt, not writer work; safe to discard"; printed=1; continue
+        fi
+        # orchestrate's own lane naming (worktree-agent-*) that no board row names, with
+        # uncommitted work: the ledger lost a writer. HALT; harness-named worktree-* trees stay "other".
+        if [ -z "$kt" ] && [ -n "$dirt" ]; then
+          case "$br" in
+            worktree-agent-*) echo "UNJOURNALED WRITER $wt ($br) -> orchestrate-named tree with no ledger row; reconcile before dispatching"; printed=1; ambiguous=1; continue ;;
+          esac
         fi
         [ -n "$kt" ] || { other=$((other + 1)); continue; }
         [ -n "$dirt" ] || continue

@@ -9,7 +9,7 @@ R="$HERE/../skills/orchestrate/runtime"
 d="$(mktemp -d)"; ( cd "$d" && git init -q && git config user.email t@t && git config user.name t
   mkdir -p .agents/runs/orchestrate && echo '{"event":"goal","note":"g"}' > .agents/runs/orchestrate/board.jsonl
   git add -A && git commit -qm init
-  git worktree add -q -b worktree-agent-T1-implementer .agents/worktrees/T1-implementer HEAD )
+  git worktree add -q -b worktree-session-T1-implementer .agents/worktrees/T1-implementer HEAD )
 wt="$d/.agents/worktrees/T1-implementer"
 
 # 1) append from INSIDE the worktree lands in the ROOT board; worktree stays clean
@@ -57,5 +57,16 @@ case "$out" in *"OTHER WORKTREES (not this run): 1"*) pass;; *) fail "session wo
 out="$(cd "$d" && bash "$R/ledger.sh" reground 2>&1)"; rc=$?
 case "$out" in *"DIRTY WORKTREE"*"worktree-native"*"ticket=T2"*) pass;; *) fail "returned-row branch makes the tree a lane ($out)";; esac
 case "$out" in *"OPEN LANE     ticket=T2 last=returned"*) pass;; *) fail "returned lane listed as awaiting its verdict ($out)";; esac
+
+# 5) an orchestrate-named tree (worktree-agent-*) that no board row names, dirty, is an
+#    unjournaled writer: HALT. The harness-named worktree-native above stays "other".
+git -C "$d" worktree add -q -b worktree-agent-ZZ-implementer .agents/worktrees/ZZ-implementer HEAD 2>/dev/null
+echo z > "$d/.agents/worktrees/ZZ-implementer/work.txt"
+out="$(cd "$d" && bash "$R/ledger.sh" reground 2>&1)"; rc=$?
+assert_eq "$rc" 3 "a dirty worktree-agent-* tree no row names HALTs reground"
+case "$out" in *"UNJOURNALED WRITER"*"worktree-agent-ZZ-implementer"*"orchestrate-named tree with no ledger row; reconcile before dispatching"*) pass;; *) fail "reground names the unjournaled writer ($out)";; esac
+rm -f "$d/.agents/worktrees/ZZ-implementer/work.txt"
+out="$(cd "$d" && bash "$R/ledger.sh" reground 2>&1)"
+case "$out" in *"UNJOURNALED"*) fail "a clean worktree-agent-* tree is not a writer ($out)";; *) pass;; esac
 
 rm -rf "$d"

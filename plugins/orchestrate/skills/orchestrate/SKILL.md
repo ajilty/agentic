@@ -55,8 +55,9 @@ Run these in order on every invocation:
 
 1. **Reground.** Run `ledger.sh reground` and act on every line as
    `references/resume.md` says. Never re-dispatch an actuator without asking
-   the operator, nor an implementer before looking for a worktree whose branch
-   no `returned` row names (adopt its commits, or ask). On a HALT, show the
+   the operator, nor an implementer before matching each unclaimed worktree to its ticket id
+   in the commit subjects (`git -C <path> log --oneline origin/<base>..HEAD`;
+   adopt a match, or ask). On a HALT, show the
    operator and dispatch nothing.
 2. **Intake and goal.** If the goal is non-code or a one-call fix, do it
    directly without the pipeline and journal nothing. Otherwise write the work
@@ -177,7 +178,10 @@ apply it. The actuator never runs in the operator's checkout: create a fresh
 worktree for it at the exact approved commit (the landed integration-base
 commit, or the lane's approved commit while its pull request is still open),
 `git worktree add --detach .agents/worktrees/<ticket>-apply <sha>`, dispatch it
-with that path and SHA, and remove the tree when it returns. Before an apply at
+with that path and SHA. The tree lives from the plan dispatch through the apply
+dispatch (the saved plan file stays in it between them); remove it after the
+apply lands or the operator declines, and a declined prod-ack also releases the
+target for the next lane. Before an apply at
 a `consequence: prod` target (untagged reads as `prod`), journal `fork` with
 `fork_id` `prod-ack:<target>`, show the operator the target, the commit, and
 the plan output, with your recommendation and the risk relative to today, ask,

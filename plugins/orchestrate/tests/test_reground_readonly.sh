@@ -32,6 +32,6 @@ r="$(mktemp_repo)"
 ( cd "$r" && git commit -qm init --allow-empty && bash "$HERE/../skills/orchestrate/runtime/ledger.sh" append '{"ticket":"W1","event":"dispatched","persona":"implementer","dispatch_id":"d1"}' >/dev/null 2>&1 )
 out="$(cd "$r" && bash "$HERE/../skills/orchestrate/runtime/ledger.sh" reground 2>&1)"; rc=$?
 assert_eq "$rc" "0" "reground: implementer dispatched with unknown branch is in flight, not a HALT"
-case "$out" in *"OPEN WRITER   ticket=W1 persona=implementer branch=unknown -> in flight or crashed; before any re-dispatch, look for a worktree whose branch no returned row names"*) pass;; *) fail "reground names the unknown-branch writer lane with the re-dispatch check: $out";; esac
+case "$out" in *"OPEN WRITER   ticket=W1 persona=implementer branch=unknown -> in flight or crashed; before any re-dispatch, match each unclaimed worktree by this ticket id in its commit subjects"*) pass;; *) fail "reground names the unknown-branch writer lane with the re-dispatch check: $out";; esac
 case "$out" in *HALT*) fail "unknown-branch writer must not print HALT";; *) pass;; esac
 rm -rf "$r"

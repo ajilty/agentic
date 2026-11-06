@@ -13,9 +13,12 @@
 # across the line: `cd [-L|-P|--] DIR`, `cd -`, `pushd DIR`, and `popd` move it, a
 # subshell's closing paren restores it, and `git -C DIR` overrides it for one statement;
 # it starts at the payload's cwd (ADR-0040), else $PWD. When a destructive verb is present
-# and that directory cannot be resolved (a variable, command substitution, glob, a target
-# that does not exist so the cd may fail, or `cd -`/`popd` with nothing before it), the
-# command is DENIED with that reason. jq is required for allow decisions: without it the
+# and that directory cannot be resolved (a variable, command substitution, glob,
+# or `cd -`/`popd` with nothing before it), the
+# command is DENIED with that reason. A cd target that does not exist yet is judged from its
+# nearest existing ancestor (and from the old directory, in case the cd fails). `git` is
+# recognised after wrapper words (nice, env, sudo, command, exec, time, with their options)
+# and when written as an absolute path ending in /git. jq is required for allow decisions: without it the
 # payload cannot be parsed, so any destructive verb in the raw input is DENIED.
 #
 # Out of scope (allowed here; the briefs, not this hook, cover them): `--git-dir`/
@@ -146,7 +149,13 @@ _res(){ local b="$1" t="$2"; R=""
     *) if [ -z "$b" ]; then why="the directory is relative to one that could not be resolved"; return 0; fi
        R="$b/$t" ;;
   esac
-  if [ ! -d "$R" ]; then why="'$t' does not exist, so the cd may fail and leave the shell where it was"; R=""; fi
+  # A target that does not exist yet (`mkdir -p d && cd d`): judge it from its nearest
+  # existing ancestor. altc remembers where the shell stays if the cd fails instead.
+  if [ ! -d "$R" ]; then
+    altc="$b"
+    while [ ! -d "$R" ] && [ "$R" != / ] && [ "$R" != . ] && [ -n "$R" ]; do R="$(dirname "$R")"; done
+    [ -d "$R" ] || R=""
+  fi
   return 0; }
 # Primary checkout test: in a linked worktree git-dir is .git/worktrees/<name> while
 # git-common-dir is .git, so they differ. Not a repo, or a missing dir, is not primary.
@@ -180,16 +189,25 @@ _git(){ local j="$1" n=${#tok[@]} t verb d=0 eff="$here"
   done
   [ "$d" = 1 ] || return 0
   if [ -z "$eff" ]; then unres="${why:-the directory could not be resolved}"; return 0; fi
-  if _primary "$eff"; then hit="$eff"; fi
+  if _primary "$eff"; then hit="$eff"
+  elif [ "$eff" = "$here" ] && [ -n "$altc" ] && _primary "$altc"; then hit="$altc"; fi
   return 0; }
 
 # _stmt: act on the statement held in tok[] (a directory change, or a git command).
 _stmt(){ local n=${#tok[@]} i=0 w a j
   [ "$n" -gt 0 ] || return 0
+  local wrap=""
   while [ "$i" -lt "$n" ]; do
     w="${tok[$i]#$D}"
     case "$w" in
-      [A-Za-z_]*=*|command|builtin|exec|nohup|time|env|sudo|do|then|else|elif|if|while|until|'{'|'!') i=$((i + 1)) ;;
+      nice|env|sudo|command|builtin|exec|nohup|time) wrap="$w"; i=$((i + 1)) ;;
+      [A-Za-z_]*=*|do|then|else|elif|if|while|until|'{'|'!') i=$((i + 1)) ;;
+      -*) [ -n "$wrap" ] || break
+        # options of a wrapper word; the ones that take a separate argument skip it too
+        case "$wrap:$w" in
+          nice:-n|env:-u|env:-C|env:-S|sudo:-u|sudo:-g|sudo:-C|sudo:-D|sudo:-h|sudo:-p|sudo:-r|sudo:-t|sudo:-U|sudo:-R|sudo:-T) i=$((i + 2)) ;;
+          *) i=$((i + 1)) ;;
+        esac ;;
       *) break ;;
     esac
   done
@@ -209,17 +227,17 @@ _stmt(){ local n=${#tok[@]} i=0 w a j
       if [ -z "$a" ]; then R="$HOME"
       elif [ "$a" = - ]; then
         if [ -n "$prev" ]; then R="$prev"; else R=""; why="cd - with no earlier directory in this command"; fi
-      else _res "$here" "$a"; fi
+      else altc=""; _res "$here" "$a"; fi
       prev="$here"; here="$R" ;;
     popd)
       prev="$here"
       if [ "${#dstack[@]}" -gt 0 ]; then here="${dstack[${#dstack[@]}-1]}"; unset 'dstack[${#dstack[@]}-1]'
       else here=""; why="popd with no pushd earlier in this command"; fi ;;
-    git) _git $((i + 1)) ;;
+    git|*/git) _git $((i + 1)) ;;
   esac
   return 0; }
 
-here="$cwd"; prev=""; why=""; hit=""; unres=""; R=""
+here="$cwd"; prev=""; why=""; hit=""; unres=""; R=""; altc=""
 stack=(); dstack=(); tok=()
 while IFS= read -r t; do
   case "$t" in

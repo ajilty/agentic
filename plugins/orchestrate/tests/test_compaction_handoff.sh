@@ -16,7 +16,7 @@ out="$(bash "$HOOK" 2>&1)"
 case "$out" in *AUTHORITATIVE*) pass;; *) fail "compaction injects an AUTHORITATIVE board for the new router";; esac
 case "$out" in *"OPEN WRITER"*T1*) pass;; *) fail "compaction reconstructs the open writer lane (seamless handoff)";; esac
 case "$out" in *"counted from disk"*) pass;; *) fail "handoff tells the new instance retry budgets are counted from disk, not memory";; esac
-case "$out" in *"whose branch no returned row names"*) pass;; *) fail "in-flight writer handed off with the re-dispatch check";; esac
+case "$out" in *"commit subjects"*) pass;; *) fail "in-flight writer handed off with the re-dispatch check";; esac
 case "$out" in *HALT*) fail "an in-flight writer with no branch must not inject HALT";; *) pass;; esac
 cd /; rm -rf "$d"
 
