@@ -163,7 +163,11 @@ Run these in order on every invocation:
   write results too: an implementer's last act is
   `tickets/<ticket>/results/<dispatch_id>.md` (status, branch, commit SHA, file
   list, open tags) ending with the sentinel, and an actuator writes its
-  captured plan or apply output to the same pattern via its shell. The
+  captured plan or apply output to the same pattern via its shell. Mint the
+  path absolute under the primary checkout's run dir; an isolated writer whose
+  harness refuses a write outside its worktree writes the same relative path
+  inside its own tree instead, so check both spellings before treating the
+  file as absent. The
   `returned` you append carries `branch` and SHA from that file, cross-checked
   with `git worktree list`. A handback in chat is a courtesy copy on every
   lane: completion is the file.

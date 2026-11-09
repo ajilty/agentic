@@ -69,11 +69,17 @@ every line it prints:
 1. **Ledger intent**, by each ticket's last event; a `done` (or a closed
    `lane`) lane is not listed.
    - `OPEN WRITER ... persona=implementer branch=unknown`: dispatched, no
-     `returned`; in flight or crashed. Before any re-dispatch, match each
+     `returned`; in flight or crashed. **Check the writer's result file first**:
+     `tickets/<ticket>/results/<dispatch_id>.md` ending with the completion
+     sentinel (in the run dir, else the same path inside the lane's worktree)
+     means the work finished and only the journal is behind — journal `returned`
+     from it and route. Only with no result file, match each
      unclaimed worktree by this ticket's id in its commit subjects (`git -C
      <path> log --oneline origin/<base>..HEAD`): a match may hold this writer's
      commits, so adopt them (journal `returned`) or ask the operator.
-   - `OPEN WRITER ... persona=actuator`: in flight or crashed. Never re-dispatch
+   - `OPEN WRITER ... persona=actuator`: in flight or crashed. Check its result
+     file the same way: a sentinel-complete file is the finished report, so
+     route it instead of waking the operator. Never re-dispatch
      an actuator without confirming with the operator; it is never a re-dispatch
      candidate.
    - `OPEN READONLY` / `READONLY DONE`: a researcher, planner, or verifier.
