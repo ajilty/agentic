@@ -354,34 +354,45 @@ case "$cmd" in
 
   page-check) # progress-page prose budgets (0.9.6; contract in references/status-page.html).
               # Reads the DATA block of a filled page and prints each field over budget;
-              # exit 1 if any. Pages grow into walls of text when each refresh extends the
-              # last one's prose; a deterministic count is the pushback a rule alone is not.
+              # exit 1 if any, exit 2 if it cannot find the fields at all (fail closed:
+              # an unparseable page is not a passing one). Pages grow into walls of text
+              # when each refresh extends the last one's prose; a deterministic count is
+              # the pushback a rule alone is not.
     f="${1:?page file}"; [ -f "$f" ] || { echo "page-check: no such file: $f" >&2; exit 2; }
     awk '
       function words(x,  n,a){ n=split(x,a,/[ \t]+/); return n - (a[1]=="") - (a[n]=="" && n>1) }
-      function sentences(x,  y,n){ y=x; n=gsub(/[.!?]( |$)/,"",y); return n ? n : 1 }
+      # A sentence ends at . ! or ? followed by a space and a capital, or at the end of
+      # the text; "e.g." and "11 a.m. ET" do not end one.
+      function sentences(x,  y,n){ y=x; gsub(/(^|[^A-Za-z])([aApP]\.[mM]|e\.g|i\.e|etc|vs|approx)\./,"",y)
+        n=gsub(/[.!?]+ +[A-Z]/,"",y); return n + 1 }
       function report(name,x,maxw,maxs){
         if (words(x) > maxw) { printf "%s: %d words (budget %d): %.60s...\n", name, words(x), maxw, x; bad=1 }
         if (maxs && sentences(x) > maxs) { printf "%s: %d sentences (budget %d)\n", name, sentences(x), maxs; bad=1 }
       }
-      function str(line,  m){ if (match(line,/"([^"\\]|\\.)*"/)) return substr(line,RSTART+1,RLENGTH-2); return "" }
-      function field(line,key,  i,rest){ i=index(line, key ": \""); if (!i) return ""; rest=substr(line,i+length(key)+2); return str(rest) }
-      /const DATA = \{/ {in_data=1; next}
+      # The string value of key on this line; key must start the line or follow { , or
+      # a space, so " t:" never matches inside "at:".
+      function field(line,key,  re,rest){ re="(^|[{ ,\t])" key ": *\""
+        if (!match(line,re)) return "\001"; rest=substr(line,RSTART+RLENGTH-1)
+        if (match(rest,/"([^"\\]|\\.)*"/)) return substr(rest,RSTART+1,RLENGTH-2); return "\001" }
+      # Every string on this line belongs to the open array; the array closes when what
+      # follows the last string contains ].
+      function scan(line,  rest){ rest=line
+        while (match(rest,/"([^"\\]|\\.)*"/)) { cnt++; report(arr" item "cnt, substr(rest,RSTART+1,RLENGTH-2), arr=="changed"?20:30, 0); rest=substr(rest,RSTART+RLENGTH) }
+        if (rest ~ /\]/) { if (arr=="changed" && cnt>5) { printf "changed: %d bullets (budget 5)\n", cnt; bad=1 }; arr="" } }
+      /const DATA = \{/ {in_data=1; seen_data=1; next}
       in_data && /^\};/ {in_data=0}
       !in_data {next}
-      /^  headline: "/ {report("headline", field($0,"headline"), 20, 1)}
-      /^  sublead: "/  {report("sublead",  field($0,"sublead"), 40, 2)}
-      /^  (changed|needs): \[/ { arr=($0 ~ /changed/) ? "changed" : "needs"; cnt=0
-        rest=$0; sub(/^[^[]*\[/,"",rest)
-        while (match(rest,/"([^"\\]|\\.)*"/)) { cnt++; report(arr" item "cnt, substr(rest,RSTART+1,RLENGTH-2), arr=="changed"?20:30, 0); rest=substr(rest,RSTART+RLENGTH) }
-        if ($0 !~ /\]/) { inarr=arr; next } else { if (arr=="changed" && cnt>5) { printf "changed: %d bullets (budget 5)\n", cnt; bad=1 } ; next } }
-      inarr != "" {
-        if ($0 ~ /^ *\]/) { if (inarr=="changed" && cnt>5) { printf "changed: %d bullets (budget 5)\n", cnt; bad=1 }; inarr=""; next }
-        x=str($0); if (x!="") { cnt++; report(inarr" item "cnt, x, inarr=="changed"?20:30, 0) }; next }
-      index($0," d: \"")  {report("window step", field($0,"d"), 25, 0)}
-      index($0," m: \"")  {report("stream item", field($0,"m"), 30, 0)}
-      index($0," t: \"")  {report("made/history entry", field($0,"t"), 25, 0)}
-      END { exit bad ? 1 : 0 }
+      arr != "" { scan($0); next }
+      /^[ \t]*(changed|needs): *\[/ { arr=($0 ~ /changed/) ? "changed" : "needs"; cnt=0
+        line=$0; sub(/^[^[]*\[/,"",line); scan(line); next }
+      { x=field($0,"headline"); if (x!="\001") { seen_head=1; report("headline", x, 20, 1); next } }
+      { x=field($0,"sublead");  if (x!="\001") { report("sublead", x, 40, 2); next } }
+      { x=field($0,"d"); if (x!="\001") report("window step", x, 25, 0) }
+      { x=field($0,"m"); if (x!="\001") report("stream item", x, 30, 0) }
+      { x=field($0,"t"); if (x!="\001") report("made/history entry", x, 25, 0) }
+      END {
+        if (!seen_data || !seen_head) { print "page-check: no DATA block with a double-quoted headline found; cannot check this page" > "/dev/stderr"; exit 2 }
+        exit bad ? 1 : 0 }
     ' "$f" ;;
 
   *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;

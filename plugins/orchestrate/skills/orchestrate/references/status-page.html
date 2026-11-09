@@ -12,9 +12,9 @@
   commands/status.md and are not repeated here):
     <title>   set it too: a short page name for the goal ("Pipeline Hardening Progress")
     updated   "Mon Nov 9, 7:45 am ET"   always the operator's journaled timezone
-    updated_at  the same moment as ISO 8601 with offset; the page compares it
-              to the reader's clock and shows the out-of-date banner itself
-    cadence_minutes  the promised refresh interval (60 = hourly backstop); the
+    updated_at  the same moment in UTC from `date -u +%FT%TZ`; the page compares
+              it to the reader's clock and shows the out-of-date banner itself
+    cadence_minutes  the backstop interval (60 unless set; on-change keeps 60); the
               banner appears once updated_at is older than twice this
     eyebrow   milestone phrase          "ci access rework, change window day 2"
     headline  OUTCOME sentence, not activity: one sentence, <= 20 words
@@ -270,7 +270,7 @@ details.box>div,details.box>p{margin-top:10px}
 /* ===== DATA: a refresh is an edit here plus a republish (fill contract in the
    top-of-file comment; register rules in commands/status.md). ===== */
 const DATA = {
-  updated_at: "FILL ISO 8601 with offset, e.g. 2026-11-09T07:45:00-05:00",
+  updated_at: "FILL date -u +%FT%TZ, e.g. 2026-11-09T12:45:00Z",
   cadence_minutes: 60,
   updated: "FILL day, time, operator's timezone",
   eyebrow: "FILL milestone phrase",

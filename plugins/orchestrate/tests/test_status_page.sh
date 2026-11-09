@@ -55,7 +55,7 @@ for f in "$TPL" "$SAMPLE"; do
   grep -q 'updated_at: "' "$f" && grep -q 'cadence_minutes: ' "$f" && pass || fail "$(basename "$f") carries updated_at + cadence_minutes"
   grep -q 'id="stale"' "$f" && grep -q '2 \* cad' "$f" && grep -q 'setInterval(staleCheck' "$f" && pass || fail "$(basename "$f") draws the out-of-date banner at twice the cadence and re-checks"
 done
-grep -q 'updated_at: "20[0-9-]*T[0-9:]*[-+][0-9:]*"' "$SAMPLE" && pass || fail "sample fills updated_at as ISO 8601 with offset"
+grep -q 'updated_at: "20[0-9-]*T[0-9:]*Z"' "$SAMPLE" && pass || fail "sample fills updated_at in UTC (date -u +%FT%TZ)"
 if command -v node >/dev/null 2>&1; then
   # Behaviour, not just markup: run the banner logic against a fake DOM.
   js="$(awk '/const staleCheck/,/^staleCheck\(\);/' "$TPL" | sed 's/^staleCheck(); setInterval(staleCheck, 60000);$//')"
@@ -106,6 +106,39 @@ out="$(bash "$R" page-check "$big")" && fail "overgrown page fails page-check" |
 for m in 'headline: ' 'headline: 2 sentences' 'sublead: 4 sentences' 'changed: 6 bullets' 'needs item 1: '; do
   case "$out" in *"$m"*) pass;; *) fail "page-check reports: $m";; esac
 done
+
+# Review-found parser edges: history t is measured (not its "at" stamp); a multi-line
+# array closed on its last item's line ends there; every string on a line counts;
+# abbreviations are not sentence ends; an unparseable page fails closed.
+cat > "$big" <<'PAGE'
+const DATA = {
+  headline: "Done e.g. the guard is live at 11 a.m. ET today.",
+  changed: [
+    "a", "b",
+    "c"],
+  tiles: [
+    {v: "1", l: "x"},
+    {v: "2", l: "y"},
+    {v: "3", l: "z"}
+  ],
+  history: [
+    {at: "Nov 8", t: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive twentysix"}
+  ]
+};
+PAGE
+out="$(bash "$R" page-check "$big")"; rc=$?
+assert_eq "$rc" 1 "page-check fails on the over-budget history entry only"
+case "$out" in *"made/history entry: 26 words"*) pass;; *) fail "history t is measured, not its at stamp ($out)";; esac
+case "$out" in *"bullets"*) fail "array closed on its last line does not swallow tiles ($out)";; *) pass;; esac
+case "$out" in *"headline"*) fail "abbreviations are not sentence ends ($out)";; *) pass;; esac
+printf 'const DATA = {\n  changed: [\n    "a", "b", "c",\n    "d", "e", "f"\n  ],\n  headline: "ok."\n};\n' > "$big"
+out="$(bash "$R" page-check "$big")"
+case "$out" in *"changed: 6 bullets"*) pass;; *) fail "every string on a line counts toward bullets ($out)";; esac
+printf '<html>no data here</html>\n' > "$big"
+bash "$R" page-check "$big" >/dev/null 2>&1; assert_eq "$?" 2 "page-check fails closed on a page it cannot parse"
+printf 'const DATA = {\n    headline: "Indented four spaces, one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen."\n};\n' > "$big"
+out="$(bash "$R" page-check "$big")"
+case "$out" in *"headline: "*words*) pass;; *) fail "re-indented DATA is still checked ($out)";; esac
 rm -f "$big"
 
 # 9) The command carries the rewrite-not-extend rule, the banner fields, and the migration note.

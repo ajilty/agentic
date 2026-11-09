@@ -113,8 +113,10 @@ stretches; it fires least when the run is busiest. Cadence is hourly by
 default; the operator can set it in plain words.
 
 A refresh edits DATA in the canonical copy, then republishes: update `updated`
-(operator's timezone, always) and `updated_at` (the same moment, ISO 8601 with
-offset), keep `cadence_minutes` equal to the promised backstop interval, and
+(operator's timezone, always) and `updated_at` (the same moment in UTC, from
+`date -u +%FT%TZ`, the ledger's own format; never a hand-written offset), keep
+`cadence_minutes` equal to the backstop interval (60 unless the operator set
+another; an on-change cadence still promises the 60-minute backstop), and
 append one history entry per change (newest first). The page draws its own
 out-of-date banner once `updated_at` is older than twice `cadence_minutes`,
 so a missed refresh shows instead of passing for current.
