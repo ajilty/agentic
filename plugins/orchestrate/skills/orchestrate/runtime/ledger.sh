@@ -68,8 +68,10 @@ case "$cmd" in
     sh=$(c '"event":"done"'); di=$(c '"event":"dispatched"')
     # A prod confirmation (fork_id prod-ack:<target>) is routine, not a hard call: counted
     # as prod_acks, kept out of forks/decisions so those stay the healthy-escalation signal.
-    fk=$(src | grep -F '"event":"fork"' | grep -vcF '"fork_id":"prod-ack:' 2>/dev/null || true)
-    de=$(src | grep -F '"event":"decision"' | grep -vcF '"fork_id":"prod-ack:' 2>/dev/null || true)
+    # A progress-page row (fork_id status-page: acceptance, decline, cadence change) is
+    # bookkeeping, not an escalation: excluded the same way (0.9.5).
+    fk=$(src | grep -F '"event":"fork"' | grep -vF '"fork_id":"prod-ack:' | grep -vcF '"fork_id":"status-page"' 2>/dev/null || true)
+    de=$(src | grep -F '"event":"decision"' | grep -vF '"fork_id":"prod-ack:' | grep -vcF '"fork_id":"status-page"' 2>/dev/null || true)
     pa=$(src | grep -F '"event":"decision"' | grep -cF '"fork_id":"prod-ack:' 2>/dev/null || true)
     rj=$(c '"verdict":"REJECTED"'); oi=$(c '"verdict":"INCONSISTENT_ORACLE"')
     lc=$(c '"event":"lease-conflict"'); dn=$(c '"event":"denied"'); fr=$(( rj + oi + lc ))

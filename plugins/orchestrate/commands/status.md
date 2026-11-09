@@ -83,8 +83,9 @@ more than one lane, or a goal older than a day, end the inline status once
 with: "This run is big enough for a progress page that stays current; want
 one?" Journal the answer either way so reground never re-offers:
 `ledger.sh append '{"ticket":"<goal ticket>","event":"decision","fork_id":"status-page","note":"<accepted|declined>"}'`.
-No row on the board means not yet offered; a row means never offer again this
-goal.
+The goal ticket is the first `intake` ticket after the current `goal` event;
+every later `status-page` row uses that same ticket. No row on the board means
+not yet offered; a row means never offer again this goal.
 
 **Create on accept.** Ask the operator's timezone once (skip if already
 journaled). Copy `references/status-page.html` (this skill's directory) to
@@ -96,6 +97,11 @@ the field contract. Publish per the harness note below, then journal the page
 on the goal anchor:
 `ledger.sh append '{"ticket":"<goal ticket>","event":"decision","fork_id":"status-page","note":"accepted: <url> tz=<zone> cadence=<hourly|on-change|...>"}'`
 (the latest `status-page` decision row wins; a cadence change is a new row).
+
+The canonical copy belongs to the current goal: when a new goal starts in the
+same repo and gets its own page, the prior goal's published URL stays live but
+its canonical file is overwritten; copy it into the run's records first if the
+goal is worth keeping locally.
 
 **Refresh** on every status invocation, on any lane state change, and on every
 liveness re-entry tick (SKILL "The loop" step 5) past the cadence, hourly by
