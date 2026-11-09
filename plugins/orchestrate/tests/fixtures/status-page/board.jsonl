@@ -1,0 +1,14 @@
+{"ts":"2026-11-08T13:00:00Z","event":"goal","note":"Harden the deploy pipeline so only reviewed code reaches production","spec":"docs/specs/pipeline-hardening.md","base":"main","main_model":"fable"}
+{"ts":"2026-11-08T13:05:00Z","ticket":"pipeline-hardening","event":"intake","tier":"T2","note":"shared targets: ci-pipeline, prod-env"}
+{"ts":"2026-11-08T13:10:00Z","ticket":"pipeline-hardening","event":"dispatched","persona":"planner","dispatch_id":"d01"}
+{"ts":"2026-11-08T13:40:00Z","ticket":"pipeline-hardening","event":"returned","persona":"planner","status":"DONE","artifact":"tickets/pipeline-hardening/spec.md"}
+{"ts":"2026-11-08T13:55:00Z","ticket":"pipeline-hardening","event":"verdict","verdict":"APPROVED","mode":"plan","dispatch_id":"d02"}
+{"ts":"2026-11-08T14:00:00Z","ticket":"guard-branch","event":"dispatched","persona":"implementer","dispatch_id":"d03","model":"sonnet","effort":"medium","branch":"orchestrate/guard-branch"}
+{"ts":"2026-11-08T14:00:05Z","ticket":"runner-trust","event":"dispatched","persona":"implementer","dispatch_id":"d04","model":"sonnet","effort":"medium","branch":"orchestrate/runner-trust"}
+{"ts":"2026-11-08T14:35:00Z","ticket":"guard-branch","event":"returned","persona":"implementer","status":"DONE","branch":"orchestrate/guard-branch"}
+{"ts":"2026-11-08T15:00:00Z","ticket":"guard-branch","event":"verdict","verdict":"REJECTED","dispatch_id":"d05","note":"guard bypassable via workflow_dispatch; live-reproduced"}
+{"ts":"2026-11-08T15:40:00Z","ticket":"guard-branch","event":"verdict","verdict":"APPROVED","dispatch_id":"d06","note":"retry delta re-verified; bypass closed"}
+{"ts":"2026-11-08T15:45:00Z","ticket":"guard-branch","event":"done"}
+{"ts":"2026-11-08T16:00:00Z","ticket":"prod-apply","event":"fork","fork_id":"prod-ack:prod-env","state":"halted","note":"apply the hardened pipeline to prod; plan shows 3 changes 0 destroys"}
+{"ts":"2026-11-08T16:05:00Z","ticket":"pipeline-hardening","event":"decision","fork_id":"status-page","note":"accepted: https://claude.ai/artifact/EXAMPLE tz=America/New_York cadence=hourly"}
+{"ts":"2026-11-08T16:10:00Z","ticket":"runner-trust","event":"returned","persona":"implementer","status":"DONE_WITH_CONCERNS","branch":"orchestrate/runner-trust","note":"#ASSUMED(runner image pin is current)"}
