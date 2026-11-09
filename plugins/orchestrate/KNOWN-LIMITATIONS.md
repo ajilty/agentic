@@ -21,15 +21,18 @@ delivered through a notification channel that can be unreliable:
 | # | Harness behavior | How orchestrate compensates |
 |---|------------------|-----------------------------|
 | 1 | A task-notification can carry the **wrong agent's label** (result attribution is wrong). | Every dispatch is keyed by a router-minted `dispatch_id` baked into the result **filename**; the router reads the exact path it minted, never a notification label (ADR-0014). |
-| 2 | A finished agent's **final output can be lost** before the idle transition. | Read-only personas write their result to disk as their final action (a Write tool whose scope, the minted result path, is stated in the brief); the router reads it **from disk**, so nothing depends on the final message arriving (ADR-0014). |
+| 2 | A finished agent's **final output can be lost** before the idle transition, and the harness delivers **at most one** handback per agent (a second `SubagentHandback` is refused: "your report was already delivered"). | **Every** persona writes its result to disk as its final action: read-only personas via their Write tool, and since 0.9.4 the implementer and actuator too (`tickets/<ticket>/results/<dispatch_id>.md` with the `<!-- orchestrate:complete -->` sentinel; the actuator writes via its shell). The router reads completion **from disk**, so nothing depends on any message arriving (ADR-0014). Measured 2026-11-08: a builder's refused second handback left the router waiting on chat overnight; the writer result file closes that exact gap. |
 | 3 | `SendMessage` to an **idle agent no-ops** instead of replaying/re-engaging. | The result is already a durable file — the router never needs to re-fetch it from the agent. If the file is absent, the dispatch simply re-runs (reground keys on the file's presence). |
 | 4 | Idle pings (`{"type":"idle_notification","idleReason":"available"}`) are **noisy and content-free**. | The router polls the scoped result path + its `<!-- orchestrate:complete -->` sentinel for completion, so idle pings are irrelevant to control flow. |
 
-Net: a dispatched read-only agent (researcher, planner, verifier) can complete
-and have its result silently dropped by the channel, and orchestrate still
-recovers it, because the result lives on disk, not in the notification. A
-writer's result is its commits on its worktree branch, which the router reads
-from git the same way.
+Net: any dispatched persona can complete and have its report silently dropped
+by the channel, and orchestrate still recovers it, because the result lives on
+disk, not in the notification; a writer's commits on its worktree branch
+corroborate its result file. The router also never *waits* on the channel: it
+ends no turn with work in flight and nothing scheduled, scheduling its own
+re-entry instead (on Claude Code `ScheduleWakeup`, else a cron at ~15 minutes;
+see the liveness note in `references/agents.yaml`) and routing any dispatch
+older than ~15 minutes with no `returned` row from its result file or worktree.
 
 ## Native worktree isolation cuts from `origin/HEAD` (Claude Code)
 

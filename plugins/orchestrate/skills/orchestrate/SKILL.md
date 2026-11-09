@@ -97,6 +97,17 @@ Run these in order on every invocation:
    waits its turn. When a writer has
    been out about 20 minutes, tell the operator in one plain sentence what it
    has done so far, from its commits ahead of the base.
+   **Never end a turn with a dispatch or a background command in flight and
+   nothing scheduled to re-enter you.** Schedule your own re-entry (the
+   mechanism is the harness's own; `references/agents.yaml` names it per
+   harness) and state the stop conditions in that schedule: the plan deviates
+   from the approved shape; a page; a prod change needing a go; all lanes
+   done; a named clock time. On re-entry, reground; for every `dispatched`
+   row older than about 15 minutes with no `returned` row, read the lane's
+   result file or worktree and route it. Waiting for a handback in chat is
+   not a plan: the harness delivers at most one and can lose it (measured
+   2026-11-08: a builder's second handback was refused and the run sat idle
+   overnight).
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. When the
    change is itself instructions (a skill, a persona brief, a hook message, an
    agent definition, operator preferences), dispatch three verifiers, one lens
@@ -148,9 +159,14 @@ Run these in order on every invocation:
   path, each ending with `<!-- orchestrate:complete -->`. Wait for the file and
   sentinel, not the chat reply; no file means re-dispatch. Promote a
   researcher's file (Quarantine) to `tickets/<ticket>/findings/<slug>.md`, then
-  append `returned`; append `verdict` after reading the verdict file. A writer
-  has no result file: an implementer's `returned` carries `branch` and commit
-  SHA from its report, checked with `git worktree list`.
+  append `returned`; append `verdict` after reading the verdict file. Writers
+  write results too: an implementer's last act is
+  `tickets/<ticket>/results/<dispatch_id>.md` (status, branch, commit SHA, file
+  list, open tags) ending with the sentinel, and an actuator writes its
+  captured plan or apply output to the same pattern via its shell. The
+  `returned` you append carries `branch` and SHA from that file, cross-checked
+  with `git worktree list`. A handback in chat is a courtesy copy on every
+  lane: completion is the file.
 - **Point at the craft.** For a researcher, planner, implementer, or verifier,
   add "Read <path>/SKILL.md first as craft guidance; your persona brief
   prevails", with the absolute path of the sibling skill one directory up

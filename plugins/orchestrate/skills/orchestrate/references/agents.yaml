@@ -101,6 +101,18 @@ hooks:
       authoritative state (not a pointer to re-read). Interruption resume is
       operator-driven via /orchestrate:init.
 
+# --- Liveness (harness note; SKILL "The loop" step 5) ------------------------
+# The router never ends a turn with a dispatch or background command in flight
+# and nothing scheduled to re-enter it. The scheduling mechanism is the
+# harness's own:
+#   Claude Code: ScheduleWakeup (self-paced), else CronCreate at ~15 minutes.
+#   Codex / OpenCode: no in-session scheduler; drive re-entry from outside
+#     (a cron invoking the resume command) or keep the session attended.
+# The stop conditions belong in the schedule itself: plan deviates from the
+# approved shape; a page; a prod change needing a go; all lanes done; a named
+# clock time. On re-entry the router regrounds and routes every dispatched row
+# older than ~15 minutes with no returned row from its result file or worktree.
+
 # --- Routing (enums the router maps; it never classifies) --------------------
 # Full semantics live in SKILL.md "Routing". This block is the machine-readable
 # summary so an installer/driver can validate transitions.
