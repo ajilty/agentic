@@ -12,10 +12,19 @@
   commands/status.md and are not repeated here):
     <title>   set it too: a short page name for the goal ("Pipeline Hardening Progress")
     updated   "Mon Nov 9, 7:45 am ET"   always the operator's journaled timezone
+    updated_at  the same moment as ISO 8601 with offset; the page compares it
+              to the reader's clock and shows the out-of-date banner itself
+    cadence_minutes  the promised refresh interval (60 = hourly backstop); the
+              banner appears once updated_at is older than twice this
     eyebrow   milestone phrase          "ci access rework, change window day 2"
-    headline  OUTCOME sentence, not activity
-    sublead   plain-prose lead paragraph
-    changed   bullets since the last refresh (empty list hides the strip)
+    headline  OUTCOME sentence, not activity: one sentence, <= 20 words
+    sublead   what comes next: <= 2 sentences, <= 40 words; news goes in changed
+    changed   bullets since the last refresh (empty list hides the strip):
+              <= 5 bullets, <= 20 words each
+  Every refresh REWRITES headline, sublead and changed from the board as it
+  stands; never extend last refresh's prose. Other budgets: needs <= 30 words
+  per item (one ask per item), window d <= 25, stream item m <= 30, made and
+  history t <= 25. `ledger.sh page-check <file>` reports any field over budget.
     tiles     three outcome numbers the operator cares about
     needs     what waits on the operator (empty list renders "Nothing right now")
     window    today's ordered steps; state: done|running|next|you|waiting|stopped
@@ -81,6 +90,9 @@ header .top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16
 .changedbox{background:var(--band);border-radius:8px;padding:10px 14px;display:grid;gap:4px}
 .changedbox .h{font-weight:600;font-size:.9rem}
 .changedbox ul{margin:0;padding-left:18px}
+
+/* out-of-date banner: drawn by the page itself from updated_at + cadence_minutes */
+.stale{border-left:4px solid var(--s-stop);background:var(--chip-stop-bg);border-radius:0 8px 8px 0;padding:10px 14px;font-size:.9rem}
 
 /* tiles */
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
@@ -191,6 +203,7 @@ details.box>div,details.box>p{margin-top:10px}
 </head>
 <body>
 <main>
+  <div class="stale" id="stale" role="status" hidden></div>
   <header>
     <div class="top"><span class="eyebrow" id="eyebrow"></span><span class="stamp" id="stamp"></span></div>
     <h1 id="headline"></h1>
@@ -257,6 +270,8 @@ details.box>div,details.box>p{margin-top:10px}
 /* ===== DATA: a refresh is an edit here plus a republish (fill contract in the
    top-of-file comment; register rules in commands/status.md). ===== */
 const DATA = {
+  updated_at: "FILL ISO 8601 with offset, e.g. 2026-11-09T07:45:00-05:00",
+  cadence_minutes: 60,
   updated: "FILL day, time, operator's timezone",
   eyebrow: "FILL milestone phrase",
   headline: "FILL one outcome sentence, what is true now, not what was done",
@@ -349,6 +364,19 @@ $("estRisks").innerHTML = DATA.estimate.risks.map(r => `<li>${esc(r)}</li>`).joi
 $("log").innerHTML = DATA.history.map(h => `<li><span class="stamp">${esc(h.at)}</span><span>${esc(h.t)}</span></li>`).join("");
 $("howto").textContent = DATA.howto;
 $("foot").textContent = DATA.foot;
+
+/* Out-of-date banner. The page cannot refresh itself; it can say when it is
+   behind. Re-checked every minute so a tab left open turns stale on its own. */
+const staleCheck = () => {
+  const el = $("stale"), t = Date.parse(DATA.updated_at), cad = Number(DATA.cadence_minutes) || 60;
+  if (isNaN(t)) { el.textContent = "This page cannot tell how current it is. Ask for a status update before relying on it."; el.hidden = false; return; }
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins <= 2 * cad) { el.hidden = true; return; }
+  const ago = mins < 120 ? `${mins} minutes` : mins < 2880 ? `${Math.floor(mins / 60)} hours` : `${Math.floor(mins / 1440)} days`;
+  el.textContent = `This page is out of date: last updated ${ago} ago, and it promises an update at least every ${cad} minutes. The run has likely moved on; ask for a status update for the current picture.`;
+  el.hidden = false;
+};
+staleCheck(); setInterval(staleCheck, 60000);
 
 const rows = [...document.querySelectorAll("details.row")];
 const tg = $("toggleAll");

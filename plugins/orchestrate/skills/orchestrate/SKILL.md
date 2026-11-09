@@ -108,9 +108,11 @@ Run these in order on every invocation:
    not a plan: the harness delivers at most one and can lose it (measured
    2026-11-08: a builder's second handback was refused and the run sat idle
    overnight). When the goal carries an accepted progress page
-   (`/orchestrate:status`, a `status-page` decision row), each re-entry tick
-   past its cadence also refreshes the page, and reground re-arms the
-   schedule in a new session.
+   (`/orchestrate:status`, a `status-page` decision row), refresh it before
+   ending any turn that journaled a lane state change (`ledger.sh` reminds
+   you on each such write); a re-entry tick past its cadence is only the
+   backstop for quiet stretches, and reground re-arms the schedule in a new
+   session.
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. When the
    change is itself instructions (a skill, a persona brief, a hook message, an
    agent definition, operator preferences), dispatch three verifiers, one lens

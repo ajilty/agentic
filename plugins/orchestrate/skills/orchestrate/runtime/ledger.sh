@@ -26,6 +26,20 @@ val() { sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" <<< "$1"; }
 # spaces, and drop every other control character (each would make the line invalid JSON).
 jtext() { local x="${1//\\/\\\\}"; x="${x//\"/\\\"}"; printf '%s' "$x" | tr '\n\r\t' '   ' | tr -d '\000-\037\177'; }
 
+# Progress-page nudge (0.9.6): when the current goal has an accepted progress page,
+# every lane state change reminds the router, on stderr, that the page is due a
+# refresh before the turn ends. Stated by the helper the router already calls, so
+# the refresh rides the journal write instead of a rule it has to remember.
+page_on() { [ -f "$LEDGER" ] && awk '/"event":"goal"/{on=0}
+  /"event":"decision"/ && /"fork_id":"status-page"/{on=($0 ~ /"note":"accepted/)}
+  END{exit on?0:1}' "$LEDGER"; }
+page_nudge() {
+  case "$1" in dispatched|returned|verdict|fork|decision|lane|done) ;; *) return 0 ;; esac
+  case "${2:-}" in status-page) return 0 ;; esac
+  page_on && echo "ledger.sh: progress page is on for this goal; refresh it before this turn ends (/orchestrate:status, Progress page > Refresh)" >&2
+  return 0
+}
+
 cmd="${1:-}"; shift || true
 case "$cmd" in
   append)
@@ -50,7 +64,8 @@ case "$cmd" in
     if [ "$ev" = goal ]; then case "$line" in *'"note":'*) ;;
       *) echo "ledger.sh append: WARNING goal event without a \"note\" field: reground's goal anchor reads note; use: ledger.sh goal '<note>' [spec] [base]" >&2 ;;
     esac; fi
-    printf '%s\n' "$line" >> "$LEDGER" ;;
+    printf '%s\n' "$line" >> "$LEDGER"
+    page_nudge "$ev" "$(val "$line" fork_id)" ;;
 
   retries)   # derived, never held: compaction can't corrupt a disk count
     t="${1:?ticket}"; [ -f "$LEDGER" ] || { echo 0; exit 0; }
@@ -298,7 +313,8 @@ case "$cmd" in
               # prod "declined" never reads like an "approved": decision T prod-ack:<target> "" "approved: ..."
     tk="${1:?ticket}"; fid="${2:?fork_id}"; adr="${3:-}"; note="${4:-}"; mkdir -p "$ROOT"
     nl=""; if [ -n "$note" ]; then nl=",\"note\":\"$(jtext "$note")\""; fi
-    printf '{"ts":"%s","ticket":"%s","event":"decision","fork_id":"%s","adr":"%s"%s}\n' "$(date -u +%FT%TZ)" "$tk" "$fid" "$adr" "$nl" >> "$LEDGER" ;;
+    printf '{"ts":"%s","ticket":"%s","event":"decision","fork_id":"%s","adr":"%s"%s}\n' "$(date -u +%FT%TZ)" "$tk" "$fid" "$adr" "$nl" >> "$LEDGER"
+    page_nudge decision "$fid" ;;
 
   clarify)    # journal the router's intake-clarification decision (SKILL.md loop step 3, ADR-0004): which
               # clarification skill was selected (first-present-wins), so the choreography
@@ -333,7 +349,40 @@ case "$cmd" in
       T0*|t0*) ;;
       *) [ "$hv" = 1 ] || echo "orchestrate: warning: $tk closed without a Verifier verdict (tier=${tier:-unknown}); verify_coverage will show the gap" >&2 ;;
     esac
-    printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER" ;;
+    printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER"
+    page_nudge done ;;
+
+  page-check) # progress-page prose budgets (0.9.6; contract in references/status-page.html).
+              # Reads the DATA block of a filled page and prints each field over budget;
+              # exit 1 if any. Pages grow into walls of text when each refresh extends the
+              # last one's prose; a deterministic count is the pushback a rule alone is not.
+    f="${1:?page file}"; [ -f "$f" ] || { echo "page-check: no such file: $f" >&2; exit 2; }
+    awk '
+      function words(x,  n,a){ n=split(x,a,/[ \t]+/); return n - (a[1]=="") - (a[n]=="" && n>1) }
+      function sentences(x,  y,n){ y=x; n=gsub(/[.!?]( |$)/,"",y); return n ? n : 1 }
+      function report(name,x,maxw,maxs){
+        if (words(x) > maxw) { printf "%s: %d words (budget %d): %.60s...\n", name, words(x), maxw, x; bad=1 }
+        if (maxs && sentences(x) > maxs) { printf "%s: %d sentences (budget %d)\n", name, sentences(x), maxs; bad=1 }
+      }
+      function str(line,  m){ if (match(line,/"([^"\\]|\\.)*"/)) return substr(line,RSTART+1,RLENGTH-2); return "" }
+      function field(line,key,  i,rest){ i=index(line, key ": \""); if (!i) return ""; rest=substr(line,i+length(key)+2); return str(rest) }
+      /const DATA = \{/ {in_data=1; next}
+      in_data && /^\};/ {in_data=0}
+      !in_data {next}
+      /^  headline: "/ {report("headline", field($0,"headline"), 20, 1)}
+      /^  sublead: "/  {report("sublead",  field($0,"sublead"), 40, 2)}
+      /^  (changed|needs): \[/ { arr=($0 ~ /changed/) ? "changed" : "needs"; cnt=0
+        rest=$0; sub(/^[^[]*\[/,"",rest)
+        while (match(rest,/"([^"\\]|\\.)*"/)) { cnt++; report(arr" item "cnt, substr(rest,RSTART+1,RLENGTH-2), arr=="changed"?20:30, 0); rest=substr(rest,RSTART+RLENGTH) }
+        if ($0 !~ /\]/) { inarr=arr; next } else { if (arr=="changed" && cnt>5) { printf "changed: %d bullets (budget 5)\n", cnt; bad=1 } ; next } }
+      inarr != "" {
+        if ($0 ~ /^ *\]/) { if (inarr=="changed" && cnt>5) { printf "changed: %d bullets (budget 5)\n", cnt; bad=1 }; inarr=""; next }
+        x=str($0); if (x!="") { cnt++; report(inarr" item "cnt, x, inarr=="changed"?20:30, 0) }; next }
+      index($0," d: \"")  {report("window step", field($0,"d"), 25, 0)}
+      index($0," m: \"")  {report("stream item", field($0,"m"), 30, 0)}
+      index($0," t: \"")  {report("made/history entry", field($0,"t"), 25, 0)}
+      END { exit bad ? 1 : 0 }
+    ' "$f" ;;
 
   *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
 esac

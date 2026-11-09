@@ -103,19 +103,41 @@ same repo and gets its own page, the prior goal's published URL stays live but
 its canonical file is overwritten; copy it into the run's records first if the
 goal is worth keeping locally.
 
-**Refresh** on every status invocation, on any lane state change, and on every
-liveness re-entry tick (SKILL "The loop" step 5) past the cadence, hourly by
-default, whichever comes first; the operator can set the cadence in plain
-words. A refresh edits DATA in the canonical copy, then republishes: update
-`updated` (operator's timezone, always), rewrite the changed-since strip to
-only what changed this refresh, append one history entry per change (newest
-first). A correction is its own history entry marked "(corrected)", never a
-silent edit; an accepted red is restated each refresh ("you accepted").
-Estimates live only in the estimate card, labelled as your read, never mixed
-into measured state. Prose rules carry over from this command; two are
-page-specific: the headline is one outcome sentence (what is true now), and
-"Calls that are yours" is first-class, attributed ("Your decision", "Your
-standing rule", "Made for you, reversible on your word").
+**Refresh** on every status invocation, on every lane state change, and on
+every liveness re-entry tick (SKILL "The loop" step 5) past the cadence. The
+lane-change refresh is the main path: never end a turn that journaled a lane
+state change without refreshing the page (`ledger.sh` prints a reminder on
+each such write while the goal's page is on). Several changes in one turn take
+one refresh, after the last write. The timer is only the backstop for quiet
+stretches; it fires least when the run is busiest. Cadence is hourly by
+default; the operator can set it in plain words.
+
+A refresh edits DATA in the canonical copy, then republishes: update `updated`
+(operator's timezone, always) and `updated_at` (the same moment, ISO 8601 with
+offset), keep `cadence_minutes` equal to the promised backstop interval, and
+append one history entry per change (newest first). The page draws its own
+out-of-date banner once `updated_at` is older than twice `cadence_minutes`,
+so a missed refresh shows instead of passing for current.
+
+**Rewrite, never extend.** The top of the page is rewritten from the board as
+it stands on every refresh: the headline is one outcome sentence of what is
+true now, the lead says only what comes next, and the changed-since strip
+holds only this refresh's news. Last refresh's news moves to history, not into
+the lead. Each field has a word budget in the template's top comment; run
+`ledger.sh page-check .agents/runs/orchestrate/status.html` before
+republishing and cut any field it reports. A page that keeps growing at the
+top turns into a wall of text the operator stops reading.
+
+A correction is its own history entry marked "(corrected)", never a silent
+edit; an accepted red is restated each refresh ("you accepted"). Estimates
+live only in the estimate card, labelled as your read, never mixed into
+measured state. Prose rules carry over from this command; "Calls that are
+yours" is first-class, attributed ("Your decision", "Your standing rule",
+"Made for you, reversible on your word").
+
+A page created before 0.9.6 lacks `updated_at`; on its next refresh, move it
+onto the current template (copy the template, carry DATA across, add the new
+fields) so it gains the banner and the budgets.
 
 **Harness note.** On Claude Code, publish with the Artifact tool: first
 publish creates the page (favicon, description), every refresh republishes to

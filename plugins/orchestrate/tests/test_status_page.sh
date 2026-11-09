@@ -48,3 +48,67 @@ done
 # 5) The liveness tick knows about the page, and reground re-arms the schedule.
 grep -q 'status-page' "$SKILL" && pass || fail "SKILL step 5 ties the page refresh to the re-entry tick"
 if grep -qi 're-arm' "$CMD" || grep -qi 're-arms' "$SKILL"; then pass; else fail "reground re-arms the refresh schedule"; fi
+
+# 6) Freshness (0.9.6): the page carries a machine timestamp and a cadence, and
+#    draws its own out-of-date banner from them; the template and the sample both.
+for f in "$TPL" "$SAMPLE"; do
+  grep -q 'updated_at: "' "$f" && grep -q 'cadence_minutes: ' "$f" && pass || fail "$(basename "$f") carries updated_at + cadence_minutes"
+  grep -q 'id="stale"' "$f" && grep -q '2 \* cad' "$f" && grep -q 'setInterval(staleCheck' "$f" && pass || fail "$(basename "$f") draws the out-of-date banner at twice the cadence and re-checks"
+done
+grep -q 'updated_at: "20[0-9-]*T[0-9:]*[-+][0-9:]*"' "$SAMPLE" && pass || fail "sample fills updated_at as ISO 8601 with offset"
+if command -v node >/dev/null 2>&1; then
+  # Behaviour, not just markup: run the banner logic against a fake DOM.
+  js="$(awk '/const staleCheck/,/^staleCheck\(\);/' "$TPL" | sed 's/^staleCheck(); setInterval(staleCheck, 60000);$//')"
+  for case_ in "0:hidden" "130:shown" "bad:shown"; do
+    age="${case_%%:*}" want="${case_#*:}"
+    out="$(node -e "
+      const el={hidden:true,textContent:''}; const \$=()=>el;
+      const DATA={cadence_minutes:60, updated_at: '$age'==='bad' ? 'FILL' : new Date(Date.now()-$([ "$age" = bad ] && echo 0 || echo "$age")*60000).toISOString()};
+      $js
+      staleCheck(); console.log(el.hidden?'hidden':'shown');")"
+    [ "$out" = "$want" ] && pass || fail "banner $want at age $age min (got $out)"
+  done
+fi
+
+# 7) The journal helper reminds the router to refresh on lane changes, only while
+#    the current goal's page is accepted, and never for the page's own rows.
+R="$SK/skills/orchestrate/runtime/ledger.sh"
+d="$(mktemp_repo)"; ( cd "$d"
+  bash "$R" goal "g1" >/dev/null 2>&1
+  w="$(bash "$R" append '{"ticket":"T1","event":"dispatched","persona":"verifier","dispatch_id":"d1"}' 2>&1)"
+  [ -z "$w" ] && pass || fail "no page reminder before a page is accepted ($w)"
+  w="$(bash "$R" decision T1 status-page "" "accepted: https://example.invalid tz=ET cadence=hourly" 2>&1)"
+  [ -z "$w" ] && pass || fail "the page's own acceptance row does not nudge ($w)"
+  w="$(bash "$R" append '{"ticket":"T1","event":"returned","dispatch_id":"d1"}' 2>&1)"
+  case "$w" in *"progress page is on"*) pass;; *) fail "lane change nudges once the page is accepted ($w)";; esac
+  w="$(bash "$R" done T1 2>&1)"
+  case "$w" in *"progress page is on"*) pass;; *) fail "done nudges once the page is accepted ($w)";; esac
+  w="$(bash "$R" append '{"ticket":"T1","event":"intake","tier":"T1"}' 2>&1)"
+  [ -z "$w" ] && pass || fail "intake is not a lane state change ($w)"
+  bash "$R" goal "g2" >/dev/null 2>&1
+  w="$(bash "$R" append '{"ticket":"T2","event":"dispatched","persona":"planner","dispatch_id":"d2"}' 2>&1)"
+  [ -z "$w" ] && pass || fail "a new goal starts with the page off ($w)"
+)
+
+# 8) Prose budgets: the template and sample pass; an overgrown page fails and names fields.
+bash "$R" page-check "$TPL" >/dev/null && pass || fail "template passes page-check"
+bash "$R" page-check "$SAMPLE" >/dev/null && pass || fail "sample passes page-check"
+big="${TMPDIR:-/tmp}/bigpage.$$"
+cat > "$big" <<'PAGE'
+const DATA = {
+  headline: "Midway, not done. Monday's maintenance window is finished and CI is live; the rest of the rework is running without you, target Wed Nov 18.",
+  sublead: "Just landed: one. Running now: two. Then three. Credential rotation runs last by your call, with dev previews and key escrow behind it and more words here.",
+  changed: ["a", "b", "c", "d", "e", "f"],
+  needs: ["Nothing blocking. Your end batch, a few minutes each, whenever convenient: (1) restore test from its own pre-rebuild backup and fresh-install dev (recommended). (2) Accept the registry pull-token residual. At the very end: mint new credentials in each vendor site."],
+};
+PAGE
+out="$(bash "$R" page-check "$big")" && fail "overgrown page fails page-check" || pass
+for m in 'headline: ' 'headline: 2 sentences' 'sublead: 4 sentences' 'changed: 6 bullets' 'needs item 1: '; do
+  case "$out" in *"$m"*) pass;; *) fail "page-check reports: $m";; esac
+done
+rm -f "$big"
+
+# 9) The command carries the rewrite-not-extend rule, the banner fields, and the migration note.
+for m in 'Rewrite, never extend' 'page-check' 'updated_at' 'cadence_minutes' 'never end a turn that journaled a lane' 'created before 0.9.6'; do
+  grep -qF "$m" "$CMD" && pass || fail "status.md carries: $m"
+done

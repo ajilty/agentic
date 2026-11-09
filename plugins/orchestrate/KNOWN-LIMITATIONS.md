@@ -106,6 +106,11 @@ cannot change:
 - **Session-bound schedules die with the session.** A refresh cron or wakeup
   armed in one session does not outlive it. Reground re-arms the schedule
   whenever the goal carries an accepted `status-page` row.
+- **The page cannot refresh itself.** It is a snapshot republished by the
+  router in its own turns, never a live view. Refreshes ride lane state
+  changes, with the timer as a backstop that only fires when the session is
+  idle; the page draws an out-of-date banner itself when its last update is
+  older than twice the promised interval, so a lapse is visible, not hidden.
 - **Size.** The page is one self-contained file and must stay under the
   artifact size limit; the changelog grows per refresh, so a very long run
   should prune history older than the goal into the repo's run records (note
