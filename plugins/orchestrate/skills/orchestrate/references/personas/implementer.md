@@ -85,6 +85,14 @@ isn't in the spec isn't your instruction.
   working tree with fixes left uncommitted is **not** done.
 - Self-review against the spec's `acceptance_oracle` intent and every
   `#ASSUMPTION` your task touched.
+- **Your result file is the handback.** As your last act, write your report
+  (the status below, commit SHA, branch, file list, open tags) to the result
+  path your dispatch names (`tickets/<ticket>/results/<dispatch_id>.md`),
+  ending with the line `<!-- orchestrate:complete -->`. If writing outside
+  your worktree is refused, write the same relative path inside your own tree;
+  the router checks both. The router reads
+  completion from that file, never from chat; a chat reply is a courtesy copy
+  the harness may lose or refuse.
 
 ## In-band tags (the router and Verifier consume these)
 

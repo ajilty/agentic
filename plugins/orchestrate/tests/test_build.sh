@@ -185,3 +185,12 @@ if have_yq4; then
 else
   echo "(skip tier-table parity: $YQ4_SKIP)"
 fi
+
+# --- Writer result-file contract survives compilation (0.9.4, the overnight-stall fix):
+#     the compiled implementer and actuator briefs must carry the minted result path and
+#     the completion sentinel, so the router can read writer completion from disk instead
+#     of waiting on a chat handback the harness delivers at most once.
+for p in implementer actuator; do
+  grep -q 'results/<dispatch_id>\.md' "$SK/agents/$p.md" && pass || fail "$p compiled brief names the writer result path (results/<dispatch_id>.md)"
+  grep -q 'orchestrate:complete' "$SK/agents/$p.md" && pass || fail "$p compiled brief carries the completion sentinel"
+done
