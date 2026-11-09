@@ -92,6 +92,28 @@ orchestrate compensates on both sides instead:
   authoritative` (check fill with `/context`). The operator stays the trigger; orchestrate
   contributes the timing judgment.
 
+## Progress-page mechanics (Claude Code artifacts)
+
+The optional status progress page (`/orchestrate:status`, "Progress page")
+publishes through the harness's artifact surface, which has edges a plugin
+cannot change:
+
+- **Republish needs a prior read.** A session that did not create the page
+  cannot blind-publish to its URL: the publish is refused and hands back the
+  live version. The command compensates: read once, merge, republish; the URL
+  survives on the goal anchor (`status-page` decision row), not in any
+  session's memory.
+- **Session-bound schedules die with the session.** A refresh cron or wakeup
+  armed in one session does not outlive it. Reground re-arms the schedule
+  whenever the goal carries an accepted `status-page` row.
+- **Size.** The page is one self-contained file and must stay under the
+  artifact size limit; the changelog grows per refresh, so a very long run
+  should prune history older than the goal into the repo's run records (note
+  the pruning as its own changelog entry).
+
+On a harness with no artifact surface, none of this applies: the canonical
+`.agents/runs/orchestrate/status.html` is the page.
+
 ## Credential confinement is yours (all harnesses)
 
 orchestrate cannot confine the actuator's credentials from inside the harness.

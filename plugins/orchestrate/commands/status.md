@@ -71,3 +71,51 @@ row never lands (ADR-0028).
 When the executing runtime's version is older than the newest installed version, add one
 footer line: `🔄 runtime <executing> < installed <newest>: /reload-plugins (or restart) to
 apply`. The one-shot nudge after `plugin update` is missable; this is the persistent signal.
+
+## Progress page (optional; inline stays the default)
+
+A run the operator keeps re-entering can carry a live progress page beside the
+inline report. The page is for the operator as a reader, not a console: same
+register as this command, outcomes first, no ticket ids or persona names.
+
+**Offer it exactly once per goal.** When the run has crossed any of: tier T2,
+more than one lane, or a goal older than a day, end the inline status once
+with: "This run is big enough for a progress page that stays current; want
+one?" Journal the answer either way so reground never re-offers:
+`ledger.sh append '{"ticket":"<goal ticket>","event":"decision","fork_id":"status-page","note":"<accepted|declined>"}'`.
+No row on the board means not yet offered; a row means never offer again this
+goal.
+
+**Create on accept.** Ask the operator's timezone once (skip if already
+journaled). Copy `references/status-page.html` (this skill's directory) to
+`.agents/runs/orchestrate/status.html`, the canonical copy, and fill its DATA
+block from the board: lanes and verdicts into streams and the window, `fork`
+rows awaiting a `decision` into "Yours now", `decision` rows into "Settled"
+with attribution, `done` pace into the estimate. The template's top comment is
+the field contract. Publish per the harness note below, then journal the page
+on the goal anchor:
+`ledger.sh append '{"ticket":"<goal ticket>","event":"decision","fork_id":"status-page","note":"accepted: <url> tz=<zone> cadence=<hourly|on-change|...>"}'`
+(the latest `status-page` decision row wins; a cadence change is a new row).
+
+**Refresh** on every status invocation, on any lane state change, and on every
+liveness re-entry tick (SKILL "The loop" step 5) past the cadence, hourly by
+default, whichever comes first; the operator can set the cadence in plain
+words. A refresh edits DATA in the canonical copy, then republishes: update
+`updated` (operator's timezone, always), rewrite the changed-since strip to
+only what changed this refresh, append one history entry per change (newest
+first). A correction is its own history entry marked "(corrected)", never a
+silent edit; an accepted red is restated each refresh ("you accepted").
+Estimates live only in the estimate card, labelled as your read, never mixed
+into measured state. Prose rules carry over from this command; two are
+page-specific: the headline is one outcome sentence (what is true now), and
+"Calls that are yours" is first-class, attributed ("Your decision", "Your
+standing rule", "Made for you, reversible on your word").
+
+**Harness note.** On Claude Code, publish with the Artifact tool: first
+publish creates the page (favicon, description), every refresh republishes to
+the journaled URL, and a session that did not create the page must Artifact-read
+that URL once before it can republish (the refusal hands back the live
+version; merge into it). A session-bound schedule (cron or wakeup) dies with
+its session: re-arm the refresh schedule on reground when the goal carries an
+accepted `status-page` row. On a harness with no artifact surface, the
+canonical file is the page; say where it is.

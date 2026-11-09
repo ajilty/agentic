@@ -1,0 +1,383 @@
+<!doctype html>
+<!--
+  orchestrate progress page: the display template for /orchestrate:status page mode.
+
+  One self-contained file: structure, light/dark theme, phone-width layout, and a
+  render script that draws everything from the DATA object below. A refresh is an
+  edit to DATA plus a republish; never restructure the page on a refresh. The
+  canonical copy lives at .agents/runs/orchestrate/status.html in the run's repo;
+  the published page is built from it (see commands/status.md "Progress page").
+
+  Field-by-field fill contract (the nine sections; register rules live in
+  commands/status.md and are not repeated here):
+    updated   "Mon Nov 9, 7:45 am ET"   always the operator's journaled timezone
+    eyebrow   milestone phrase          "ci access rework, change window day 2"
+    headline  OUTCOME sentence, not activity
+    sublead   plain-prose lead paragraph
+    changed   bullets since the last refresh (empty list hides the strip)
+    tiles     three outcome numbers the operator cares about
+    needs     what waits on the operator (empty list renders "Nothing right now")
+    window    today's ordered steps; state: done|running|next|you|waiting|stopped
+    states/order  the status vocabulary and bar order; keep as shipped
+    streams   one swimlane per stream; items st: live|built|active|queued|op|cal
+    made/pending/later   calls that are yours: settled, yours now, later
+    estimate  the router's read, never shown as measured state
+    history   changelog, newest first; corrections are new entries "(corrected)"
+    howto     one paragraph; keep the "nothing destructive without your go" line
+    foot      refresh cadence promise + where technical depth lives
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pipeline Hardening Progress</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column, summary first. First screen = headline, changed-since, tiles,
+   "Needs you", today's window as a vertical timeline. Below the fold everything is
+   collapsed: streams, calls, estimate, history, legend.
+   Color: moss green done/live, amber running, slate blue built/next, ink "your go",
+   textured grey calendar waits, brick stopped. */
+:root{
+  --bg:#f7f8f6; --fg:#1d2320; --muted:#5f6a63; --line:#d9ded9; --panel:#ffffff; --band:#eef1ee;
+  --accent:#1f5f8b;
+  --s-live:#2e7d32; --s-built:#2a78d6; --s-active:#d99400; --s-stop:#b23b2e;
+  --s-queued:#c9cec9; --s-op:#454b47; --s-cal-a:#8f9790; --s-cal-b:#e3e7e3;
+  --chip-done-bg:#e3f1e4; --chip-run-bg:#fbefd2; --chip-next-bg:#e4eefb; --chip-you-bg:#454b47; --chip-you-fg:#ffffff; --chip-wait-bg:#eef1ee; --chip-stop-bg:#f8e2df;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#161a18; --fg:#e6eae7; --muted:#9aa49e; --line:#2d3531; --panel:#1e2421; --band:#232a26;
+  --accent:#7fb3da;
+  --s-live:#4caf50; --s-built:#4a92ea; --s-active:#e0a52a; --s-stop:#e06354;
+  --s-queued:#414945; --s-op:#d2d8d3; --s-cal-a:#7d8780; --s-cal-b:#2b322e;
+  --chip-done-bg:#20321f; --chip-run-bg:#3a2f14; --chip-next-bg:#1b2b40; --chip-you-bg:#d2d8d3; --chip-you-fg:#161a18; --chip-wait-bg:#232a26; --chip-stop-bg:#3d201c;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#161a18; --fg:#e6eae7; --muted:#9aa49e; --line:#2d3531; --panel:#1e2421; --band:#232a26;
+  --accent:#7fb3da;
+  --s-live:#4caf50; --s-built:#4a92ea; --s-active:#e0a52a; --s-stop:#e06354;
+  --s-queued:#414945; --s-op:#d2d8d3; --s-cal-a:#7d8780; --s-cal-b:#2b322e;
+  --chip-done-bg:#20321f; --chip-run-bg:#3a2f14; --chip-next-bg:#1b2b40; --chip-you-bg:#d2d8d3; --chip-you-fg:#161a18; --chip-wait-bg:#232a26; --chip-stop-bg:#3d201c;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 64px}
+main{max-width:820px;margin:0 auto;display:grid;gap:26px}
+main>*{min-width:0}
+h1{font-size:1.45rem;font-weight:600;margin:0;text-wrap:balance;line-height:1.3}
+h2{font-size:1rem;font-weight:600;margin:0;text-wrap:balance}
+p{margin:0;max-width:68ch}
+.eyebrow{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.stamp{font-family:var(--mono);font-size:.76rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.sub{font-size:.84rem;color:var(--muted)}
+header{display:grid;gap:8px}
+header .top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;align-items:baseline}
+.sublead{font-size:.95rem;color:var(--muted)}
+
+/* changed-since strip */
+.changedbox{background:var(--band);border-radius:8px;padding:10px 14px;display:grid;gap:4px}
+.changedbox .h{font-weight:600;font-size:.9rem}
+.changedbox ul{margin:0;padding-left:18px}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:grid;gap:2px;align-content:start}
+.tile .v{font-size:1.35rem;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2}
+.tile .l{font-size:.82rem;color:var(--muted)}
+@media (max-width:520px){.tiles{grid-template-columns:1fr}.tile{grid-template-columns:auto 1fr;align-items:baseline;gap:0 10px}}
+
+/* needs you */
+.needs{border-left:4px solid var(--s-op);background:var(--panel);border-radius:0 8px 8px 0;padding:10px 14px;display:grid;gap:4px}
+.needs .h{font-weight:600;font-size:.9rem}
+.needs .empty{color:var(--muted)}
+.needs ul{margin:0;padding-left:18px}
+
+/* window timeline */
+.win{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px 6px}
+.win .sechead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;align-items:baseline;margin-bottom:10px}
+.tl{list-style:none;margin:0;padding:0}
+.tl li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:0 12px;position:relative;padding-bottom:12px}
+.tl li::before{content:"";position:absolute;left:10px;top:22px;bottom:0;width:2px;background:var(--line)}
+.tl li:last-child::before{display:none}
+.tl .dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);background:var(--panel);display:grid;place-items:center;font-family:var(--mono);font-size:.7rem;color:var(--muted);margin-top:1px}
+.tl li.done .dot{background:var(--s-live);border-color:var(--s-live);color:#fff}
+.tl li.running .dot{border-color:var(--s-active);color:var(--fg)}
+.tl li.running .dot::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--s-active)}
+.tl li.running .dot span{display:none}
+.tl li.next .dot{border-color:var(--s-built);color:var(--fg)}
+.tl li.you .dot{border-color:var(--s-op)}
+.tl li.stopped .dot{border-color:var(--s-stop);color:var(--s-stop)}
+.tl .row{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline}
+.tl .name{font-weight:500}
+.tl .when{font-family:var(--mono);font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.tl .d{font-size:.86rem;color:var(--muted);max-width:70ch}
+.chip{font-size:.7rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:10px;padding:1px 8px;white-space:nowrap}
+.chip.done{background:var(--chip-done-bg);color:var(--s-live)}
+.chip.running{background:var(--chip-run-bg);color:var(--fg)}
+.chip.next{background:var(--chip-next-bg);color:var(--s-built)}
+.chip.you{background:var(--chip-you-bg);color:var(--chip-you-fg)}
+.chip.waiting{background:var(--chip-wait-bg);color:var(--muted)}
+.chip.stopped{background:var(--chip-stop-bg);color:var(--s-stop)}
+
+/* state swatches */
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
+.st-live{background:var(--s-live)} .st-built{background:var(--s-built)} .st-active{background:var(--s-active)}
+.st-queued{background:var(--s-queued)} .st-op{background:var(--s-op)}
+.st-cal{background:repeating-linear-gradient(135deg,var(--s-cal-a) 0 2px,var(--s-cal-b) 2px 4px)}
+
+/* streams */
+.streams{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 14px}
+.streams .tools{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:8px 0 6px;border-bottom:1px solid var(--line)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.78rem;color:var(--muted);margin:0;padding:0;list-style:none}
+.legend li{display:flex;align-items:center;gap:6px}
+.btn{font:inherit;font-size:.8rem;color:var(--accent);background:none;border:1px solid var(--line);border-radius:6px;padding:3px 10px;cursor:pointer}
+.btn:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+details.row{border-top:1px solid var(--line)}
+details.row:first-of-type{border-top:0}
+details.row>summary{list-style:none;cursor:pointer;padding:10px 0;display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:4px 14px;align-items:center}
+details.row>summary::-webkit-details-marker{display:none}
+.rname{font-weight:600;display:flex;align-items:baseline;gap:6px;min-width:0}
+.rname::before{content:"";display:inline-block;width:0;height:0;border-left:5px solid var(--muted);border-top:4px solid transparent;border-bottom:4px solid transparent;transform:translateY(-1px);transition:transform .15s;flex:none}
+details.row[open] .rname::before{transform:translateY(-1px) rotate(90deg)}
+.tally{grid-column:1;font-size:.8rem;color:var(--muted)}
+.bar{grid-column:2;grid-row:1 / span 2;display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--s-queued);gap:1px}
+.bar span{display:block;height:100%}
+@media (max-width:520px){details.row>summary{grid-template-columns:minmax(0,1fr)}.bar{grid-column:1;grid-row:auto;margin-top:2px}}
+.items{list-style:none;margin:0 0 10px;padding:0 0 0 2px;display:grid;gap:2px}
+.items details{border-radius:6px}
+.items summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:5px 6px;border-radius:6px}
+.items summary::-webkit-details-marker{display:none}
+.items summary:hover{background:var(--band)}
+.items .n{font-size:.92rem}
+.items .sub2{font-size:.76rem;color:var(--muted);margin-left:6px}
+.items .when{font-family:var(--mono);font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.items .m{font-size:.86rem;color:var(--muted);padding:2px 6px 8px 26px;max-width:70ch}
+@media (max-width:520px){.items summary{grid-template-columns:10px minmax(0,1fr)}.items .when{grid-column:2;font-size:.7rem}}
+
+/* calls that are yours */
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px;display:grid;gap:8px;align-content:start}
+.card h2{font-size:.95rem}
+.dl{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:.9rem}
+.dl li{display:grid;grid-template-columns:5.2rem minmax(0,1fr);gap:0 10px;align-items:baseline}
+.dl .when{font-family:var(--mono);font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
+ul.short{margin:0;padding-left:18px;font-size:.9rem;display:grid;gap:5px}
+details.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 16px}
+details.box summary{cursor:pointer;font-weight:500;list-style:none;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+details.box summary::-webkit-details-marker{display:none}
+details.box summary::after{content:"Show";font-size:.8rem;color:var(--accent);font-weight:400}
+details.box[open] summary::after{content:"Hide"}
+details.box>div,details.box>p{margin-top:10px}
+
+/* estimate */
+.est{border:1px dashed var(--muted);border-radius:8px;padding:12px 16px;display:grid;gap:8px;background:var(--bg)}
+.est .top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 14px;align-items:baseline}
+.est .date{font-size:1.2rem;font-weight:600}
+.est ul{margin:0;padding-left:18px;font-size:.86rem;color:var(--muted);display:grid;gap:2px}
+.est .basis{font-size:.88rem}
+
+/* history */
+.log{display:grid;gap:5px;font-size:.9rem}
+.log li{display:grid;grid-template-columns:8.6rem minmax(0,1fr);gap:0 10px;align-items:baseline}
+.log .stamp{font-size:.72rem}
+@media (max-width:520px){.log li,.dl li{grid-template-columns:minmax(0,1fr)}}
+.foot{font-size:.8rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}
+@media (prefers-reduced-motion:reduce){.rname::before{transition:none}}
+@media (forced-colors:active){.sw,.bar span,.tl .dot{forced-color-adjust:none}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="top"><span class="eyebrow" id="eyebrow"></span><span class="stamp" id="stamp"></span></div>
+    <h1 id="headline"></h1>
+    <p class="sublead" id="sublead"></p>
+  </header>
+
+  <section class="changedbox" aria-label="Changed since last update" id="changedbox">
+    <div class="h">Changed since last update</div>
+    <ul id="changed"></ul>
+  </section>
+
+  <section class="tiles" aria-label="Status" id="tiles"></section>
+
+  <section class="needs" aria-label="Needs you">
+    <div class="h">Needs you</div>
+    <div id="needs"></div>
+  </section>
+
+  <section class="win" aria-label="Current window">
+    <div class="sechead"><h2 id="winTitle"></h2><span class="sub" id="winSub"></span></div>
+    <ol class="tl" id="tl"></ol>
+  </section>
+
+  <section aria-label="Streams">
+    <div class="sechead" style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;align-items:baseline;margin-bottom:10px"><h2>Where each stream stands</h2><span class="sub" id="total"></span></div>
+    <div class="streams">
+      <div class="tools"><ul class="legend" id="legend"></ul><button class="btn" id="toggleAll" type="button">Expand all</button></div>
+      <div id="rows"></div>
+    </div>
+  </section>
+
+  <section aria-label="Calls that are yours" style="display:grid;gap:10px">
+    <h2>Calls that are yours</h2>
+    <div class="two">
+      <div class="card"><h2>Settled: decisions you made</h2><ol class="dl" id="made"></ol></div>
+      <div style="display:grid;gap:16px">
+        <div class="card"><h2>Yours now</h2><ul class="short" id="pending"></ul></div>
+        <div class="card"><h2>Later, each its own ask</h2><ul class="short" id="later"></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="est" aria-label="Estimate">
+    <div class="top"><h2>Estimate</h2><span class="eyebrow">My read, not a commitment</span></div>
+    <div class="date" id="estDate"></div>
+    <p class="basis" id="estBasis"></p>
+    <div><span class="sub">What moves these dates</span><ul id="estRisks"></ul></div>
+  </section>
+
+  <details class="box">
+    <summary>Earlier updates</summary>
+    <div><ol class="log" id="log"></ol></div>
+  </details>
+
+  <details class="box">
+    <summary>How to read this page</summary>
+    <p id="howto"></p>
+  </details>
+
+  <p class="foot" id="foot"></p>
+</main>
+
+<script>
+/* ===== DATA: a refresh is an edit here plus a republish (fill contract in the
+   top-of-file comment; register rules in commands/status.md). ===== */
+const DATA = {
+  updated: "Sun Nov 8, 11:10 am ET",
+  eyebrow: "pipeline hardening, day 1",
+  headline: "Reviewed code is now the only path to the test pipeline; the production switch waits on your go.",
+  sublead: "Two of three building blocks are live and independently checked. The reviewer caught a real bypass on the first try and the fix is proven closed. One assumption about the runner image is still open and is listed where it belongs.",
+  changed: [
+    "The branch guard is live after its reviewer-found bypass was closed and re-checked.",
+    "The runner trust change finished its build with one open assumption, now in review."
+  ],
+  tiles: [
+    {v: "2", l: "changes live"},
+    {v: "0", l: "production changes applied"},
+    {v: "1", l: "waiting on your go"}
+  ],
+  needs: [
+    "Your go on the production apply: the printed plan shows 3 changes and 0 destroys, matching the approved shape."
+  ],
+  window: [
+    {state: "done",    name: "Plan signed after independent review", when: "Sun 8:55 am"},
+    {state: "done",    name: "Branch guard built, bounced once, proven closed", when: "Sun 10:40 am", d: "The reviewer reproduced a bypass live; the fix round closed it and only the fix was re-checked."},
+    {state: "running", name: "Runner trust change in review", d: "Built with one open assumption (the runner image pin); the reviewer resolves it or bounces it."},
+    {state: "you",     name: "Production apply", d: "Held until you approve the printed plan; nothing in it destroys anything."}
+  ],
+  winTitle: "This window",
+  winSub: "Four steps, in order. Test first, production last.",
+  states: {
+    live:   {label: "Live",     desc: "merged and proven running"},
+    built:  {label: "Built",    desc: "reviewed, awaiting its turn"},
+    active: {label: "Active",   desc: "being built now"},
+    queued: {label: "Queued",   desc: "not started"},
+    op:     {label: "Your go",  desc: "waits on your decision"},
+    cal:    {label: "Calendar", desc: "waits on a date"}
+  },
+  order: ["live", "built", "active", "queued", "op", "cal"],
+  streams: [
+    {name: "Guardrails", items: [
+      {st: "live", n: "Only reviewed branches reach the pipeline", m: "A guard on every run refuses anything not merged through review. The reviewer found a side door on the first pass; it is closed and the closure was reproduced.", on: "Nov 8"},
+      {st: "live", n: "Plan signed", m: "The delivery plan passed an independent stress-test before any build started.", on: "Nov 8"}
+    ]},
+    {name: "Runner isolation", items: [
+      {st: "active", n: "Runners trust reviewed code only", m: "Built; in independent review with one open assumption about the runner image version."},
+      {st: "op", n: "Apply the hardened pipeline to production", m: "Plan printed and matching the approved shape: 3 changes, 0 destroys. Waits on your go."}
+    ]}
+  ],
+  made: [
+    {when: "Nov 8 am", t: "Your decision: this run keeps a progress page, refreshed hourly, Eastern time."},
+    {when: "Nov 8 am", t: "Your standing rule: obvious design calls are taken and reported; questions are kept for close calls and anything that destroys."}
+  ],
+  pending: [
+    "The production apply above: approve the printed plan or decline it."
+  ],
+  later: [
+    "Whether the old unreviewed-deploy path is deleted or left disabled for a fallback month."
+  ],
+  estimate: {
+    complete: "Complete Mon Nov 9, midday",
+    basis: "Two of three blocks landed in one morning at the measured pace; the remaining block is in review and production is one approved apply.",
+    risks: [
+      "A review bounce on the runner change costs a fix round.",
+      "The production apply waits on you; the estimate assumes a same-day go."
+    ]
+  },
+  history: [
+    {at: "Nov 8, 11:10 am", t: "Runner trust change built with one open assumption; production apply waiting on your go."},
+    {at: "Nov 8, 10:45 am", t: "(corrected) Earlier entry said the branch guard was live at 10:00; it went live at 10:40, after the bypass fix was re-checked."},
+    {at: "Nov 8, 9:00 am", t: "Plan signed; two build lanes started in parallel."}
+  ],
+  howto: "The first screen is the whole story: where things stand, what needs you, and the current window's steps. An item is Live only once its check has been seen green against the real thing, not when its code merges. Dates are Eastern time. The Estimate is a forecast from measured pace. Nothing destructive proceeds without your explicit go.",
+  foot: "Refreshes hourly or on any lane change while the run is open. Technical depth lives in the repository's run records and pull requests."
+};
+
+/* ===== RENDER ===== */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+
+$("stamp").textContent = "Updated " + DATA.updated;
+$("eyebrow").textContent = DATA.eyebrow;
+$("headline").textContent = DATA.headline;
+$("sublead").textContent = DATA.sublead;
+$("changedbox").hidden = !DATA.changed.length;
+$("changed").innerHTML = DATA.changed.map(c => `<li>${esc(c)}</li>`).join("");
+$("tiles").innerHTML = DATA.tiles.map(t => `<div class="tile"><div class="v">${esc(t.v)}</div><div class="l">${esc(t.l)}</div></div>`).join("");
+$("needs").innerHTML = DATA.needs.length ? `<ul>${DATA.needs.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : `<div class="empty">Nothing right now.</div>`;
+$("winTitle").textContent = DATA.winTitle;
+$("winSub").textContent = DATA.winSub;
+
+const chipText = {done: "Done", running: "Running", next: "Next", you: "Waiting on you", waiting: "Waiting", stopped: "Stopped"};
+$("tl").innerHTML = DATA.window.map((w, i) =>
+  `<li class="${w.state}"><div class="dot"><span>${i + 1}</span></div><div>
+    <div class="row"><span class="name">${esc(w.name)}</span><span class="chip ${w.state}">${chipText[w.state]}</span>${w.when ? `<span class="when">${esc(w.when)}</span>` : ""}</div>
+    ${w.d ? `<div class="d">${esc(w.d)}</div>` : ""}</div></li>`).join("");
+
+const all = DATA.streams.flatMap(s => s.items);
+const count = items => { const c = {}; DATA.order.forEach(k => c[k] = 0); items.forEach(i => c[i.st]++); return c; };
+$("total").textContent = `${all.length} items across ${DATA.streams.length} streams`;
+$("legend").innerHTML = DATA.order.map(k => `<li><span class="sw st-${k}"></span>${esc(DATA.states[k].label)}</li>`).join("");
+
+$("rows").innerHTML = DATA.streams.map((s, i) => {
+  const c = count(s.items), n = s.items.length;
+  const bar = DATA.order.filter(k => c[k]).map(k => `<span class="st-${k}" style="flex:${c[k]}"></span>`).join("");
+  const tally = `${c.live} of ${n} live` + DATA.order.filter(k => k !== "live" && c[k]).map(k => ` · ${c[k]} ${DATA.states[k].label.toLowerCase()}`).join("");
+  const list = s.items.map(x => {
+    const when = x.on || x.gate || "";
+    return `<li><details><summary><span class="sw st-${x.st}"></span><span class="n">${esc(x.n)}${x.sub ? `<span class="sub2">${esc(x.sub)}</span>` : ""}</span><span class="when">${esc(when)}</span></summary><div class="m">${esc(x.m)}</div></details></li>`;
+  }).join("");
+  return `<details class="row"><summary><span class="rname">${esc(s.name)}</span><span class="tally">${esc(tally)}</span><span class="bar" role="img" aria-label="${esc(tally)}">${bar}</span></summary><ul class="items">${list}</ul></details>`;
+}).join("");
+
+$("made").innerHTML = DATA.made.map(d => `<li><span class="when">${esc(d.when)}</span><span>${esc(d.t)}</span></li>`).join("");
+$("pending").innerHTML = DATA.pending.length ? DATA.pending.map(l => `<li>${esc(l)}</li>`).join("") : `<li>Nothing right now.</li>`;
+$("later").innerHTML = DATA.later.map(l => `<li>${esc(l)}</li>`).join("");
+$("estDate").textContent = DATA.estimate.complete;
+$("estBasis").textContent = DATA.estimate.basis;
+$("estRisks").innerHTML = DATA.estimate.risks.map(r => `<li>${esc(r)}</li>`).join("");
+$("log").innerHTML = DATA.history.map(h => `<li><span class="stamp">${esc(h.at)}</span><span>${esc(h.t)}</span></li>`).join("");
+$("howto").textContent = DATA.howto;
+$("foot").textContent = DATA.foot;
+
+const rows = [...document.querySelectorAll("details.row")];
+const tg = $("toggleAll");
+const sync = () => { tg.textContent = rows.every(r => r.open) ? "Collapse all" : "Expand all"; };
+tg.addEventListener("click", () => { const open = !rows.every(r => r.open); rows.forEach(r => r.open = open); sync(); });
+rows.forEach(r => r.addEventListener("toggle", sync));
+</script>
+</body>
+</html>
