@@ -122,7 +122,7 @@ prevented from treating foreign data as instructions.
 ## 5. Routing and control flow
 
 The router does not classify or reason about the work — it maps **enums** that
-personas emit to **transitions**. The full table is in `SKILL.md` "Routing" and
+personas emit to **transitions**. The full table is in `references/routing.md` and
 mirrored machine-readably in `references/agents.yaml` under `routing:`.
 
 A persona returns a **status**:
@@ -200,7 +200,7 @@ at install time only.
 ## 7. Right-sizing
 
 A four-persona chain on a one-line fix is waste. The skill tiers the work
-(`SKILL.md` "Right-sizing", defaults in `agents.yaml` under `tiers:`):
+(`references/sizing.md`, defaults in `agents.yaml` under `tiers:`):
 
 - **T0** — a single file: one Implementer against the oracle, no Verifier.
 - **T1** — up to four files: Implementer → Verifier.
@@ -315,7 +315,7 @@ decides. They are also easy to over-use. The test the skill applies since 0.9.0
   the router's own discipline and on conventions the project may not share. Such
   a fact is prose in the router or persona brief, never a hook.
 
-That test yields three hooks (the third added by ADR-0042), declared in `agents.yaml` under `hooks:` and wired by
+That test yields four hooks (ADR-0042 and ADR-0043 each add one), declared in `agents.yaml` under `hooks:` and wired by
 `hooks/hooks.json`:
 
 - **`guard-shared-checkout.sh`** (`shared_checkout_guard`, PreToolUse on Bash,
@@ -328,6 +328,9 @@ That test yields three hooks (the third added by ADR-0042), declared in `agents.
   router). Before a run's canonical progress page is published, runs
   `ledger.sh page-check --publish` and refuses a page that contradicts the
   board or itself (ADR-0042).
+- **`reinject-core.sh`** (`core_reinject`, SessionStart matcher `compact`,
+  router). Prints the router's core instructions back into context after a
+  compaction (ADR-0043).
 - **`on-compaction.sh`** (`compaction_reground`, SessionStart matcher
   `compact`, router). The automatic recovery described in §9.
 

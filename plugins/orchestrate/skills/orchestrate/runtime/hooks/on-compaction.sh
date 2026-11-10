@@ -20,9 +20,8 @@ head="ORCHESTRATE: context was compacted in a repo with an orchestrate board. Th
 below is AUTHORITATIVE: treat it as ground truth over anything summarized. Resume open
 lanes per the reconciliation; retry budgets are counted from disk (ledger.sh retries
 <ticket>), not memory.
-FIRST: re-invoke the orchestrate skill to reload the full router brief. Compaction keeps
-only the first part of each invoked skill and may drop it entirely in a skill-heavy
-session, so do not route from what you hold now."
+Your core instructions are re-attached beside this message (reinject-core.sh); if you do
+not see them, run \`ledger.sh core\` and read its output before routing anything."
 halt=""
 if [ "$rc" = 3 ]; then halt="
 

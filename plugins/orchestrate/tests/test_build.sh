@@ -64,12 +64,14 @@ for p in researcher verifier; do
 done
 if grep -qE '^tools: .*(Write|Edit)' "$SK/agents/actuator.md"; then fail "actuator must not have Write/Edit"; else pass; fi
 
-# --- Hook groups: the contract declares three hooks, so hooks.json carries exactly three
-#     groups (PreToolUse/Bash -> shared-checkout floor, PreToolUse/Artifact -> progress-page
-#     check (ADR-0042), SessionStart/compact -> reground).
+# --- Hook groups: the contract declares four hooks in three groups (PreToolUse/Bash ->
+#     shared-checkout floor, PreToolUse/Artifact -> progress-page check (ADR-0042),
+#     SessionStart/compact -> core re-attach (ADR-0043) then reground, in that order).
 assert_eq "$(grep -c '"matcher"' "$SK/hooks/hooks.json")" 3 "hooks.json has exactly three hook groups"
 if grep -q '"matcher": "Bash"' "$SK/hooks/hooks.json" && grep -q '"matcher": "Artifact"' "$SK/hooks/hooks.json" && grep -q '"matcher": "compact"' "$SK/hooks/hooks.json"; then pass; else fail "hooks.json matchers are Bash, Artifact and compact"; fi
 assert_eq "$(grep -c '"PreToolUse"' "$SK/hooks/hooks.json")" 1 "both PreToolUse groups share one event key (a duplicate key would drop one)"
+assert_eq "$(grep -c 'hooks/.*\.sh' "$SK/hooks/hooks.json")" 4 "hooks.json wires four hook scripts"
+if awk '/reinject-core.sh/{a=NR} /on-compaction.sh/{b=NR} END{exit !(a&&b&&a<b)}' "$SK/hooks/hooks.json"; then pass; else fail "the compact group runs the core re-attach and the reground, core first"; fi
 
 # --- Native worktree isolation: the implementer is dispatched into its own worktree.
 if grep -q '^isolation: worktree' "$SK/agents/implementer.md"; then pass; else fail "implementer.md carries isolation: worktree"; fi
@@ -82,7 +84,7 @@ done
 if have_yq4; then
   LIBD="$(cd "$SK/../.." && pwd)/scripts/harness-lib"
   tmpc="$(mktemp -d)"
-  yq 'del(.hooks.compaction_reground) | del(.hooks.status_page_check)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/shell-only.yaml"
+  yq 'del(.hooks.compaction_reground) | del(.hooks.core_reinject) | del(.hooks.status_page_check)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/shell-only.yaml"
   yq '.hooks = {}' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/none.yaml"
   for c in shell-only none; do
     ( AGENTS="$tmpc/$c.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; . "$LIBD/claude-code.sh"
@@ -92,7 +94,7 @@ if have_yq4; then
   assert_eq "$(grep -c '"matcher"' "$tmpc/shell-only.json")" 1 "cc_hooks_json shell-only emits one group"
   assert_eq "$(grep -c '"matcher"' "$tmpc/none.json")" 0 "cc_hooks_json with no hooks emits no group"
   # two classes under one event (shell + publish): one PreToolUse key, two groups, valid JSON
-  yq 'del(.hooks.compaction_reground)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/pre-only.yaml"
+  yq 'del(.hooks.compaction_reground) | del(.hooks.core_reinject)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/pre-only.yaml"
   ( AGENTS="$tmpc/pre-only.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; . "$LIBD/claude-code.sh"
     cc_hooks_json "$tmpc/pre-only.json" '${CLAUDE_PLUGIN_ROOT}/h' )
   if yq -p=json -o=json '.' "$tmpc/pre-only.json" >/dev/null 2>&1; then pass; else fail "cc_hooks_json (two PreToolUse classes) emits valid JSON"; fi
@@ -184,12 +186,12 @@ fi
 #     cc_model premium emits nothing (no model: line), which the table spells `inherit`.
 if have_yq4; then
   AGT="$SK/skills/orchestrate/references/agents.yaml"
-  SKMD="$SK/skills/orchestrate/SKILL.md"
+  SKMD="$SK/skills/orchestrate/references/sizing.md"
   . "$(cd "$SK/../.." && pwd)/scripts/harness-lib/claude-code.sh"   # function defs only
   for p in $(yq '.personas | keys | .[]' "$AGT"); do
     m="$(cc_model "$(yq ".personas.$p.tier.model" "$AGT")")"
     row="| $p | ${m:-inherit} | $(yq ".personas.$p.tier.effort" "$AGT") |"
-    if grep -qxF "$row" "$SKMD"; then pass; else fail "tier-table row missing from SKILL.md: '$row'"; fi
+    if grep -qxF "$row" "$SKMD"; then pass; else fail "tier-table row missing from references/sizing.md: '$row'"; fi
   done
 else
   echo "(skip tier-table parity: $YQ4_SKIP)"

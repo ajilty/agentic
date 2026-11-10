@@ -1,6 +1,7 @@
-# Three hooks: guard-shared-checkout.sh (PreToolUse Bash) and on-compaction.sh
+# Four hooks: guard-shared-checkout.sh (PreToolUse Bash) and on-compaction.sh
 # (SessionStart compact) survive ADR-0040; check-status-page.sh (PreToolUse Artifact)
-# is added by ADR-0042. Claude Code contract: ALLOW = exit 0 with NO
+# is added by ADR-0042; reinject-core.sh (SessionStart compact) by ADR-0043, tested
+# in test_core_brief.sh. Claude Code contract: ALLOW = exit 0 with NO
 # stdout; DENY = exit 2 with the reason on stderr. A hook NEVER errors on missing input.
 RT="$HERE/../skills/orchestrate/runtime/hooks"
 G="$RT/guard-shared-checkout.sh"

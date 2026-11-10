@@ -61,7 +61,7 @@ done
 # Command parity (OpenCode commands support \$ARGUMENTS): compiled from the same
 # command sources the Claude Code plugin ships; descriptions parsed, never restated.
 for c in init status feedback; do
-  oc_command "$CMD_DIR/$c.md" "$CMDS_DEST/orchestrate-$c.md"
+  oc_command "$CMD_DIR/$c.md" "$CMDS_DEST/orchestrate-$c.md" "$RT_DEST"
   echo "  command  -> $CMDS_DEST/orchestrate-$c.md"
 done
 

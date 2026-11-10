@@ -92,6 +92,24 @@ orchestrate compensates on both sides instead:
   authoritative` (check fill with `/context`). The operator stays the trigger; orchestrate
   contributes the timing judgment.
 
+## What a router holds after a compaction
+
+- **The core comes back; the references do not.** A hook re-attaches the
+  router's core instructions after every compaction (Claude Code and
+  OpenCode). Reference files read earlier are summarized away with the rest
+  of the conversation; the core tells the router to read each again at its
+  step, and that re-read is still the router's choice.
+- **Codex has no start command and no compaction hook wired.** There the core
+  reaches the router only as the skill, and the harness's own rules decide
+  what survives a compaction.
+- **A start command typed mid-conversation injects the core once.** It is not
+  re-injected on later turns; the compaction hook covers the gap after a
+  compaction, nothing covers a very long uncompacted session drifting.
+- **The injected command must be allowed to run.** Its exact command line is
+  pre-approved in the command's frontmatter; an organization policy that
+  blocks command injection leaves the fallback line ("load the orchestrate
+  skill"), which is the old, weaker path.
+
 ## Progress-page mechanics (Claude Code artifacts)
 
 The optional status progress page (`/orchestrate:status`, "Progress page")

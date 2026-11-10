@@ -42,6 +42,30 @@ page_nudge() {
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
+  core)       # print the router's core instructions: SKILL.md without its frontmatter, plus
+              # where the references live. ONE source for the three ways the core reaches a
+              # router: injected by the start command, re-attached by the post-compaction
+              # hook, and loaded as the skill. Must stay under 9,500 characters (hook output
+              # is capped at 10,000; tests/test_core_brief.sh holds the line).
+    sk="$(cd "$(dirname "$0")/.." && pwd)"
+    [ -f "$sk/SKILL.md" ] || { echo "ledger.sh core: no SKILL.md beside the runtime ($sk)" >&2; exit 2; }
+    awk 'f>=2{print} /^---[[:space:]]*$/{f++}' "$sk/SKILL.md" | sed '/./,$!d'
+    printf '\nThe references named above are files under %s/references/ (read them by that path).\n' "$sk" ;;
+
+  brief)      # the core plus the references every run needs (sizing, dispatching, routing):
+              # what the start command injects. A start has no size cap; the post-compaction
+              # hook does, so it carries `core` alone and the core tells the router to read
+              # these again.
+    "$0" core || exit $?
+    sk="$(cd "$(dirname "$0")/.." && pwd)"
+    for n in sizing dispatching routing; do printf '\n---\n\n'; cat "$sk/references/$n.md"; done ;;
+
+  rules)      # print one reference file by name (no extension): `ledger.sh rules status-page-rules`.
+    sk="$(cd "$(dirname "$0")/.." && pwd)"; n="${1:?reference name}"
+    case "$n" in */*|*..*) echo "ledger.sh rules: a bare reference name, not a path" >&2; exit 2 ;; esac
+    [ -f "$sk/references/$n.md" ] || { echo "ledger.sh rules: no reference named $n in $sk/references" >&2; exit 2; }
+    cat "$sk/references/$n.md" ;;
+
   append)
     # The helper must out-earn `echo >>` or routers bypass it (measured: 311/503
     # field board lines had no ts; only `done`, whose helper does real work, hit
