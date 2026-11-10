@@ -112,12 +112,34 @@ one refresh, after the last write. The timer is only the backstop for quiet
 stretches; it fires least when the run is busiest. Cadence is hourly by
 default; the operator can set it in plain words.
 
-A refresh edits DATA in the canonical copy, then republishes: update `updated`
-(operator's timezone, always) and `updated_at` (the same moment in UTC, from
-`date -u +%FT%TZ`, the ledger's own format; never a hand-written offset), keep
-`cadence_minutes` equal to the backstop interval (60 unless the operator set
-another; an on-change cadence still promises the 60-minute backstop), and
-append one history entry per change (newest first). The page draws its own
+A refresh rebuilds the page; it never patches it. In this order:
+
+1. **Gather.** Read the board (`ledger.sh reground`, open forks and decisions,
+   verdicts, `done` rows), git (what merged, commits ahead per lane), and CI
+   for anything the page will call green. Seeing a check queued is not seeing
+   it pass.
+2. **Rebuild every field above the history** from what you gathered: headline,
+   lead, changed strip, tiles, needs, window, streams, calls, estimate. Each
+   needs, pending and window entry carries a `ref` naming what the journal
+   knows it as (a ticket, `fork:<ticket>/<fork_id>`, or `none:<why>`; the
+   template's top comment has the forms). An entry is shown done or live only
+   when the board has its `done` row or an approved verdict; an ask is listed
+   only while its fork has no decision; one finish date, the estimate card's,
+   everywhere it appears.
+3. **History last.** Append one entry per change (newest first) only after the
+   rest is rebuilt. A refresh that touches only the stamp and the history is
+   the failure this order exists to prevent: the stamp stays fresh while the
+   page goes stale.
+4. **Stamp at publish.** Set `updated` (operator's timezone, always) and
+   `updated_at` (the same moment in UTC, from `date -u +%FT%TZ` run now, the
+   ledger's own format; never a hand-written offset). Keep `cadence_minutes`
+   equal to the backstop interval (60 unless the operator set another; an
+   on-change cadence still promises the 60-minute backstop).
+5. **Check, then publish.** Run `ledger.sh page-check --publish
+   .agents/runs/orchestrate/status.html` and fix everything it prints. On
+   Claude Code a hook runs the same check on the publish and refuses a page
+   that fails, naming each failure; fix the page, never route around the hook
+   by publishing a copy. The page draws its own
 out-of-date banner once `updated_at` is older than twice `cadence_minutes`,
 so a missed refresh shows instead of passing for current.
 
@@ -125,9 +147,8 @@ so a missed refresh shows instead of passing for current.
 it stands on every refresh: the headline is one outcome sentence of what is
 true now, the lead says only what comes next, and the changed-since strip
 holds only this refresh's news. Last refresh's news moves to history, not into
-the lead. Each field has a word budget in the template's top comment; run
-`ledger.sh page-check .agents/runs/orchestrate/status.html` before
-republishing and cut any field it reports. A page that keeps growing at the
+the lead. Each field has a word budget in the template's top comment; the
+check in step 5 reports any field over it. A page that keeps growing at the
 top turns into a wall of text the operator stops reading.
 
 A correction is its own history entry marked "(corrected)", never a silent
@@ -137,9 +158,14 @@ measured state. Prose rules carry over from this command; "Calls that are
 yours" is first-class, attributed ("Your decision", "Your standing rule",
 "Made for you, reversible on your word").
 
-A page created before 0.9.6 lacks `updated_at`; on its next refresh, move it
+What the check cannot see: an entry marked `none:`, a stream item with no
+`ref`, and anything the board itself has wrong. Keep `none:` for things the
+board truly does not track.
+
+A page created before 0.9.6 lacks `updated_at` and `ref`s; on its next refresh, move it
 onto the current template (copy the template, carry DATA across, add the new
-fields) so it gains the banner and the budgets.
+fields and a `ref` on every needs, pending and window entry) so it gains the
+banner, the budgets and the checks. The publish hook refuses it until then.
 
 **Harness note.** On Claude Code, publish with the Artifact tool: first
 publish creates the page (favicon, description), every refresh republishes to

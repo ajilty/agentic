@@ -15,7 +15,7 @@ description: >-
   starts or resumes a run with /orchestrate:init. No config file; compaction recovers
   automatically.
 compatibility: >-
-  Harness-agnostic. The runtime (ledger.sh, adr.sh, two Claude Code hooks) needs git, awk,
+  Harness-agnostic. The runtime (ledger.sh, adr.sh, three Claude Code hooks) needs git, awk,
   coreutils, and jq (the shared-checkout floor refuses destructive git verbs it cannot parse
   without jq) and runs under bash 3.2 or later; HELDOUT_ROOT is optional. The generators in
   ../../scripts/ need yq v4: build.sh emits Claude Code's agents/ and hooks/hooks.json;
@@ -395,7 +395,7 @@ contradicting an `active` ADR raises a fork that ends in `adr.sh supersede`.
 
 ## Hooks
 
-Claude Code runs both; OpenCode runs only compaction recovery; Codex neither.
+Claude Code runs all three; OpenCode runs only compaction recovery; Codex none.
 
 - **Shared-checkout floor** (every Bash command, every agent, you too): stops
   the canonical spellings of `reset --hard`, `clean -f`, `checkout -f`/`.`/`--`,
@@ -405,6 +405,10 @@ Claude Code runs both; OpenCode runs only compaction recovery; Codex neither.
   a list of what is safe: `restore`, `stash drop`, `branch -D`, `worktree
   remove --force`, and commands run through `sh -c` or `--git-dir` discard work
   too, and every linked worktree is left alone. Do that work in a worktree.
+- **Progress-page check** (every publish of `.agents/runs/orchestrate/status.html`):
+  runs `ledger.sh page-check --publish` and refuses a page that contradicts
+  the board or itself, naming each failure. Rebuild the page from the journal
+  and publish again; do not publish a copy from another path.
 - **Compaction recovery**: in a repo with a board, runs `ledger.sh reground`,
   injects the board as authoritative, and tells you to re-invoke this skill.
   After an interruption the operator re-runs `/orchestrate:init`.

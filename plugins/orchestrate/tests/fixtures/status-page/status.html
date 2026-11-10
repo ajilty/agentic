@@ -276,13 +276,13 @@ const DATA = {
     {v: "1", l: "waiting on your go"}
   ],
   needs: [
-    "Your go on the production apply: the printed plan shows 3 changes and 0 destroys, matching the approved shape."
+    {t: "Your go on the production apply: the printed plan shows 3 changes and 0 destroys, matching the approved shape.", ref: "fork:prod-apply/prod-ack:prod-env"}
   ],
   window: [
-    {state: "done",    name: "Plan signed after independent review", when: "Sun 8:55 am"},
-    {state: "done",    name: "Branch guard built, bounced once, proven closed", when: "Sun 10:40 am", d: "The reviewer reproduced a bypass live; the fix round closed it and only the fix was re-checked."},
-    {state: "running", name: "Runner trust change in review", d: "Built with one open assumption (the runner image pin); the reviewer resolves it or bounces it."},
-    {state: "you",     name: "Production apply", d: "Held until you approve the printed plan; nothing in it destroys anything."}
+    {state: "done",    name: "Plan signed after independent review", when: "Sun 8:55 am", ref: "pipeline-hardening"},
+    {state: "done",    name: "Branch guard built, bounced once, proven closed", when: "Sun 10:40 am", d: "The reviewer reproduced a bypass live; the fix round closed it and only the fix was re-checked.", ref: "guard-branch"},
+    {state: "running", name: "Runner trust change in review", d: "Built with one open assumption (the runner image pin); the reviewer resolves it or bounces it.", ref: "runner-trust"},
+    {state: "you",     name: "Production apply", d: "Held until you approve the printed plan; nothing in it destroys anything.", ref: "fork:prod-apply/prod-ack:prod-env"}
   ],
   winTitle: "This window",
   winSub: "Four steps, in order. Test first, production last.",
@@ -297,11 +297,11 @@ const DATA = {
   order: ["live", "built", "active", "queued", "op", "cal"],
   streams: [
     {name: "Guardrails", items: [
-      {st: "live", n: "Only reviewed branches reach the pipeline", m: "A guard on every run refuses anything not merged through review. The reviewer found a side door on the first pass; it is closed and the closure was reproduced.", on: "Nov 8"},
+      {st: "live", n: "Only reviewed branches reach the pipeline", m: "A guard on every run refuses anything not merged through review. The reviewer found a side door on the first pass; it is closed and the closure was reproduced.", on: "Nov 8", ref: "guard-branch"},
       {st: "live", n: "Plan signed", m: "The delivery plan passed an independent stress-test before any build started.", on: "Nov 8"}
     ]},
     {name: "Runner isolation", items: [
-      {st: "active", n: "Runners trust reviewed code only", m: "Built; in independent review with one open assumption about the runner image version."},
+      {st: "active", n: "Runners trust reviewed code only", m: "Built; in independent review with one open assumption about the runner image version.", ref: "runner-trust"},
       {st: "op", n: "Apply the hardened pipeline to production", m: "Plan printed and matching the approved shape: 3 changes, 0 destroys. Waits on your go."}
     ]}
   ],
@@ -310,7 +310,7 @@ const DATA = {
     {when: "Nov 8 am", t: "Your standing rule: obvious design calls are taken and reported; questions are kept for close calls and anything that destroys."}
   ],
   pending: [
-    "The production apply above: approve the printed plan or decline it."
+    {t: "The production apply above: approve the printed plan or decline it.", ref: "fork:prod-apply/prod-ack:prod-env"}
   ],
   later: [
     "Whether the old unreviewed-deploy path is deleted or left disabled for a fallback month."
@@ -343,7 +343,8 @@ $("sublead").textContent = DATA.sublead;
 $("changedbox").hidden = !DATA.changed.length;
 $("changed").innerHTML = DATA.changed.map(c => `<li>${esc(c)}</li>`).join("");
 $("tiles").innerHTML = DATA.tiles.map(t => `<div class="tile"><div class="v">${esc(t.v)}</div><div class="l">${esc(t.l)}</div></div>`).join("");
-$("needs").innerHTML = DATA.needs.length ? `<ul>${DATA.needs.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : `<div class="empty">Nothing right now.</div>`;
+const txt = x => typeof x === "string" ? x : x.t;   /* entries may carry a ref for ledger.sh page-check */
+$("needs").innerHTML = DATA.needs.length ? `<ul>${DATA.needs.map(n => `<li>${esc(txt(n))}</li>`).join("")}</ul>` : `<div class="empty">Nothing right now.</div>`;
 $("winTitle").textContent = DATA.winTitle;
 $("winSub").textContent = DATA.winSub;
 
@@ -370,7 +371,7 @@ $("rows").innerHTML = DATA.streams.map((s, i) => {
 }).join("");
 
 $("made").innerHTML = DATA.made.map(d => `<li><span class="when">${esc(d.when)}</span><span>${esc(d.t)}</span></li>`).join("");
-$("pending").innerHTML = DATA.pending.length ? DATA.pending.map(l => `<li>${esc(l)}</li>`).join("") : `<li>Nothing right now.</li>`;
+$("pending").innerHTML = DATA.pending.length ? DATA.pending.map(l => `<li>${esc(txt(l))}</li>`).join("") : `<li>Nothing right now.</li>`;
 $("later").innerHTML = DATA.later.map(l => `<li>${esc(l)}</li>`).join("");
 $("estDate").textContent = DATA.estimate.complete;
 $("estBasis").textContent = DATA.estimate.basis;

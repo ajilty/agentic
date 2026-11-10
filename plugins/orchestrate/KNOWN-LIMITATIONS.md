@@ -111,6 +111,12 @@ cannot change:
   changes, with the timer as a backstop that only fires when the session is
   idle; the page draws an out-of-date banner itself when its last update is
   older than twice the promised interval, so a lapse is visible, not hidden.
+- **The publish check sees the journal, not the world.** It refuses a page
+  that contradicts the board or itself, but it trusts the board: an entry
+  marked `none:`, a stream item with no `ref`, and a `done` row journaled
+  before its check was really seen all pass. It runs only on Claude Code (the
+  one harness with an artifact surface), needs `jq` to read the publish call,
+  and skips the code-parse check when `node` is absent.
 - **Size.** The page is one self-contained file and must stay under the
   artifact size limit; the changelog grows per refresh, so a very long run
   should prune history older than the goal into the repo's run records (note

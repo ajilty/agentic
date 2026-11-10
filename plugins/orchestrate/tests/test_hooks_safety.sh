@@ -1,5 +1,6 @@
-# Two hooks survive (ADR-0040): guard-shared-checkout.sh (PreToolUse Bash) and
-# on-compaction.sh (SessionStart compact). Claude Code contract: ALLOW = exit 0 with NO
+# Three hooks: guard-shared-checkout.sh (PreToolUse Bash) and on-compaction.sh
+# (SessionStart compact) survive ADR-0040; check-status-page.sh (PreToolUse Artifact)
+# is added by ADR-0042. Claude Code contract: ALLOW = exit 0 with NO
 # stdout; DENY = exit 2 with the reason on stderr. A hook NEVER errors on missing input.
 RT="$HERE/../skills/orchestrate/runtime/hooks"
 G="$RT/guard-shared-checkout.sh"
@@ -148,3 +149,31 @@ if command -v jq >/dev/null 2>&1; then
   printf '%s' "$out" | jq -e '.hookSpecificOutput.hookEventName=="SessionStart"' >/dev/null 2>&1 && pass || fail "on-compaction emits hookEventName SessionStart"
   rm -rf "$d"
 fi
+
+# --- check-status-page.sh (ADR-0042): a publish of the run's canonical page is checked
+#     against the journal; everything else is none of its business.
+C="$RT/check-status-page.sh"; FX="$HERE/fixtures/status-page"
+pr="$(mktemp_repo)"; cp "$FX/board.jsonl" "$pr/.agents/runs/orchestrate/board.jsonl"
+cp "$FX/status.html" "$pr/.agents/runs/orchestrate/status.html"
+pub(){ # <json tool_input> <cwd> [now]
+  printf '{"tool_name":"Artifact","tool_input":%s,"cwd":"%s"}' "$1" "$2" | PAGE_CHECK_NOW="${3:-2026-11-08T16:15:00Z}" bash "$C"; }
+PGP="$pr/.agents/runs/orchestrate/status.html"
+if command -v jq >/dev/null 2>&1; then
+  o="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2>&1)"; assert_eq "$?" 0 "a page that agrees with the journal is published ($o)"
+  assert_eq "$o" "" "allow path is silent"
+  o="$(pub '{"file_path":".agents/runs/orchestrate/status.html"}' "$pr" 2>&1)"; assert_eq "$?" 0 "a relative path resolves against the payload cwd"
+  echo '{"ticket":"runner-trust","event":"done"}' >> "$pr/.agents/runs/orchestrate/board.jsonl"
+  o="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2>/dev/null)"; rc=$?
+  assert_eq "$rc" 2 "a page that contradicts the journal is refused"
+  assert_eq "$o" "" "deny path keeps stdout empty (reasons on stderr only)"
+  e="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2>&1 >/dev/null)"
+  case "$e" in *"was not published"*"records runner-trust as done"*"Rebuild every field"*) pass;; *) fail "the refusal names each failure and what to do ($e)";; esac
+  o="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2026-11-09T09:00:00Z 2>&1 >/dev/null)"
+  case "$o" in *"not the publish time"*) pass;; *) fail "a stale stamp at publish is named ($o)";; esac
+  pub "{\"action\":\"read\",\"url\":\"https://example.invalid/a\"}" "$pr" >/dev/null 2>&1; assert_eq "$?" 0 "a read is not a publish"
+  pub "{\"action\":\"list\"}" "$pr" >/dev/null 2>&1; assert_eq "$?" 0 "a list is not a publish"
+  pub "{\"file_path\":\"$pr/notes.html\"}" "$pr" >/dev/null 2>&1; assert_eq "$?" 0 "another page is none of its business"
+  pub "{\"file_path\":\"$PGP\",\"asset\":true,\"url\":\"https://example.invalid/a\"}" "$pr" >/dev/null 2>&1; assert_eq "$?" 0 "an asset upload is not a page publish"
+fi
+printf '' | bash "$C" >/dev/null 2>&1; assert_eq "$?" 0 "empty input is allowed, never an error"
+printf 'not json' | bash "$C" >/dev/null 2>&1; assert_eq "$?" 0 "unparseable input is allowed, never an error"

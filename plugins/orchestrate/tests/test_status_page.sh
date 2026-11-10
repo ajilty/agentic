@@ -33,9 +33,10 @@ grep -q '"verdict":"REJECTED"' "$BOARD" && grep -qi 'bounced once' "$SAMPLE" && 
 grep -q '(corrected)' "$SAMPLE" && pass || fail "sample changelog shows a correction as its own entry"
 grep -q 'fork_id":"status-page"' "$BOARD" && pass || fail "sample board journals the page acceptance on the goal anchor"
 
-# 3) No raw internals leak onto the page: ticket ids, persona names, dispatch ids.
+# 3) No raw internals leak onto the page: ticket ids, persona names, dispatch ids. A
+#    `ref` is the one place a ticket id belongs: it is never rendered (asserted below).
 for leak in 'guard-branch' 'runner-trust' 'implementer' 'verifier' 'dispatch_id' 'd03'; do
-  grep -qF "$leak" "$SAMPLE" && fail "sample page leaks internal identifier: $leak" || pass
+  sed 's/, *ref: "[^"]*"//' "$SAMPLE" | grep -qF "$leak" && fail "sample page leaks internal identifier: $leak" || pass
 done
 
 # 4) The command carries the operating rules the router follows.
@@ -145,3 +146,86 @@ rm -f "$big"
 for m in 'Rewrite, never extend' 'page-check' 'updated_at' 'cadence_minutes' 'never end a turn that journaled a lane' 'created before 0.9.6'; do
   grep -qF "$m" "$CMD" && pass || fail "status.md carries: $m"
 done
+
+# 10) Publish checks (0.9.6, ADR-0042). Field failure 2026-11-09/10: for about a day each
+#     hourly refresh bumped the stamp and appended a history line; the rest of the page
+#     stayed as written the night before. The stamp was fresh, the content stale.
+NOW=2026-11-08T16:15:00Z
+mkpage(){ # fresh repo holding the sample board + page; echoes the repo dir
+  local d; d="$(mktemp_repo)"; cp "$BOARD" "$d/.agents/runs/orchestrate/board.jsonl"
+  cp "$SAMPLE" "$d/.agents/runs/orchestrate/status.html"; printf '%s\n' "$d"; }
+pc(){ ( cd "$1" && PAGE_CHECK_NOW="${2:-$NOW}" bash "$R" page-check --publish .agents/runs/orchestrate/status.html 2>/dev/null ); }
+PG=.agents/runs/orchestrate/status.html; BD=.agents/runs/orchestrate/board.jsonl
+
+d="$(mkpage)"; out="$(pc "$d")"; assert_eq "$?" 0 "the sample page agrees with the sample board and passes the publish check ($out)"
+
+# 10a) THE REPRODUCTION. A quiet tick with nothing new: an unchanged page is fine. Then the
+#      journal moves and the refresh touches only the stamp and the history: refused.
+#      Rebuilding a field above the history clears it.
+out="$(pc "$d")"; assert_eq "$?" 0 "quiet tick, nothing journaled since: an unchanged page still passes"
+echo '{"ticket":"runner-trust","event":"verdict","verdict":"REJECTED","dispatch_id":"d09"}' >> "$d/$BD"
+sed -i.bak -e 's/updated_at: "2026-11-08T16:10:00Z"/updated_at: "2026-11-08T17:10:00Z"/' \
+  -e 's/updated: "Sun Nov 8, 11:10 am ET"/updated: "Sun Nov 8, 12:10 pm ET"/' \
+  -e 's/^  history: \[/  history: [\'$'\n''    {at: "Nov 8, 12:10 pm", t: "Hourly refresh."},/' "$d/$PG"
+out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 1 "journal moved, only stamp + history touched: refused"
+case "$out" in *"nothing on the page changed except the stamp and the history"*) pass;; *) fail "the stale-top refusal says what is wrong ($out)";; esac
+sed -i.bak 's/headline: "Reviewed code is now/headline: "Runner change bounced; reviewed code is/' "$d/$PG"
+out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 0 "the same refresh with the top rebuilt passes ($out)"
+
+# 10b) Finished work that still reads as upcoming, or as waiting on the operator.
+d="$(mkpage)"; echo '{"ticket":"runner-trust","event":"done"}' >> "$d/$BD"
+out="$(pc "$d")"; assert_eq "$?" 1 "a lane the board records done but the page shows running: refused"
+case "$out" in *"Runner trust change in review"*"records runner-trust as done"*) pass;; *) fail "names the stale entry ($out)";; esac
+d="$(mkpage)"; echo '{"ticket":"prod-apply","event":"decision","fork_id":"prod-ack:prod-env","note":"approved"}' >> "$d/$BD"
+out="$(pc "$d")"; assert_eq "$?" 1 "an ask the operator already answered still listed: refused"
+case "$out" in *"needs:"*"shows it answered"*) pass;; *) fail "names the satisfied ask ($out)";; esac
+
+# 10c) Marked done or live without the evidence: no done row, no approved verdict.
+d="$(mkpage)"; sed -i.bak 's/{state: "running", name: "Runner trust change in review"/{state: "done", name: "Runner trust change in review"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "an entry shown done with no done row or approved verdict: refused"
+case "$out" in *"no done row or approved verdict for runner-trust"*) pass;; *) fail "names the unevidenced entry ($out)";; esac
+
+# 10d) Finish dates that disagree (static: no board needed), and a top that names one
+#      when the estimate card gives none (the live page said both "Nov 18" and "Re-estimating").
+d="$(mkpage)"; sed -i.bak 's/{v: "1", l: "waiting on your go"}/{v: "Nov 12", l: "target to finish"}/' "$d/$PG"
+out="$(bash "$R" page-check "$d/$PG")"; assert_eq "$?" 1 "a tile's finish date that differs from the estimate card: refused"
+case "$out" in *"tiles: names Nov 12"*"estimate card says Nov 9"*) pass;; *) fail "names both dates ($out)";; esac
+sed -i.bak 's/complete: "Complete Mon Nov 9, midday"/complete: "Re-estimating"/' "$d/$PG"
+out="$(bash "$R" page-check "$d/$PG")"
+case "$out" in *"estimate card gives no date"*) pass;; *) fail "a finish date with no estimate date is refused ($out)";; esac
+d="$(mkpage)"; sed -i.bak 's/One open assumption about the runner image is listed where it belongs\./Backups lock from Nov 11./' "$d/$PG"
+out="$(bash "$R" page-check "$d/$PG")"; assert_eq "$?" 0 "a milestone date that is not a finish claim is left alone ($out)"
+
+# 10e) The stamp is the publish time: not stale, not in the future, and a real UTC stamp.
+d="$(mkpage)"
+out="$(pc "$d" 2026-11-08T18:00:00Z)"; assert_eq "$?" 1 "a stamp older than ten minutes at publish: refused"
+out="$(pc "$d" 2026-11-08T16:00:00Z)"; assert_eq "$?" 1 "a stamp in the future: refused"
+sed -i.bak 's/updated_at: "2026-11-08T16:10:00Z"/updated_at: "2026-11-08T11:10:00-05:00"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "a hand-written offset stamp: refused"
+
+# 10f) Entries the check cannot tie to the journal: a missing ref is refused on needs,
+#      pending and window; none: is allowed; an unknown ticket or fork is refused.
+d="$(mkpage)"; sed -i.bak 's/, ref: "runner-trust"},$/},/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "a window entry with no ref: refused"
+d="$(mkpage)"; sed -i.bak 's/reviewer resolves it or bounces it.", ref: "runner-trust"/reviewer resolves it or bounces it.", ref: "none:external review"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 0 "a none: ref is allowed ($out)"
+d="$(mkpage)"; sed -i.bak 's/ref: "guard-branch"/ref: "no-such-ticket"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "a ref naming a ticket the board lacks: refused"
+
+# 10g) Page code that does not parse (node present), and an old-style string ask.
+if command -v node >/dev/null 2>&1; then
+  d="$(mkpage)"; printf 'const broken = {;\n' >> "$d/extra.js"
+  sed -i.bak 's#^const rows = #const broken = {;\nconst rows = #' "$d/$PG"
+  out="$(bash "$R" page-check "$d/$PG")"; assert_eq "$?" 1 "page code that does not parse: refused"
+  case "$out" in *"does not parse"*) pass;; *) fail "says the code does not parse ($out)";; esac
+fi
+d="$(mkpage)"; sed -i.bak 's/^    {t: "Your go on the production apply: \(.*\)", ref: "fork:prod-apply\/prod-ack:prod-env"}$/    "Your go on the production apply."/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "an ask written as a bare string (no ref): refused"
+bash "$R" page-check "$SAMPLE" >/dev/null; assert_eq "$?" 0 "static mode needs no board, clock or ref and passes the sample"
+awk '/RENDER/{f=1} f' "$TPL" | grep -v 'may carry a ref' | grep -qE '\.ref\b' && fail "the render script never reads ref (it is for the check, not the reader)" || pass
+
+# 11) The command and brief carry the rebuild order and name the check.
+for m in 'Rebuild every field above the history' 'History last' 'page-check --publish' 'Seeing a check queued is not seeing' 'fork:<ticket>/<fork_id>'; do
+  grep -qF "$m" "$CMD" && pass || fail "status.md carries: $m"
+done
+grep -qF 'Progress-page check' "$SKILL" && pass || fail "SKILL Hooks section names the progress-page check"

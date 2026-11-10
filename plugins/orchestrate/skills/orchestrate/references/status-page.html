@@ -21,10 +21,23 @@
     sublead   what comes next: <= 2 sentences, <= 40 words; news goes in changed
     changed   bullets since the last refresh (empty list hides the strip):
               <= 5 bullets, <= 20 words each
-  Every refresh REWRITES headline, sublead and changed from the board as it
-  stands; never extend last refresh's prose. Other budgets: needs <= 30 words
+  Every refresh REBUILDS every field above history from the board, git and CI
+  as they stand, then adds the history line last; never extend last refresh's
+  prose, and never touch only the stamp and the history.
+
+  ref (not shown on the page): what the journal knows this entry as, so
+  `ledger.sh page-check --publish` can catch a page that contradicts it.
+    "<ticket>"                    a ticket on the board
+    "fork:<ticket>/<fork_id>"     a decision waiting on the operator
+    "none:<why>"                  nothing on the board backs it (a calendar wait)
+  Required on every needs, pending and window entry (needs and pending entries
+  are written {t: "...", ref: "..."}); optional on stream items, checked when
+  present. One entry per line, double-quoted strings: the check reads lines. Other budgets: needs <= 30 words
   per item (one ask per item), window d <= 25, stream item m <= 30, made and
-  history t <= 25. `ledger.sh page-check <file>` reports any field over budget.
+  history t <= 25. `ledger.sh page-check <file>` reports any field over budget,
+  finish dates that disagree with the estimate card, and code that does not
+  parse; with --publish it also checks every ref against the board, the stamp
+  against the clock, and that more than the stamp and history changed.
     tiles     three outcome numbers the operator cares about
     needs     what waits on the operator (empty list renders "Nothing right now")
     window    today's ordered steps; state: done|running|next|you|waiting|stopped
@@ -282,10 +295,10 @@ const DATA = {
     {v: "0", l: "FILL outcome number"},
     {v: "0", l: "FILL outcome number"}
   ],
-  needs: [],             /* what waits on the operator; empty renders "Nothing right now" */
+  needs: [],             /* {t, ref} per ask waiting on the operator; empty renders "Nothing right now" */
   /* state: done | running | next | you | waiting | stopped */
   window: [
-    {state: "running", name: "FILL step", d: "FILL plain-language description"}
+    {state: "running", name: "FILL step", d: "FILL plain-language description", ref: "FILL ticket"}
   ],
   winTitle: "Current window",
   winSub: "FILL how many steps, in what order",
@@ -304,7 +317,7 @@ const DATA = {
     ]}
   ],
   made: [],              /* {when, t} settled calls, attributed: "Your decision", "Your standing rule", "Made for you, reversible" */
-  pending: [],           /* calls that are the operator's now */
+  pending: [],           /* {t, ref} per call that is the operator's now */
   later: [],             /* later, each its own ask */
   estimate: {
     complete: "FILL date or range",
@@ -329,7 +342,8 @@ $("sublead").textContent = DATA.sublead;
 $("changedbox").hidden = !DATA.changed.length;
 $("changed").innerHTML = DATA.changed.map(c => `<li>${esc(c)}</li>`).join("");
 $("tiles").innerHTML = DATA.tiles.map(t => `<div class="tile"><div class="v">${esc(t.v)}</div><div class="l">${esc(t.l)}</div></div>`).join("");
-$("needs").innerHTML = DATA.needs.length ? `<ul>${DATA.needs.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : `<div class="empty">Nothing right now.</div>`;
+const txt = x => typeof x === "string" ? x : x.t;   /* entries may carry a ref for ledger.sh page-check */
+$("needs").innerHTML = DATA.needs.length ? `<ul>${DATA.needs.map(n => `<li>${esc(txt(n))}</li>`).join("")}</ul>` : `<div class="empty">Nothing right now.</div>`;
 $("winTitle").textContent = DATA.winTitle;
 $("winSub").textContent = DATA.winSub;
 
@@ -356,7 +370,7 @@ $("rows").innerHTML = DATA.streams.map((s, i) => {
 }).join("");
 
 $("made").innerHTML = DATA.made.map(d => `<li><span class="when">${esc(d.when)}</span><span>${esc(d.t)}</span></li>`).join("");
-$("pending").innerHTML = DATA.pending.length ? DATA.pending.map(l => `<li>${esc(l)}</li>`).join("") : `<li>Nothing right now.</li>`;
+$("pending").innerHTML = DATA.pending.length ? DATA.pending.map(l => `<li>${esc(txt(l))}</li>`).join("") : `<li>Nothing right now.</li>`;
 $("later").innerHTML = DATA.later.map(l => `<li>${esc(l)}</li>`).join("");
 $("estDate").textContent = DATA.estimate.complete;
 $("estBasis").textContent = DATA.estimate.basis;
