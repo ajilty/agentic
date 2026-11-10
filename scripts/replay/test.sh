@@ -58,6 +58,13 @@ mkdir -p "$d/bin" "$d/src" "$d/set/one" "$d/plug"
 cat > "$d/bin/claude" <<FAKE
 #!/usr/bin/env bash
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
+# Post-compaction mode: answer each turn, and after the first, rewrite the turn
+# record the runner reads a line count from, with text a shell would evaluate.
+case " \$* " in *" --input-format "*) n=0
+  while IFS= read -r line; do n=\$((n+1))
+    [ \$n = 2 ] && printf '{"_lines":{"j":"x[\$(touch %s)]"},"result":"r"}' "$d/escaped-arith" > "\$(dirname "\$REPLAY_LOG")/turn.1.json"
+    echo '{"type":"result","result":"r"}'
+  done; exit 0 ;; esac
 cat >/dev/null
 echo change > new.txt; mkdir -p log; echo '{"event":"x"}' >> log/journal.jsonl
 mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -s "$d" keep/dirlink; ln -s "$d/victim" keeplink
@@ -91,7 +98,18 @@ else
   ( cd "$d/src" && touch hang && git add hang && git commit -qm hang ) >/dev/null 2>&1
   git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"
   rp env REPLAY_TIMEOUT=2 >/dev/null; sleep 1
+  [ "$(cat "$o/say.md" 2>/dev/null)" = "(no result)" ] && pass || fail "the hung session was ended by the time limit (got: $(cat "$o/say.md" 2>/dev/null))"
   pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
+  # An interrupted runner takes its sessions with it.
+  rp env >/dev/null & rpid=$!; i=0
+  until pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
+  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && pass || fail "the session to interrupt started"
+  pkill -TERM -f "replay.sh $d/set" 2>/dev/null; wait "$rpid" 2>/dev/null; sleep 1
+  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
+  # Text the session wrote where the runner reads a number is never evaluated.
+  rp env REPLAY_POSTCOMPACT=1 >/dev/null
+  [ -f "$o/compact.result.json" ] && pass || fail "the post-compaction run produced its turns"
+  [ ! -e "$d/escaped-arith" ] && [ ! -e /tmp/escaped-arith ] && pass || fail "a number field the session rewrote is not evaluated by the runner"
   ( cd "$d/src" && git rm -q hang && git commit -qm unhang ) >/dev/null 2>&1
   git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"; rp env >/dev/null
 fi

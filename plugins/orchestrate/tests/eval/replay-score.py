@@ -28,7 +28,11 @@ else: out = "idle"
 tier = next((r.get("tier") for r in rows if r.get("event") == "intake"), None) or "-"
 try: res = json.load(open(o + "/result.json"))
 except Exception: res = {}
-say = res.get("result", "") or ""
+if not isinstance(res, dict): res = {}
+def num(k, fmt, scale=1):   # in post-compaction mode the session can write this file: a number or a dash
+    v = res.get(k)
+    return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) else "-"
+say = str(res.get("result", "") or "")
 kind = open(o + "/kind").read().strip() if os.path.exists(o + "/kind") else "-"
 model = ",".join(sorted((res.get("modelUsage") or {}).keys())) or "-"
 import glob, re
@@ -39,4 +43,4 @@ for f in glob.glob(o + "/tickets/*/assessment.md"):
     if m: verdict = m.group(1)
 print("%-24s %-7s %-15s %-4s %-4s %-9s %-4d %-5d %-4d %-5s %-5s %s" % (
     os.path.basename(o), kind, out, tier, read, verdict, len(rows), edits, say.count("?"),
-    res.get("num_turns", "-"), int(res.get("duration_ms", 0) / 1000), "$%.2f" % res.get("total_cost_usd", 0)))
+    num("num_turns", "%d"), num("duration_ms", "%d", 1000), num("total_cost_usd", "$%.2f")))

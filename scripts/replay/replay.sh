@@ -63,7 +63,8 @@
 #     services bound to another address of this machine (a container bridge, a
 #     VPN address) and the name resolver's socket stay reachable;
 #   - the time limit runs inside the sandbox, so nothing a session started
-#     outlives it.
+#     outlives it, and an interrupted runner kills its sandboxes by name.
+# Not limited: the memory and disk a session can fill inside its sandbox.
 # The snapshot is a `git archive` (tracked files only, no remote), taken with
 # the caller's git configuration switched off so no filter, hook or signer of
 # theirs runs.
@@ -106,7 +107,13 @@ REAL_HOME="$(cd "$HOME" 2>/dev/null && pwd -P)"
 [ -n "$REAL_HOME" ] || { echo "replay: HOME is not a directory" >&2; exit 2; }
 SRC="$(cd "$SRC" && pwd -P)"; SET="$(cd "$SET" && pwd -P)"; mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd -P)"
 [ -n "$OUT" ] || { echo "replay: cannot use the out dir" >&2; exit 2; }
-case "$HERE$OUT" in *\'*|*\"*) echo "replay: a quote character in the harness or out dir path is not supported" >&2; exit 2 ;; esac
+case "$HERE$OUT" in *\'*|*\"*|*\\*) echo "replay: a quote or backslash in the harness or out dir path is not supported" >&2; exit 2 ;; esac
+# The source repo's whole checkout and its git directory are hidden, not just the
+# directory named: a worktree keeps its history elsewhere.
+SRC_HIDE=("$SRC")
+for d in "$(git -C "$SRC" rev-parse --show-toplevel 2>/dev/null)" "$(git -C "$SRC" rev-parse --git-common-dir 2>/dev/null)"; do
+  d="$(cd "$SRC" && cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && [ "$d" != / ] && SRC_HIDE+=("$d")
+done
 
 # The sandbox, probed with the flags the sessions use: a tool that is present
 # but not permitted here (a container, a restricted runner) counts as absent.
@@ -132,8 +139,15 @@ AFTER_DEFAULT="Continue. What is the state of this work and what is your next st
 BUDGET="${REPLAY_BUDGET_USD:-$([ -n "$PC" ] && echo 8 || echo 4)}"; GUARD="$HERE/guard.py"
 LIMIT="${REPLAY_TIMEOUT:-$([ -n "$PC" ] && echo 2700 || echo 900)}"
 IGNORE="${REPLAY_IGNORE-.agents/}"; JOURNAL="${REPLAY_JOURNAL:-}"
+# A plugin may link to skills that live beside it in its checkout: those are
+# put back for the session too, read-only.
+PLUG_LINKS=()
+while IFS= read -r d; do
+  d="$(readlink -f "$d" 2>/dev/null)"; case "$d/" in "$PDIR"/*|/) ;; *) [ -e "$d" ] && PLUG_LINKS+=(--ro-bind "$d" "$d") ;; esac
+done < <(find "$PDIR" -maxdepth 3 -type l 2>/dev/null)
 # The set and the out dir are hidden from the session last, on top of everything
 # else, so nothing the session needs may sit inside them.
+case "$OUT:$SET" in /:*|*:/) echo "replay: the set and the out dir cannot be /" >&2; exit 2 ;; esac
 for d in "$PDIR" "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
   echo "replay: the set and the out dir must not contain the plugin, the harness, the CLI or TMPDIR ($d)" >&2; exit 2 ;; esac; done
 [ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
@@ -142,13 +156,15 @@ for d in "$PDIR" "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do c
 # trap removes them all whichever subshell made them.
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/replay.XXXXXXXX")" || exit 2
 RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
-trap 'cd /; [ -n "$RUN_DIR" ] && rm -rf "$RUN_DIR"' EXIT
-# An interrupt must stop the paid sessions too: the whole process group is
-# signalled, and a sandbox dies with the process that started it. The time limit
-# runs INSIDE the sandbox, as its first process: when it ends the session, the
-# sandbox ends with it and nothing the session started survives.
-trap 'trap "" INT TERM; kill 0 2>/dev/null; exit 130' INT
-trap 'trap "" INT TERM; kill 0 2>/dev/null; exit 143' TERM
+# Every sandbox carries this run's directory in its arguments. Killing by that
+# name is what stops them: behind pasta a sandbox does not die with the runner.
+reap(){ [ -n "$RUN_DIR" ] && pkill -KILL -f -- "$RUN_DIR/t\." 2>/dev/null; return 0; }
+trap 'reap; cd /; [ -n "$RUN_DIR" ] && rm -rf "$RUN_DIR"' EXIT
+# An interrupt must stop the paid sessions too (reap, then the EXIT trap). The
+# time limit runs INSIDE the sandbox, as its first process: when it ends the
+# session, the sandbox ends with it and nothing the session started survives.
+trap 'reap; exit 130' INT
+trap 'reap; exit 143' TERM
 # The caller's git configuration (filters, hooks, signing) must not run on the snapshot.
 cgit(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"; }
 mk_tmp(){ mktemp -d "$RUN_DIR/t.XXXXXXXX"; }
@@ -158,8 +174,11 @@ mk_tmp(){ mktemp -d "$RUN_DIR/t.XXXXXXXX"; }
 real_under(){ # <root> <file> -> prints the real path, or fails
   local real; real="$(readlink -f "$2" 2>/dev/null)" || return 1
   case "$real" in "$1"/*) [ -f "$real" ] && printf '%s\n' "$real" ;; *) return 1 ;; esac; }
-emit(){ local r; r="$(real_under "$1" "$2")" && cat "$r"; }
-take(){ local r; r="$(real_under "$1" "$2")" && cat "$r" > "$3"; }
+emit(){ local r; r="$(real_under "$1" "$2")" && head -c 268435456 "$r"; }       # capped: the session chose its size
+take(){ local r; r="$(real_under "$1" "$2")" && head -c 268435456 "$r" > "$3"; }
+# A number read from a file the session could write: digits, or 0. Never let
+# such text reach shell arithmetic as anything else (it would be evaluated).
+num(){ case "${1:-}" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
 jget(){ python3 -c 'import json,sys;v=json.load(open(sys.argv[1]));print(list(v["_lines"].values())[0] if sys.argv[2]=="_lines" else v.get("result",""))' "$1" "$2" 2>/dev/null; }
 
 # The caller may itself be an agent session whose PATH carries an INSTALLED copy of
@@ -200,27 +219,28 @@ JSON
   cp "$cfg/settings.json" "$o/settings.json"
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
-  [ -n "$journal" ] && [ -f "$journal" ] && base="$(wc -l < "$journal" | tr -d ' ')"
+  [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
   local cargs=(-p --model "$MODEL" --effort "$EFFORT" --plugin-dir "$PDIR" --settings "$cfg/settings.json"
                --max-budget-usd "$BUDGET" --allowedTools "Read,Grep,Glob,Write,Edit,Bash,Agent,Task,Skill")
   # Mount order matters: the empty directories first, then what is put back on top.
   local box=()
   if [ -n "$BWRAP" ]; then
     box=(${NET[@]+"${NET[@]}"} "$BWRAP" "${BOX_BASE[@]}")
-    for d in /var/tmp /run "$REAL_HOME" "$(cd "${TMPDIR:-/tmp}" && pwd -P)" "$SRC"; do
+    for d in /var/tmp /run "$REAL_HOME" "$(cd "${TMPDIR:-/tmp}" && pwd -P)" "${SRC_HIDE[@]}"; do
       [ -d "$d" ] && box+=(--tmpfs "$d")
     done
     d="$(dirname "$(readlink -f /etc/resolv.conf 2>/dev/null)")"          # name resolution may live under /run
     case "$d" in /run/*) box+=(--ro-bind "$d" "$d") ;; esac
     box+=(--bind "$repo" "$repo" --bind "$home" "$home" --bind "$log" "$log" --ro-bind "$cfg" "$cfg"
           --ro-bind "$home/.claude/settings.json" "$home/.claude/settings.json"
-          --ro-bind "$PDIR" "$PDIR" --ro-bind "$HERE" "$HERE" --ro-bind "$CLAUDE_BIN" "$CLAUDE_BIN"
-          --tmpfs "$SET" --tmpfs "$OUT" --chdir "$repo")
+          --ro-bind "$PDIR" "$PDIR" ${PLUG_LINKS[@]+"${PLUG_LINKS[@]}"} --ro-bind "$HERE" "$HERE"
+          --ro-bind "$CLAUDE_BIN" "$CLAUDE_BIN" --tmpfs "$SET" --tmpfs "$OUT" --chdir "$repo")
   fi
   # The environment is built from nothing BEFORE the sandbox starts, so the
   # sandbox's own first process carries none of the caller's variables either.
   # /usr/bin/env, not `env`: an interactive caller's shell may define an `env` function.
-  inbox(){ ( cd "$repo" && /usr/bin/env -i HOME="$home" PATH="$CLEAN_PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" \
+  inbox(){ ( exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-    # nothing the caller left open is handed on
+      cd "$repo" && /usr/bin/env -i HOME="$home" PATH="$CLEAN_PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" \
       TMPDIR="$home/tmp" "$@" ); }
   session(){ inbox ENABLE_CLAUDEAI_MCP_SERVERS=false \
       ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
@@ -243,15 +263,15 @@ JSON
              guard.jsonl.turn1:guard.jsonl guard.jsonl.turn2:guard.compact.jsonl guard.jsonl.turn3:guard.turn2.jsonl; do
       take "$log" "$log/${f%%:*}" "$o/${f##*:}"
     done
-    turn1_end="$(jget "$o/result.json" _lines)"
+    turn1_end="$(num "$(jget "$o/result.json" _lines)")"
     jget "$o/turn2.result.json" result > "$o/turn2.say.md"
   fi
   if [ -n "$journal" ]; then
     # In post-compaction mode journal.jsonl is turn 1 only, to match guard.jsonl,
     # and journal.turn2.jsonl is what was added after the compaction.
-    n=$(( ${turn1_end:-0} - base )); [ "$n" -gt 0 ] || n=0
+    n=$(( $(num "$turn1_end") - $(num "$base") )); [ "$n" -gt 0 ] || n=0
     emit "$repo" "$journal" | tail -n +"$(( base + 1 ))" | { [ -n "$PC" ] && head -n "$n" || cat; } > "$o/journal.jsonl"
-    [ -z "$PC" ] || emit "$repo" "$journal" | tail -n +"$(( $(jget "$o/compact.result.json" _lines || echo 0) + 1 ))" > "$o/journal.turn2.jsonl"
+    [ -z "$PC" ] || emit "$repo" "$journal" | tail -n +"$(( $(num "$(jget "$o/compact.result.json" _lines)") + 1 ))" > "$o/journal.turn2.jsonl"
   fi
   for f in "$home"/.claude/projects/*/*.jsonl; do emit "$home" "$f"; done > "$o/transcript.jsonl" 2>/dev/null
   # Everything the session changed since the snapshot, committed or not. The
@@ -272,13 +292,17 @@ def ok(p):   # a regular file whose real path is itself: no link in any componen
 for rel in sys.argv[3:]:
     src = os.path.normpath(os.path.join(repo, rel)); dst = os.path.join(out, os.path.basename(src))
     if not src.startswith(repo + os.sep) or os.path.realpath(src) != src: continue
-    if ok(src): shutil.copyfile(src, dst, follow_symlinks=False); continue
+    if ok(src):
+        try: shutil.copyfile(src, dst, follow_symlinks=False)
+        except OSError: pass
+        continue
     for top, dirs, files in os.walk(src, followlinks=False):
         for f in files:
             p = os.path.join(top, f)
             if ok(p):
-                t = os.path.join(dst, os.path.relpath(p, src)); os.makedirs(os.path.dirname(t), exist_ok=True)
-                shutil.copyfile(p, t, follow_symlinks=False)
+                t = os.path.join(dst, os.path.relpath(p, src))
+                try: os.makedirs(os.path.dirname(t), exist_ok=True); shutil.copyfile(p, t, follow_symlinks=False)
+                except OSError: pass
 KEEP
 }
 
@@ -298,9 +322,11 @@ def n(p, keep=lambda l: l.strip()):
     except Exception: return 0
 try: r = json.load(open(o + "/result.json"))
 except Exception: r = {}
+def f(k, fmt, scale=1):   # the session may have written this file: a field is a number or a dash
+    v = r.get(k) if isinstance(r, dict) else None
+    return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) else "-"
 print("%-28s %-7d %-5d %-5s %-5s %s" % (os.path.basename(o), n(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
-      n(o + "/changed-files.txt"), r.get("num_turns", "-"), int(r.get("duration_ms", 0) / 1000) or "-",
-      ("%.2f" % r["total_cost_usd"]) if "total_cost_usd" in r else "-"))
+      n(o + "/changed-files.txt"), f("num_turns", "%d"), f("duration_ms", "%d", 1000), f("total_cost_usd", "%.2f")))
 PY
 done | LC_ALL=C tr -cd '[:print:]\n' | tee -a "$OUT/summary.txt"   # session-written text never reaches the terminal raw
 exit 0

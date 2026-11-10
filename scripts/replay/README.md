@@ -51,7 +51,8 @@ On Linux each session runs inside a bubblewrap sandbox:
   bound to another address of this machine (a container bridge, a VPN address)
   and the name resolver's socket stay reachable.
 - **Time:** the time limit runs inside the sandbox, so nothing a session
-  started outlives it.
+  started outlives it, and an interrupted runner kills its sandboxes.
+- **Not limited:** the memory and disk a session can fill inside its sandbox.
 - **Results:** the runner copies them out itself: regular files only, never
   following a link the session left behind. Your scorer reads those copies,
   not the sandbox.
