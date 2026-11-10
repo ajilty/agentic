@@ -60,33 +60,46 @@ cat > "$d/bin/claude" <<FAKE
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
 cat >/dev/null
 echo change > new.txt; mkdir -p log; echo '{"event":"x"}' >> log/journal.jsonl
+mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -s "$d" keep/dirlink; ln -s "$d/victim" keeplink
+[ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
+own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
 home=\$([ -e "$fh/secret" ] && echo seen || echo hidden)
 canary=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -c '^REPLAY_CANARY=')
 touch "$d/escaped-write" 2>/dev/null
 git config core.fsmonitor "sh -c 'touch $d/escaped-git' --"
 ln -sf "$d/victim" "\$REPLAY_LOG" 2>/dev/null
-printf '{"result":"home=%s canary=%s","num_turns":1,"duration_ms":1000,"total_cost_usd":0}\n' "\$home" "\$canary"
+printf '{"result":"home=%s canary=%s own=%s","num_turns":1,"duration_ms":1000,"total_cost_usd":0}\n' "\$home" "\$canary" "\$own"
 FAKE
 chmod +x "$d/bin/claude"
 ( cd "$d/src" && git init -q && git config user.email t@t && git config user.name t && mkdir log \
   && echo '{"event":"old"}' > log/journal.jsonl && echo a > a.txt && git add a.txt log/journal.jsonl && git commit -qm init ) >/dev/null 2>&1
 git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"; echo "an ask" > "$d/set/one/ask.md"; echo note > "$d/set/one/kind"
 rp(){ HOME="$fh" REPLAY_CANARY=leak ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" REPLAY_PREFIX='/go ' \
-        REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ "$@" bash "$HERE/replay.sh" "$d/set" "$d/src" "$d/out" 2>&1; }
+        REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ REPLAY_KEEP="keep keeplink ../../etc" "$@" bash "$HERE/replay.sh" "$d/set" "$d/src" "$d/out" 2>&1; }
 o="$d/out/one.1"
 if rp env | grep -q 'no usable bubblewrap'; then
   pass   # without a sandbox the runner refuses unless told otherwise
   echo "(skip sandbox assertions: no usable bubblewrap here)"
+  [ "${CI:-}" != true ] || fail "CI must exercise the sandbox: bubblewrap is not usable on this runner"
   rp env REPLAY_UNCONFINED=1 >/dev/null
 else
-  [ "$(cat "$o/say.md" 2>/dev/null)" = "home=hidden canary=0" ] && pass \
+  [ "$(cat "$o/say.md" 2>/dev/null)" = "home=hidden canary=0 own=seen" ] && pass \
     || fail "the sandbox hides the caller's home directory and environment (got: $(cat "$o/say.md" 2>/dev/null))"
   [ ! -e "$d/escaped-write" ] && pass || fail "a write outside the sandbox does not reach the machine"
   [ ! -e "$d/escaped-git" ] && pass || fail "a command planted in the snapshot's git configuration does not run on the machine"
-  grep -rq TOPSECRET "$d/out" && fail "a link left by the session is not followed into the output" || pass
+  # A session that hangs is ended by the time limit, and nothing it started survives.
+  ( cd "$d/src" && touch hang && git add hang && git commit -qm hang ) >/dev/null 2>&1
+  git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"
+  rp env REPLAY_TIMEOUT=2 >/dev/null; sleep 1
+  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
+  ( cd "$d/src" && git rm -q hang && git commit -qm unhang ) >/dev/null 2>&1
+  git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"; rp env >/dev/null
 fi
+grep -rq TOPSECRET "$d/out" && fail "a link left by the session is not followed into the output" || pass
+[ "$(cat "$o/keep/sub/a.txt" 2>/dev/null)" = kept ] && [ ! -e "$o/keep/link" ] && [ ! -e "$o/keep/dirlink" ] && [ ! -e "$o/keeplink" ] && [ ! -e "$o/etc" ] \
+  && pass || fail "kept paths are copied as regular files only, from inside the snapshot only"
 [ "$(cat "$o/turn1.md" 2>/dev/null)" = "/go an ask" ] && pass || fail "the prefix and the ask are sent verbatim"
-[ "$(cat "$o/changed-files.txt" 2>/dev/null)" = new.txt ] && pass || fail "changed files exclude run state (got: $(cat "$o/changed-files.txt" 2>/dev/null | tr '\n' ' '))"
+[ "$(grep -v '^keep' "$o/changed-files.txt" 2>/dev/null)" = new.txt ] && pass || fail "changed files exclude run state (got: $(cat "$o/changed-files.txt" 2>/dev/null | tr '\n' ' '))"
 [ "$(cat "$o/journal.jsonl" 2>/dev/null)" = '{"event":"x"}' ] && pass || fail "the journal keeps only this run's rows"
 [ -f "$o/kind" ] && [ ! -f "$o/commit" ] && pass || fail "extra case files are copied out"
 [ ! -e "$d/src/new.txt" ] && [ -z "$(git -C "$d/src" status --porcelain)" ] && pass || fail "the source repo is untouched"

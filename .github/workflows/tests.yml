@@ -23,7 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run every scripts/*/test.sh (the replay harness guard)
+      - name: Install the sandbox tools the replay harness is tested with
+        # Ubuntu runners restrict unprivileged user namespaces through AppArmor;
+        # bubblewrap needs them, and the test fails under CI if the sandbox is unusable.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap passt
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Run every scripts/*/test.sh (the replay harness and its sandbox)
         run: bash scripts/check.sh script-tests
   validate-plugins:
     runs-on: ubuntu-latest

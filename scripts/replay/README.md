@@ -27,8 +27,8 @@ A plugin supplies three things, all optional, and scores the output itself:
 - `REPLAY_PREFIX`: how a run starts, usually the plugin's slash command.
 - `REPLAY_JOURNAL`: an append-only log the plugin writes in the repo, if it has
   one. Its new rows are kept per turn.
-- `REPLAY_COLLECT`: a command that copies anything else out of the sandbox
-  before it is deleted.
+- `REPLAY_KEEP`: other paths in the repo to copy out before the sandbox is
+  deleted.
 
 Scoring is a script of the plugin's own that reads an output directory and
 prints a line. There is no shared scoring format, on purpose: what counts as
@@ -45,18 +45,24 @@ On Linux each session runs inside a bubblewrap sandbox:
   a log directory.
 - **Processes and environment:** its own process table, and an environment
   built from nothing.
-- **Network:** with `pasta` installed, a network of its own, so this machine's
-  local services are out of reach. Without it the runner warns and the session
-  shares the machine's network.
-- **Results:** the runner copies them out itself and never follows a link the
-  session left behind. A `REPLAY_COLLECT` command of yours runs as you on files
-  the session wrote, so it must not follow links either (`cp -RP`).
+- **Network:** with `pasta` installed, a network of its own, so services bound
+  to this machine's loopback address are out of reach. Without it the runner
+  warns and the session shares the machine's network. Either way, services
+  bound to another address of this machine (a container bridge, a VPN address)
+  and the name resolver's socket stay reachable.
+- **Time:** the time limit runs inside the sandbox, so nothing a session
+  started outlives it.
+- **Results:** the runner copies them out itself: regular files only, never
+  following a link the session left behind. Your scorer reads those copies,
+  not the sandbox.
 
 What the sandbox does not cover: the internet stays reachable, because the
 model is reached over it, and the session holds the model login. `guard.py`
 refuses the web, connected services, dispatches and any tool it does not know.
 It is best effort, not the boundary: a session that got past it could send what
-it can read (the snapshot, the plugin, your `CLAUDE.md`) out.
+it can read (the snapshot, the plugin, your `CLAUDE.md`) out. It also refuses
+some harmless commands (any `terraform` or `kubectl`, reads under `/etc`),
+which a replay of work past its opening stage would feel.
 
 Without a usable bubblewrap (macOS, some containers) there is no boundary: the
 session runs as you. The runner refuses to start unless `REPLAY_UNCONFINED=1`.
