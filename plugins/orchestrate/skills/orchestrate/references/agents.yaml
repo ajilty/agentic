@@ -4,7 +4,7 @@
 # router routes, in harness-neutral terms. It says nothing about Claude Code /
 # Codex / OpenCode tool names. The per-harness generators (build.sh for Claude
 # Code, install-codex.sh / install-opencode.sh) read this file and compile it
-# into each harness's native subagent definitions. Claude Code also gets both
+# into each harness's native subagent definitions. Claude Code also gets all four
 # hooks in the hooks: block below; OpenCode's generated plugin runs the
 # post-compaction ones; Codex gets none. Keep this file free of any single
 # harness's vocabulary.

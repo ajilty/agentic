@@ -6,7 +6,7 @@ work starts? So nothing may run: every dispatch is recorded and refused, and
 the session is steered back into its sandbox. The source repo is a real
 project; its snapshot must never reach the real thing.
 
-This guard is best effort, not a boundary. It pattern-matches commands, and a
+This guard is best effort, not a boundary (it does fail closed on its own errors). It pattern-matches commands, and a
 shell has more spellings than a pattern has cases. What actually keeps a replay
 harmless is set up by replay.sh: a scrubbed environment and a throwaway HOME, so
 the session holds no cloud, vault, SSH or git-remote credential to misuse.
@@ -15,8 +15,15 @@ Env: REPLAY_LOG (jsonl log), REPLAY_ROOTS (colon-separated allowed path roots).
 """
 import json, os, re, sys
 
+def _closed(kind, value, tb):
+    # Fail closed: an uncaught error would exit 1, which the harness treats as a
+    # non-blocking hook error and runs the tool anyway. Exit 2 blocks it.
+    sys.stderr.write("Replay harness: guard error (%s), tool refused.\n" % value); os._exit(2)
+sys.excepthook = _closed
+
 ev = json.load(sys.stdin)
-tool, inp = ev.get("tool_name", ""), ev.get("tool_input", {}) or {}
+tool, inp = ev.get("tool_name", ""), ev.get("tool_input", {})
+if not isinstance(inp, dict): inp = {}
 roots = [r for r in os.environ.get("REPLAY_ROOTS", "").split(":") if r]
 
 def log(decision, why=""):

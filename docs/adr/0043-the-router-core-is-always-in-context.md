@@ -40,7 +40,7 @@ nothing.
    writer needs. Every delivery path calls one of them.
 3. **Delivered three ways.** The start command injects the brief before the
    model sees anything (a start has no size cap; a live check showed routers
-   do not open reference files unprompted). A hook re-attaches it after every compaction. The skill
+   do not open reference files unprompted). A hook re-attaches the core (not the references) after every compaction. The skill
    itself is now small enough to survive the harness's own re-attach whole.
 4. **Craft guides are compiled into the personas** at build time, from a
    mapping in the contract, so a persona holds its guide without anyone
@@ -64,6 +64,10 @@ nothing.
   and a compaction forgets them. The core says to read each again at its step.
   The replay harness measures whether that happens.
 - The hook count is four (this adds the core re-attach).
+- The re-attach hook cannot tell the router from any other session in the
+  repo, so every compacted session where a run was driven receives the core,
+  headed by a line saying who it is for. That costs a non-router session about
+  2,500 tokens per compaction.
 - Codex gets the short core as its skill but no injection and no hook.
   OpenCode gets the injection but no re-attach: its compaction event has no
   documented way to pass a script's output to the model.

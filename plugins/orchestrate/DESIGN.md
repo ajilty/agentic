@@ -179,11 +179,11 @@ Each persona also carries a tier (`model`, `effort`) that compiles into its agen
 file. A persona never runs a bigger model than the main loop; the router
 overrides a tier only for a named hard item and journals the override.
 
-The same file declares the three Claude Code hooks (§10) and the routing enums
+The same file declares the four Claude Code hooks (§10) and the routing enums
 (§5). The generators read it and emit each harness's native definitions:
 
 - **Claude Code** (`scripts/build.sh`): `agents/*.md` with `tools:`, `model:`,
-  `effort:`, and `isolation:` frontmatter, plus `hooks/hooks.json` for the two
+  `effort:`, and `isolation:` frontmatter, plus `hooks/hooks.json` for the four
   hooks.
 - **Codex** (`scripts/install-codex.sh`): one persona TOML per agent (sandbox,
   model, effort). No hooks.

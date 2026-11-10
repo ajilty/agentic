@@ -34,7 +34,10 @@
 # git-remote credentials). On top of that, replay-guard.py refuses dispatches,
 # connected services and the web, the network/cloud/credential commands it
 # recognises, and the paths outside the sandbox it recognises. The guard is
-# best effort (it pattern-matches commands), never the boundary. The sandbox
+# best effort (it pattern-matches commands), never the boundary. PATH is the
+# caller's (minus installed plugin bins), so tools stay reachable; that a vault
+# or cloud CLI cannot authenticate without the inherited environment is
+# assumed, not verified. The sandbox
 # HOME does carry the model account's login, which is why connected services
 # are refused by name.
 # The headless session has no human: a router that wants to ask can only

@@ -66,7 +66,7 @@ if grep -qE '^tools: .*(Write|Edit)' "$SK/agents/actuator.md"; then fail "actuat
 
 # --- Hook groups: the contract declares four hooks in three groups (PreToolUse/Bash ->
 #     shared-checkout floor, PreToolUse/Artifact -> progress-page check (ADR-0042),
-#     SessionStart/compact -> core re-attach (ADR-0043) then reground, in that order).
+#     SessionStart/compact -> core re-attach (ADR-0043) and reground, run in parallel).
 assert_eq "$(grep -c '"matcher"' "$SK/hooks/hooks.json")" 3 "hooks.json has exactly three hook groups"
 if grep -q '"matcher": "Bash"' "$SK/hooks/hooks.json" && grep -q '"matcher": "Artifact"' "$SK/hooks/hooks.json" && grep -q '"matcher": "compact"' "$SK/hooks/hooks.json"; then pass; else fail "hooks.json matchers are Bash, Artifact and compact"; fi
 assert_eq "$(grep -c '"PreToolUse"' "$SK/hooks/hooks.json")" 1 "both PreToolUse groups share one event key (a duplicate key would drop one)"

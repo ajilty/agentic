@@ -26,3 +26,11 @@ change has landed (merged, or its pull request merged); on the hand-over path
 keep both and tell the operator where they are. Fix a stale base by recreating
 the worktree, never by `reset --hard`. Treat a worktree you did not create as
 the operator's; the floor does not cover it.
+
+An instructions change (a skill, a persona brief) never lands on its own
+approval, whatever the operator asked for other lanes: open the pull request
+or hand it over, and bring the operator every finding you did not fix.
+
+In a long session, a closed lane on a quiet board is the cheapest compaction
+point: tell the operator "clean boundary: good time for `/compact keep the goal
+and open lanes; the board on disk is authoritative`".

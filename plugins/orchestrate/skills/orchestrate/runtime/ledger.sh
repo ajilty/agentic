@@ -64,8 +64,11 @@ case "$cmd" in
       exit 0
     fi
     for n in sizing dispatching routing review-rounds shared-targets landing; do
-      [ -f "$sk/references/$n.md" ] && { printf '\n---\n\n'; cat "$sk/references/$n.md"; }
-    done ;;
+      printf '\n---\n\n'
+      if [ -f "$sk/references/$n.md" ]; then cat "$sk/references/$n.md"
+      else echo "ORCHESTRATE: the reference $n could not be printed from $sk/references. Find and read $n.md in the orchestrate skill's references directory before the step that names it."; fi
+    done
+    exit 0 ;;
 
   rules)      # print one reference file by name (no extension): `ledger.sh rules status-page-rules`.
               # Also injected by a command, so a missing file prints one line and exits 0;
@@ -583,5 +586,5 @@ case "$cmd" in
     fi
     exit "$bad" ;;
 
-  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
+  *) echo "usage: ledger.sh {core|brief|rules <name>|append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
 esac

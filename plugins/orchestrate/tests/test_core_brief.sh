@@ -50,6 +50,7 @@ wb="$(mktemp_repo)"; ( cd "$wb" && git commit -qm init --allow-empty && bash "$R
 o="$(cd "$wb" && bash "$H" 2>/dev/null)"
 case "$o" in *"5. **Drive lanes.**"*) pass;; *) fail "with a board the hook output carries the loop";; esac
 n="$(printf '%s' "$o" | wc -c | tr -d ' ')"
+[ "$n" -le 10000 ] && pass || fail "raw hook output is $n characters (JSON escaping included); the cap is 10,000"
 if command -v jq >/dev/null 2>&1; then
   n="$(printf '%s' "$o" | jq -r '.hookSpecificOutput.additionalContext' | wc -c | tr -d ' ')"
   assert_eq "$(printf '%s' "$o" | jq -r '.hookSpecificOutput.hookEventName')" "SessionStart" "hook output is the SessionStart shape"
@@ -85,3 +86,21 @@ for f in "$SK/commands/init.md" "$SK/commands/status.md"; do
   [ -n "$inj" ] && pass || fail "$(basename "$f") has an injection line"
   assert_eq "$alw" "$inj" "$(basename "$f") pre-approves exactly what it injects"
 done
+
+# 9) The re-attach only fires where a run was driven: an empty board, or one holding only
+#    another session's refused command, prints nothing; and the text says who it is for.
+eb="$(mktemp_repo)"; mkdir -p "$eb/.agents/runs/orchestrate"; : > "$eb/.agents/runs/orchestrate/board.jsonl"
+assert_eq "$(cd "$eb" && bash "$H" 2>&1)" "" "empty board: the hook prints nothing"
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","event":"denied","hook":"floor","persona":"-","note":"x"}' > "$eb/.agents/runs/orchestrate/board.jsonl"
+assert_eq "$(cd "$eb" && bash "$H" 2>&1)" "" "a board with only a refused command: the hook prints nothing"
+case "$(cd "$wb" && bash "$H" 2>/dev/null)" in *"Any other session: ignore this"*) pass;; *) fail "the re-attach says who it is for";; esac
+
+# 10) brief never fails on a missing reference (a failed injection aborts the start
+#     command), and names the one it could not print.
+mr="$(mktemp -d)"; cp -R "$SD" "$mr/orchestrate"
+for gone in landing sizing; do
+  rm -f "$mr/orchestrate/references/$gone.md"
+  o="$(bash "$mr/orchestrate/runtime/ledger.sh" brief 2>/dev/null)"; assert_eq "$?" 0 "brief exits 0 with $gone.md missing"
+  case "$o" in *"the reference $gone could not be printed"*) pass;; *) fail "brief names the missing reference $gone";; esac
+done
+rm -rf "$mr"

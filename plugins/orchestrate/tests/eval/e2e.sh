@@ -15,14 +15,16 @@
 # Isolation: throwaway HOME (only the OAuth credential, the operator's CLAUDE.md
 # and clarification skills copied in), throwaway cwd, `env -i` with only HOME,
 # PATH, TERM, LANG, TMPDIR and ANTHROPIC_DEFAULT_OPUS_MODEL. Each plugin is staged
-# into the sandbox WITHOUT its tests/ (the held-out oracle lives there) and with
-# a `skills/` sibling so its relative craft-skill links resolve the same way for
-# every arm. The held-out oracle is never copied into the sandbox and
+# into the sandbox WITHOUT its tests/ (the held-out oracle lives there), as a
+# self-contained copy (its craft-skill links are followed at copy time, so the
+# sandbox holds no link back into this checkout). The held-out oracle is never copied into the sandbox and
 # HELDOUT_ROOT is not set: the session cannot see it.
 #
 # There is no command guard here, unlike replay.sh: the loop must really run.
 # The isolation above is the whole control, so point this only at a toy fixture,
-# never at a snapshot of a real project.
+# never at a snapshot of a real project. PATH is the caller's (minus installed
+# plugin bins), so any tool on it is reachable; whether a vault or cloud CLI can
+# still authenticate without the inherited environment is not verified.
 #
 # The seed is a git repo with a local bare `origin` (the loop needs worktrees and
 # a base). The router's default landing is a hand-over, so the change may sit on
@@ -62,8 +64,7 @@ CLEAN_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v -e '/\.claude/plugins/
 stage_plugin(){ # <src> <dest-root> ; echoes the staged plugin dir
   local src="$1" root="$2" dst
   dst="$root/plugins/$(basename "$src")"; mkdir -p "$root/plugins"
-  cp -a "$src" "$dst"; rm -rf "$dst/tests"
-  ln -s "$REPO_ROOT/skills" "$root/skills"      # plugins/<p>/skills/<x> -> ../../../skills/coding/<x>
+  cp -RL "$src" "$dst" 2>/dev/null; rm -rf "$dst/tests"   # -L: links become copies, so nothing in the sandbox points back into the real checkout
   printf '%s\n' "$dst"
 }
 

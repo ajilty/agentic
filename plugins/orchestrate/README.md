@@ -94,7 +94,7 @@ with the one-line fix (`git remote set-head origin <base>`).
   **Generated.**
 - **`skills/orchestrate/`**: the harness-neutral source of truth: `SKILL.md`
   (the router's short core, injected by the start command and re-attached after a compaction), `references/` (the detail each loop step needs, `agents.yaml`, persona bodies,
-  `resume.md`), and `runtime/` (`ledger.sh`, `adr.sh`, and the two hook
+  `resume.md`), and `runtime/` (`ledger.sh`, `adr.sh`, and the four hook
   scripts). Sibling craft skills (`research`, `plan`, `build`, `verify`) are
   inlined into the researcher, planner, implementer, and verifier definitions
   at build time (`craft:` in `agents.yaml`), so each persona always carries its

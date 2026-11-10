@@ -33,7 +33,7 @@ with a goal starts or adds work; with nothing, it resumes.
 
 This is the core: all you hold after a compaction. Each step names the
 `references/` file with its detail; one read before a compaction is gone
-after it, so read it again. `ledger.sh` and `adr.sh` are on your PATH.
+after it, so read it again. `ledger.sh` and `adr.sh` are on your PATH (a harness note at the end, if any, says how).
 
 ## Trust model
 
@@ -99,7 +99,8 @@ Run these in order on every invocation:
    outside a lane's worktree (a plan or apply, a cluster, a database, CI, a
    branch two lanes push) and before any production change;
    `references/routing.md` to route a returned status or verdict and to
-   promote a researcher's findings. One dispatch at a time on a shared
+   promote a researcher's findings; `references/sizing.md` before you debug a
+   failure yourself. One dispatch at a time on a shared
    target. A production apply waits for the operator: journal `fork`
    `prod-ack:<target>`, show the plan and ask, journal the `decision`, and
    dispatch the apply only on approved. A `DECISION_FORK` halts only its own
