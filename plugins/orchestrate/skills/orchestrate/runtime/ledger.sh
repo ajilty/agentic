@@ -36,7 +36,7 @@ page_on() { [ -f "$LEDGER" ] && awk '/"event":"goal"/{on=0}
 page_nudge() {
   case "$1" in dispatched|returned|verdict|fork|decision|lane|done) ;; *) return 0 ;; esac
   case "${2:-}" in status-page) return 0 ;; esac
-  page_on && echo "ledger.sh: progress page is on for this goal; refresh it before this turn ends (/orchestrate:status, Progress page > Refresh)" >&2
+  page_on && echo "ledger.sh: progress page is on for this goal; refresh it before this turn ends (/orchestrate:status, or references/status-page-rules.md)" >&2
   return 0
 }
 

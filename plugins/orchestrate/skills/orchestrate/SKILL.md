@@ -117,10 +117,13 @@ Run these in order on every invocation:
    from the approved shape; a page; a prod change needing a go; all lanes
    done; a named clock time. On re-entry, reground; for every `dispatched`
    row older than about 15 minutes with no `returned` row, read the lane's
-   result file or worktree and route it. When the goal carries an accepted progress page
+   result file or worktree and route it. Waiting for a handback in chat is
+   not a plan: the harness delivers at most one and can lose it. When the goal carries an accepted progress page
    (a `status-page` decision row), refresh it as
    `references/status-page-rules.md` says before ending any turn that
-   journaled a lane state change (`ledger.sh` reminds you on each such write).
+   journaled a lane state change (`ledger.sh` reminds you on each such
+   write); a re-entry tick past its cadence is only the backstop for quiet
+   stretches, and reground re-arms the schedule in a new session.
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. A change
    to instructions (a skill, a persona brief, a hook message, an agent
    definition, operator preferences) takes three lens verifiers. A `REJECTED`

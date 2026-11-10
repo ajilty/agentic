@@ -132,7 +132,7 @@ paused board beats a wrong one.
 ## Hooks, in total
 
 Four on Claude Code, two of them after a compaction (the core re-attach, then
-the reground above); OpenCode's generated plugin runs those two; Codex runs
-none. `runtime.md` describes each. Everything else is the orchestrator driving
+the reground above); OpenCode's generated plugin is wired to run those two, but their output never
+reaches its model, so nothing is put back there; Codex runs none. `runtime.md` describes each. Everything else is the orchestrator driving
 its own loop.
 

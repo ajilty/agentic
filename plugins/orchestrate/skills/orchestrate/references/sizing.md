@@ -5,6 +5,7 @@ down. The file counts are `tiers.t0_max_files` and `tiers.t1_max_files` in
 `agents.yaml`. T0 also needs its files single or grep-proven disjoint, no open
 `#UNKNOWN`, and an oracle that already exists as an independent function probe.
 T1 needs no spec gap: the change is clear and the check is what matters.
+Above `tiers.t1_max_files` is T2.
 
 The oracle is held-out tests, else spec-derived acceptance checks written
 before implementation, else plan one first ("no tests, so it passed" is

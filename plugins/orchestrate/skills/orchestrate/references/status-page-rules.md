@@ -1,11 +1,10 @@
 # Progress page rules
 
-
 ## Progress page (optional; inline stays the default)
 
 A run the operator keeps re-entering can carry a live progress page beside the
 inline report. The page is for the operator as a reader, not a console: same
-register as this command, outcomes first, no ticket ids or persona names.
+register as `/orchestrate:status`, outcomes first, no ticket ids or persona names.
 
 **Offer it exactly once per goal.** When the run has crossed any of: tier T2,
 more than one lane, or a goal older than a day, end the inline status once

@@ -11,7 +11,7 @@ Map enums; never classify.
 | `DECISION_FORK(payload)` | halt that lane, surface the payload |
 | `APPROVED` (outcome) | land (`landing.md`) |
 | `APPROVED` (plan mode) | journal `goal` again with the signed spec, then dispatch implementers |
-| `REJECTED` (outcome) | implementer once with the verdict file, then the operator (`review-rounds.md`) |
+| `REJECTED` (outcome) | implementer once with the verdict file, then the operator; the next verifier re-checks the fixes, not the whole change (`review-rounds.md`) |
 | `REJECTED` (plan mode) | planner, then a plan-mode re-review (`review-rounds.md`) |
 | `INCONSISTENT_ORACLE` | the operator; never shape code to a bad test |
 
