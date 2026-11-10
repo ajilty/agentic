@@ -29,28 +29,35 @@ oc_model() { case "$1" in
   *)        echo "" ;;   # premium / unknown / empty -> omit model line (inherit)
 esac; }
 
-# Emit one subagent markdown (frontmatter rewritten to OpenCode keys + persona body).
+# Emit one subagent markdown (frontmatter rewritten to OpenCode keys + persona body with
+# its craft skill inlined; persona_prompt in common.sh).
 oc_agent_md() { # <persona> <dest.md>
   local p="$1" dest="$2" m
   m="$(oc_model "$(p_tier "$p" model)")"
   { printf -- '---\ndescription: %s\nmode: subagent\n' "$(yaml_q "$(p_desc "$p")")"
     [ -n "$m" ] && printf 'model: %s\n' "$(yaml_q "$m")"
-    oc_tools "$p"; printf -- '---\n\n'; body "$(p_body "$p")"; } > "$dest"
+    oc_tools "$p"; printf -- '---\n\n'; persona_prompt "$p"; } > "$dest"
 }
 
 # Emit one command, description PARSED from the source frontmatter, never restated
 # (it had drifted three-for-three when hand-copied).
-oc_command() { # <src.md> <dest.md>
-  local desc; desc="$(yq --front-matter=extract '.description' "$1")"
-  { printf -- '---\ndescription: %s\n---\n' "$(yaml_q "$desc")"; body "$1"; } > "$2"
+# A command source may inject text with the Claude Code plugin path to a runtime helper;
+# OpenCode has no plugin root, so that path becomes the installed runtime's (third arg).
+oc_command() { # <src.md> <dest.md> [runtime_abs_path]
+  local desc rt="${3:-}"; desc="$(yq --front-matter=extract '.description' "$1")"
+  rt="$(printf '%s' "$rt" | sed 's/[\\&#]/\\&/g')"          # literal in the sed replacement below
+  { printf -- '---\ndescription: %s\n---\n' "$(yaml_q "$desc")"
+    if [ -n "$rt" ]; then body "$1" | sed "s#\${CLAUDE_PLUGIN_ROOT}/bin/\\([a-z]*\\.sh\\)#$rt/\\1#g"; else body "$1"; fi; } > "$2"
 }
 
 # Emit the plugin: two behaviours only (ADR-0040). shell.env injects the runtime
 # dir into PATH for every shell OpenCode spawns; session.compacted runs the
 # contract's post-compaction hook script.
 oc_plugin_ts() { # <dest.ts> <plugin_fn_name> <runtime_abs_path>
-  local dest="$1" fn="$2" rt="$3" pc
-  pc="$(hooks_watching 'post-compaction' | head -1)"
+  local dest="$1" fn="$2" rt="$3" pc s
+  # every post-compaction hook in the contract, in contract order
+  pc=""; for s in $(hooks_watching 'post-compaction'); do pc="$pc
+      await \$\`bash \${RT}/hooks/$s\`.env({ ...process.env });"; done
   cat > "$dest" <<TS
 // $fn.ts: GENERATED from agents.yaml; regenerate via the installer.
 const RT = "$rt";
@@ -67,8 +74,7 @@ export const $fn = async ({ \$ }: any) => {
     },
     // Automatic compaction recovery: reground + inject the authoritative board.
     // session.compacted is the documented post-compaction event.
-    "session.compacted": async () => {
-      await \$\`bash \${RT}/hooks/$pc\`.env({ ...process.env });
+    "session.compacted": async () => {$pc
     },
   };
 };

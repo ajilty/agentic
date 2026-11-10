@@ -36,12 +36,48 @@ page_on() { [ -f "$LEDGER" ] && awk '/"event":"goal"/{on=0}
 page_nudge() {
   case "$1" in dispatched|returned|verdict|fork|decision|lane|done) ;; *) return 0 ;; esac
   case "${2:-}" in status-page) return 0 ;; esac
-  page_on && echo "ledger.sh: progress page is on for this goal; refresh it before this turn ends (/orchestrate:status, Progress page > Refresh)" >&2
+  page_on && echo "ledger.sh: progress page is on for this goal; refresh it before this turn ends (/orchestrate:status, or references/status-page-rules.md)" >&2
   return 0
 }
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
+  core)       # print the router's core instructions: SKILL.md without its frontmatter, plus
+              # where the references live. ONE source for the three ways the core reaches a
+              # router: injected by the start command (inside `brief`), re-attached by the
+              # post-compaction hook, and loaded as the skill. Must stay under 9,500 characters
+              # (hook output is capped at 10,000; tests/test_core_brief.sh holds the line).
+    sk="$(cd "$(dirname "$0")/.." && pwd)"
+    body="$(awk 'f>=2{print} /^---[[:space:]]*$/{f++}' "$sk/SKILL.md" 2>/dev/null | sed '/./,$!d')"
+    [ -n "$body" ] || { echo "ledger.sh core: no core instructions found in $sk/SKILL.md" >&2; exit 2; }
+    printf '%s\n\nThe references named above are files under %s/references/ (read them by that path).\n' "$body" "$sk" ;;
+
+  brief)      # the core plus the references a run with a writer needs (sizing, dispatching,
+              # routing, review rounds, shared targets, landing): what the start command injects.
+              # A start has no size cap; the post-compaction hook does, so it carries `core`
+              # alone. Injected text must never fail (a failed injection aborts the whole
+              # command before the model sees it), so a broken install prints one line saying
+              # what to do and exits 0.
+    sk="$(cd "$(dirname "$0")/.." && pwd)"
+    if ! bash "$0" core 2>/dev/null; then
+      echo "ORCHESTRATE: the core instructions could not be printed from $sk. Load the orchestrate skill now and follow it from loop step 1."
+      exit 0
+    fi
+    for n in sizing dispatching routing review-rounds shared-targets landing; do
+      printf '\n---\n\n'
+      if [ -f "$sk/references/$n.md" ]; then cat "$sk/references/$n.md"
+      else echo "ORCHESTRATE: the reference $n could not be printed from $sk/references. Find and read $n.md in the orchestrate skill's references directory before the step that names it."; fi
+    done
+    exit 0 ;;
+
+  rules)      # print one reference file by name (no extension): `ledger.sh rules status-page-rules`.
+              # Also injected by a command, so a missing file prints one line and exits 0;
+              # a name that is a path is misuse and exits 2.
+    sk="$(cd "$(dirname "$0")/.." && pwd)"; n="${1:?reference name}"
+    case "$n" in */*|*..*|-*) echo "ledger.sh rules: a bare reference name, not a path" >&2; exit 2 ;; esac
+    if [ -f "$sk/references/$n.md" ]; then cat "$sk/references/$n.md"
+    else echo "ORCHESTRATE: the reference $n could not be printed from $sk/references. Find and read $n.md in the orchestrate skill's references directory before going on."; fi ;;
+
   append)
     # The helper must out-earn `echo >>` or routers bypass it (measured: 311/503
     # field board lines had no ts; only `done`, whose helper does real work, hit
@@ -95,7 +131,7 @@ case "$cmd" in
     dimp=$(c '"event":"dispatched".*"persona":"implementer"'); da=$(c '"event":"dispatched".*"persona":"actuator"')
     # Horsepower actually spent (verify optimal usage): persona:model:effort:count over
     # dispatched events that journaled model/effort (optional fields; '-' when absent).
-    # Escalated dispatches (SKILL.md "Right-sizing") show up as a distinct triple next to the tier default.
+    # Escalated dispatches (references/sizing.md) show up as a distinct triple next to the tier default.
     # `|| true` is load-bearing: with ZERO dispatched events grep exits 1, and under
     # set -euo pipefail that killed metrics (and feedback with it) on a fresh board.
     mix="$(src | grep '"event":"dispatched"' | sed -n 's/.*"persona":"\([^"]*\)".*/\1 &/p' | while read -r p line; do
@@ -308,7 +344,7 @@ case "$cmd" in
     [ "$ambiguous" = 1 ] && { echo "REGROUND: lane worktree with no dispatched row -> HALT: show the operator before dispatching"; exit 3; }
     echo "REGROUND: clean" ;;
 
-  decision)   # record a resolved DECISION_FORK or a prod confirmation (SKILL.md "Judgment memory",
+  decision)   # record a resolved DECISION_FORK or a prod confirmation (references/runtime.md "Judgment memory",
               # "Production changes"). The optional note carries the operator's answer, so a
               # prod "declined" never reads like an "approved": decision T prod-ack:<target> "" "approved: ..."
     tk="${1:?ticket}"; fid="${2:?fork_id}"; adr="${3:-}"; note="${4:-}"; mkdir -p "$ROOT"
@@ -329,7 +365,7 @@ case "$cmd" in
               # an external prose doc. This event anchors the board to the goal (ADR-0020).
               # Run-level, so no ticket field (reground's lane loop skips no-ticket lines).
     # main_model: the router's own model (its system-prompt identity, or the operator's
-    # answer at intake), the ceiling no persona runs above (SKILL.md "Right-sizing").
+    # answer at intake), the ceiling no persona runs above (references/sizing.md).
     note="${1:?goal note}"; spec="${2:-}"; base="${3:-}"; mm="${4:-}"; mkdir -p "$ROOT"
     printf '{"ts":"%s","event":"goal","note":"%s","spec":"%s","base":"%s"%s}\n' \
       "$(date -u +%FT%TZ)" "$(jtext "$note")" "$spec" "$base" "${mm:+,\"main_model\":\"$(jtext "$mm")\"}" >> "$LEDGER" ;;
@@ -550,5 +586,5 @@ case "$cmd" in
     fi
     exit "$bad" ;;
 
-  *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
+  *) echo "usage: ledger.sh {core|brief|rules <name>|append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
 esac

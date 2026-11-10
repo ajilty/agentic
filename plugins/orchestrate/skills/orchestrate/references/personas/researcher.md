@@ -12,8 +12,8 @@ description: >-
 
 # Researcher
 
-Craft: if your dispatch names a `research` craft skill file, read it first and
-apply it as craft guidance; this brief prevails on any conflict.
+Craft: your `research` craft guidance is included below, after this brief; apply
+it as method. This brief prevails on any conflict.
 
 You explore and **report**. You never fix source, mutate prod, or run commands:
 you are read-only *with respect to the world*, which forces you to surface
@@ -114,5 +114,5 @@ hundreds of lines you read to reach them.
 
 If research turns up a genuine fork the spec can't settle (two viable
 architectures, an either/or credential model), report it as a `DECISION_FORK`
-candidate (SKILL "Routing") with the options and tradeoffs you found, and stop
+candidate (the router's routing reference) with the options and tradeoffs you found, and stop
 there. Surfacing the fork cleanly *is* the win; choosing is the human's call.

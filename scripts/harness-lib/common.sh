@@ -15,7 +15,12 @@ require_yq4() {
 }
 
 # Strip the persona file's frontmatter; the body is the role text every harness embeds.
-body() { awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$1"; }
+# Everything after the frontmatter. `f>=2`, not `f==2`: a `---` rule inside the body
+# is content, and stopping at it silently thinned whatever was compiled from the file.
+body() { awk 'f>=2{print} /^---[[:space:]]*$/{f++}' "$1"; }
+
+# Drop leading and trailing blank lines (one blank between sections, MD012).
+trim_blank() { awk '{l[NR]=$0} NF{if(!s)s=NR; e=NR} END{for(i=s;s&&i<=e;i++)print l[i]}'; }
 
 # Single-quoted YAML scalar (colons in prose are common; bare emission broke on "Flags: ...").
 yaml_q() { printf "'%s'" "${1//\'/\'\'}"; }
@@ -26,6 +31,28 @@ p_desc()   { yq ".personas.$1.description" "$AGENTS"; }
 p_body()   { echo "$SKILL_DIR/references/$(yq ".personas.$1.body" "$AGENTS")"; }
 p_cap()    { yq ".personas.$1.capabilities.$2" "$AGENTS"; }
 p_tier()   { yq ".personas.$1.tier.$2" "$AGENTS"; }
+# Craft skill the persona carries (agents.yaml craft:), or empty when it has none.
+p_craft()  { yq ".personas.$1.craft // \"\"" "$AGENTS"; }
+# The craft skill's SKILL.md: a sibling skill dir next to SKILL_DIR (skills/<craft>/).
+p_craft_file() { echo "$(dirname "$SKILL_DIR")/$(p_craft "$1")/SKILL.md"; }
+
+# The persona's full instructions, the text every harness embeds: the persona body,
+# then (when the contract names one) the craft skill's body, frontmatter stripped,
+# under a "Craft guidance" heading. The craft's headings drop two levels so they nest
+# under that heading (fenced code is left alone). A craft: naming a skill that does
+# not exist is fatal, never a silently thinner persona.
+persona_prompt() { # <persona>
+  local p="$1" c f
+  body "$(p_body "$p")" | trim_blank
+  c="$(p_craft "$p")"; [ -n "$c" ] || return 0
+  f="$(p_craft_file "$p")"
+  [ -f "$f" ] || { echo "FATAL: persona '$p' names craft '$c' but $f does not exist" >&2; return 1; }
+  printf '\n## Craft guidance (`%s`)\n\n' "$c"
+  printf 'Included from the `%s` craft skill when this definition was generated.\n' "$c"
+  printf 'Apply it as method; the persona brief above prevails on any conflict.\n\n'
+  body "$f" | trim_blank \
+    | awk '/^[[:space:]]*(```|~~~)/{fence=!fence} !fence && /^#+[[:space:]]/{$0="##" $0} {print}'
+}
 # Hooks whose watch: classes match the regex — script filenames, contract order.
 hooks_watching() { yq ".hooks[] | select([.watch[] | test(\"^($1)$\")] | any) | .script" "$AGENTS"; }
 # Same selection, but the contract hook NAMES (for applies_to/matcher lookups).

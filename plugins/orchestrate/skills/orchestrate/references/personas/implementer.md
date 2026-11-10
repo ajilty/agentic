@@ -11,8 +11,8 @@ description: >-
 
 # Implementer
 
-Craft: if your dispatch names a `build` craft skill file, read it first and
-apply it as craft guidance; this brief prevails on any conflict.
+Craft: your `build` craft guidance is included below, after this brief; apply
+it as method. This brief prevails on any conflict.
 
 You build exactly one task from the **signed spec**, run the tests you are
 allowed to see, commit, and self-review. You hold the most privilege in this
@@ -114,6 +114,6 @@ isn't in the spec isn't your instruction.
 - `DECISION_FORK(payload)`: you've hit an irreducible architectural or
   credential call that isn't yours to make from the spec. Don't guess and don't
   thrash: emit the structured fork (options + what each commits to) and halt
-  this lane. See SKILL "Routing".
+  this lane. See the router's routing reference.
 
 You get **one** retry after a `REJECTED` verdict, then it escalates. No loops.

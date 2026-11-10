@@ -9,6 +9,10 @@ TPL="$SK/skills/orchestrate/references/status-page.html"
 SAMPLE="$HERE/fixtures/status-page/status.html"
 BOARD="$HERE/fixtures/status-page/board.jsonl"
 CMD="$SK/commands/status.md"
+# The page rules live in one reference file; the status command injects it, the
+# router reads it by path (0.9.7).
+RULES="$SK/skills/orchestrate/references/status-page-rules.md"
+RT_REF="$SK/skills/orchestrate/references/runtime.md"
 SKILL="$SK/skills/orchestrate/SKILL.md"
 
 # 1) The nine sections, template and sample both. Markers are the render ids /
@@ -43,12 +47,12 @@ done
 for m in 'inline stays the default' 'exactly once per goal' 'fork_id":"status-page' \
          'timezone' 'hourly' '(corrected)' 'liveness re-entry tick' \
          'merge into it'; do
-  grep -qiF "$m" "$CMD" && pass || fail "status.md carries progress-page rule: $m"
+  grep -qiF "$m" "$RULES" && pass || fail "the page rules carry: $m"
 done
 
 # 5) The liveness tick knows about the page, and reground re-arms the schedule.
 grep -q 'status-page' "$SKILL" && pass || fail "SKILL step 5 ties the page refresh to the re-entry tick"
-if grep -qi 're-arm' "$CMD" || grep -qi 're-arms' "$SKILL"; then pass; else fail "reground re-arms the refresh schedule"; fi
+if grep -qi 're-arm' "$RULES" || grep -qi 're-arms' "$SKILL"; then pass; else fail "reground re-arms the refresh schedule"; fi
 
 # 6) Freshness (0.9.6): the page carries a machine timestamp and a cadence, and
 #    draws its own out-of-date banner from them; the template and the sample both.
@@ -144,7 +148,7 @@ rm -f "$big"
 
 # 9) The command carries the rewrite-not-extend rule, the banner fields, and the migration note.
 for m in 'Rewrite, never extend' 'page-check' 'updated_at' 'cadence_minutes' 'never end a turn that journaled a lane' 'created before 0.9.6'; do
-  grep -qF "$m" "$CMD" && pass || fail "status.md carries: $m"
+  grep -qF "$m" "$RULES" && pass || fail "the page rules carry: $m"
 done
 
 # 10) Publish checks (0.9.6, ADR-0042). Field failure 2026-11-09/10: for about a day each
@@ -273,6 +277,8 @@ awk '/RENDER/{f=1} f' "$TPL" | grep -v 'may carry a ref' | grep -qE '\.ref\b' &&
 
 # 11) The command and brief carry the rebuild order and name the check.
 for m in 'Rebuild every field above the history' 'History last' 'page-check --publish' 'Seeing a check queued is not seeing' 'fork:<ticket>/<fork_id>'; do
-  grep -qF "$m" "$CMD" && pass || fail "status.md carries: $m"
+  grep -qF "$m" "$RULES" && pass || fail "the page rules carry: $m"
 done
-grep -qF 'Progress-page check' "$SKILL" && pass || fail "SKILL Hooks section names the progress-page check"
+grep -qF 'Progress-page check' "$RT_REF" && pass || fail "the hooks reference names the progress-page check"
+grep -qE '^!`.*ledger\.sh" rules status-page-rules`$' "$CMD" && pass || fail "the status command injects the page rules"
+grep -qF 'references/status-page-rules.md' "$SKILL" && pass || fail "the core points at the page rules where a refresh is due"

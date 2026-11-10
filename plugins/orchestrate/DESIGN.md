@@ -122,7 +122,7 @@ prevented from treating foreign data as instructions.
 ## 5. Routing and control flow
 
 The router does not classify or reason about the work — it maps **enums** that
-personas emit to **transitions**. The full table is in `SKILL.md` "Routing" and
+personas emit to **transitions**. The full table is in `references/routing.md` and
 mirrored machine-readably in `references/agents.yaml` under `routing:`.
 
 A persona returns a **status**:
@@ -179,11 +179,11 @@ Each persona also carries a tier (`model`, `effort`) that compiles into its agen
 file. A persona never runs a bigger model than the main loop; the router
 overrides a tier only for a named hard item and journals the override.
 
-The same file declares the three Claude Code hooks (§10) and the routing enums
+The same file declares the four Claude Code hooks (§10) and the routing enums
 (§5). The generators read it and emit each harness's native definitions:
 
 - **Claude Code** (`scripts/build.sh`): `agents/*.md` with `tools:`, `model:`,
-  `effort:`, and `isolation:` frontmatter, plus `hooks/hooks.json` for the two
+  `effort:`, and `isolation:` frontmatter, plus `hooks/hooks.json` for the four
   hooks.
 - **Codex** (`scripts/install-codex.sh`): one persona TOML per agent (sandbox,
   model, effort). No hooks.
@@ -200,7 +200,7 @@ at install time only.
 ## 7. Right-sizing
 
 A four-persona chain on a one-line fix is waste. The skill tiers the work
-(`SKILL.md` "Right-sizing", defaults in `agents.yaml` under `tiers:`):
+(`references/sizing.md`, defaults in `agents.yaml` under `tiers:`):
 
 - **T0** — a single file: one Implementer against the oracle, no Verifier.
 - **T1** — up to four files: Implementer → Verifier.
@@ -296,8 +296,9 @@ a `decision` event (`fork_id` `prod-ack:<target>`, `note` "approved: ..." or
   `/orchestrate:init`; step 1 of the loop is reground and reconcile, then continue.
 - **Compaction**: automatic. The `SessionStart` hook with matcher `compact`
   (`runtime/hooks/on-compaction.sh`) runs `ledger.sh reground` and injects the
-  reconstructed board as authoritative state, telling the router to re-invoke
-  the skill (compaction re-injects invoked skills truncated). It hands back the
+  reconstructed board as authoritative state, while `reinject-core.sh` prints
+  the router's core instructions back (compaction re-attaches invoked skills
+  truncated, or not at all). It hands back the
   state itself, not a pointer to go re-read the ledger.
 
 ## 10. Hook philosophy
@@ -315,7 +316,7 @@ decides. They are also easy to over-use. The test the skill applies since 0.9.0
   the router's own discipline and on conventions the project may not share. Such
   a fact is prose in the router or persona brief, never a hook.
 
-That test yields three hooks (the third added by ADR-0042), declared in `agents.yaml` under `hooks:` and wired by
+That test yields four hooks (ADR-0042 and ADR-0043 each add one), declared in `agents.yaml` under `hooks:` and wired by
 `hooks/hooks.json`:
 
 - **`guard-shared-checkout.sh`** (`shared_checkout_guard`, PreToolUse on Bash,
@@ -328,6 +329,9 @@ That test yields three hooks (the third added by ADR-0042), declared in `agents.
   router). Before a run's canonical progress page is published, runs
   `ledger.sh page-check --publish` and refuses a page that contradicts the
   board or itself (ADR-0042).
+- **`reinject-core.sh`** (`core_reinject`, SessionStart matcher `compact`,
+  router). Prints the router's core instructions back into context after a
+  compaction (ADR-0043).
 - **`on-compaction.sh`** (`compaction_reground`, SessionStart matcher
   `compact`, router). The automatic recovery described in §9.
 
@@ -347,16 +351,19 @@ persona *bodies* (portable) are decoupled from the sub-agent *definitions*
 
 The layering:
 
-- `skills/orchestrate/SKILL.md`: the router brief. The loop, dispatching,
-  shared-target steps, routing, quarantine, landing, and the ledger.
-  Harness-neutral; about 360 lines, with depth pushed into `references/`.
+- `skills/orchestrate/SKILL.md`: the router's core. The trust model, the
+  loop with the every-dispatch and sizing essentials, and the ledger rule;
+  its printed form stays under 9,500 characters (ADR-0043). Harness-neutral.
+- `references/{sizing,dispatching,routing,review-rounds,shared-targets,landing,runtime,status-page-rules}.md`:
+  the detail each loop step needs, injected at the start and read again on
+  demand.
 - `references/personas/*.md`: role bodies. Harness-neutral.
 - `references/agents.yaml`: the one machine-readable contract (capabilities,
-  tiers, routing enums, the three hooks, conventions, resume and trust policy).
+  tiers, routing enums, the four hooks, conventions, resume and trust policy).
 - `references/resume.md`: the ledger vocabulary and the durability algorithm.
 - `scripts/build.sh` and `scripts/install-*.sh`: the emitters, built on the
   repo-level `scripts/harness-lib/`.
-- `skills/orchestrate/runtime/`: `ledger.sh`, `adr.sh`, and the two hook
+- `skills/orchestrate/runtime/`: `ledger.sh`, `adr.sh`, and the four hook
   scripts. Pure git and coreutils; no harness dependency.
 
 The test of this architecture: you can read `SKILL.md` end to end and never learn
@@ -371,7 +378,7 @@ plugins/orchestrate/
 ├── DESIGN.md                      This document
 ├── README.md · CONTEXT.md · KNOWN-LIMITATIONS.md · TODO.md
 ├── agents/*.md                    Generated: the five persona agents
-├── hooks/hooks.json               Generated: the three hooks
+├── hooks/hooks.json               Generated: the four hooks
 ├── bin/{ledger.sh,adr.sh}         PATH shims to the runtime
 ├── commands/{init,status,feedback}.md
 ├── scripts/
@@ -380,7 +387,7 @@ plugins/orchestrate/
 │   └── install-opencode.sh        Skill + agents + commands + PATH/compaction plugin
 ├── skills/
 │   ├── orchestrate/
-│   │   ├── SKILL.md               The router brief
+│   │   ├── SKILL.md               The router's core
 │   │   ├── references/
 │   │   │   ├── agents.yaml        The contract
 │   │   │   ├── resume.md          Ledger vocabulary, reground, resume paths
@@ -480,7 +487,8 @@ shared-target and production-change prose in §9. Backlog: `TODO.md`.
 
 0.9.0 removed the workflow-enforcing hooks, the leases, the active-writer
 record, the worktree helper, the Codex and OpenCode hook wiring, and the
-`--models` flag, and kept the two hooks in §10 and the ledger. The decision, the
+`--models` flag, and kept the two hooks §10 held then and the ledger (0.9.6 and 0.9.7 added
+a third and a fourth). The decision, the
 evidence from field boards and run reviews, and the list of superseded ADRs are
 in `docs/adr/0040-gates-become-guidance.md`; the design is
 `docs/specs/2026-11-06-orchestrate-gates-to-guidance-design.md`.

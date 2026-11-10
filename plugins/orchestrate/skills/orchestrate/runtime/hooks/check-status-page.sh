@@ -42,6 +42,6 @@ out="$(cd "$root" && bash "$here/../ledger.sh" page-check --publish "$fp" 2>/dev
   echo "orchestrate: the progress page was not published. It disagrees with the run's journal or with itself:"
   printf '%s\n' "$out" | sed 's/^/  - /'
   [ "$rc" = 2 ] && echo "  - the page's DATA block could not be read"
-  echo "Rebuild every field above the history from the journal, git and CI as they stand now (commands/status.md, Progress page > Refresh), add the history line last, stamp updated_at with date -u +%FT%TZ, then publish again."
+  echo "Rebuild every field above the history from the journal, git and CI as they stand now (references/status-page-rules.md), add the history line last, stamp updated_at with date -u +%FT%TZ, then publish again."
 } >&2
 exit 2

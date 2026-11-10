@@ -18,7 +18,7 @@ survives interruption and compaction and remembers its judgment across goals.
 /plugin install orchestrate@ajilty
 ```
 
-Everything ships in the plugin: the five persona agents, the three hooks
+Everything ships in the plugin: the five persona agents, the four hooks
 (`hooks/hooks.json` registers them automatically), the skill, the commands, and
 the `bin/` shims. Nothing runs at install time; artifacts are pre-built and
 committed (see "Generated artifacts" below).
@@ -80,22 +80,25 @@ with the one-line fix (`git remote set-head origin <base>`).
 ## What ships
 
 - **`commands/{init,status,feedback}.md`**: `/orchestrate:init` (the entry
-  point; the router brief is `skills/orchestrate/SKILL.md`), `/orchestrate:status`
+  point; it injects the router's core from `skills/orchestrate/SKILL.md`), `/orchestrate:status`
   (read-only board view), and `/orchestrate:feedback` (durable run review).
 - **`agents/{researcher,planner,implementer,verifier,actuator}.md`**: the five
   persona subagents, each with a tools allowlist, a model and effort tier, and,
   for the implementer, `isolation: worktree`. **Generated** (see below).
-- **`hooks/hooks.json`**: three hooks. The shared-checkout floor (PreToolUse on
+- **`hooks/hooks.json`**: four hooks. The shared-checkout floor (PreToolUse on
   Bash), the progress-page check (PreToolUse on Artifact: a page that
-  contradicts the run's journal is not published), and compaction recovery
-  (SessionStart, matcher `compact`). Command paths
+  contradicts the run's journal is not published), and two after a compaction
+  (SessionStart, matcher `compact`): one puts the router's core instructions
+  back in context, the other the board. Command paths
   are `${CLAUDE_PLUGIN_ROOT}`-relative, so they are machine-independent.
   **Generated.**
 - **`skills/orchestrate/`**: the harness-neutral source of truth: `SKILL.md`
-  (the router brief), `references/` (`agents.yaml`, persona bodies,
-  `resume.md`), and `runtime/` (`ledger.sh`, `adr.sh`, and the two hook
+  (the router's short core, injected by the start command and re-attached after a compaction), `references/` (the detail each loop step needs, `agents.yaml`, persona bodies,
+  `resume.md`), and `runtime/` (`ledger.sh`, `adr.sh`, and the four hook
   scripts). Sibling craft skills (`research`, `plan`, `build`, `verify`) are
-  what each persona reads first.
+  inlined into the researcher, planner, implementer, and verifier definitions
+  at build time (`craft:` in `agents.yaml`), so each persona always carries its
+  method; they stay usable on their own as user-typed skills.
 
 ## Generated artifacts (build step)
 
@@ -104,7 +107,7 @@ are generated from `skills/orchestrate/references/agents.yaml` (the single
 capability contract, which also carries the hook wire map: `script:` + `watch:`
 per hook) by `scripts/build.sh` and committed — a marketplace install runs no
 build. All harness mapping logic lives in the repo-level `scripts/harness-lib/`
-(ADR-0037), shared by this and the Codex/OpenCode installers. After editing `agents.yaml` or any persona body, regenerate:
+(ADR-0037), shared by this and the Codex/OpenCode installers. After editing `agents.yaml`, any persona body, or a craft skill, regenerate:
 
 ```text
 scripts/build.sh

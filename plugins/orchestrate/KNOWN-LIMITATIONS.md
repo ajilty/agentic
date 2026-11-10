@@ -83,14 +83,51 @@ inert (#52390, #36381). Verified 2026-07-10.
 orchestrate compensates on both sides instead:
 
 - **Recovery** — control state is disk-first and the `SessionStart(compact)` hook injects a
-  reground board as authoritative, telling the router to **re-invoke the orchestrate skill**
-  (compaction re-injects invoked skill bodies truncated at ~5k tokens, so the post-compaction
-  router brain is otherwise a stump).
+  reground board as authoritative, and a second hook prints the router's core instructions
+  back (compaction re-attaches invoked skill bodies truncated at ~5k tokens, or drops them;
+  see "What a router holds after a compaction").
 - **Timing** — the router and `/orchestrate:status` surface the cheap moment: a closed lane
   with a quiescent board, where everything durable is on disk. When the session is long, they
   prompt the operator to run `/compact keep the goal and open lanes; the board on disk is
   authoritative` (check fill with `/context`). The operator stays the trigger; orchestrate
   contributes the timing judgment.
+
+## What a router holds after a compaction
+
+- **The core comes back; the references do not.** A hook re-attaches the
+  router's core instructions after every compaction on Claude Code (measured:
+  intact in three of three compacted runs). OpenCode gets no re-attach: its
+  plugin is wired to run the same scripts on its compaction event, but that
+  event has no documented way to hand their output to the model, and whether
+  it fires at all has not been observed. Reference files read earlier are summarized away with the rest
+  of the conversation; the core tells the router to read each again at its
+  step, and that re-read is still the router's choice.
+- **Codex has no start command and no compaction hook wired.** There the core
+  reaches the router only as the skill, and the harness's own rules decide
+  what survives a compaction.
+- **A start command typed mid-conversation injects the core once.** It is not
+  re-injected on later turns; the compaction hook covers the gap after a
+  compaction, nothing covers a very long uncompacted session drifting.
+- **The injected command must be allowed to run.** Its exact command line is
+  pre-approved in the command's frontmatter. A permission rule that asks or
+  denies on it wins over that approval, and a blocked or failed injection
+  aborts the whole command before the model sees it: the operator gets an
+  error, not a degraded run. Invoke the `orchestrate` skill directly then.
+- **The re-attach reaches every compacted session in a repo with a driven run**,
+  not only the router: a hook cannot tell which session is driving, and the
+  board records none. A session doing other work there gets the core (about
+  2,500 tokens per compaction) headed by a line telling it to ignore it. A
+  board with no goal, intake or dispatch row prints nothing.
+- **The re-attach sits close to the harness's 10,000-character cap** on a
+  hook's context string (about 9,650 characters at this checkout's path). The
+  printed core embeds the install path, so a path about 350 characters longer
+  than this checkout's would push it over, and the harness would then hand the
+  router a file pointer instead of the text. Tests hold the line at the path
+  they run from.
+- **After a compaction the core can arrive more than once**: from the hook,
+  from the harness re-attaching the skill, and from the first part of the
+  start command. The core text is the same in each; the hook copy adds a line
+  saying who it is for.
 
 ## Progress-page mechanics (Claude Code artifacts)
 

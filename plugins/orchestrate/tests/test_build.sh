@@ -64,12 +64,20 @@ for p in researcher verifier; do
 done
 if grep -qE '^tools: .*(Write|Edit)' "$SK/agents/actuator.md"; then fail "actuator must not have Write/Edit"; else pass; fi
 
-# --- Hook groups: the contract declares three hooks, so hooks.json carries exactly three
-#     groups (PreToolUse/Bash -> shared-checkout floor, PreToolUse/Artifact -> progress-page
-#     check (ADR-0042), SessionStart/compact -> reground).
+# --- Hook groups: the contract declares four hooks in three groups (PreToolUse/Bash ->
+#     shared-checkout floor, PreToolUse/Artifact -> progress-page check (ADR-0042),
+#     SessionStart/compact -> core re-attach (ADR-0043) and reground, run in parallel).
 assert_eq "$(grep -c '"matcher"' "$SK/hooks/hooks.json")" 3 "hooks.json has exactly three hook groups"
 if grep -q '"matcher": "Bash"' "$SK/hooks/hooks.json" && grep -q '"matcher": "Artifact"' "$SK/hooks/hooks.json" && grep -q '"matcher": "compact"' "$SK/hooks/hooks.json"; then pass; else fail "hooks.json matchers are Bash, Artifact and compact"; fi
 assert_eq "$(grep -c '"PreToolUse"' "$SK/hooks/hooks.json")" 1 "both PreToolUse groups share one event key (a duplicate key would drop one)"
+assert_eq "$(grep -c 'hooks/.*\.sh' "$SK/hooks/hooks.json")" 4 "hooks.json wires four hook scripts"
+if grep -q 'reinject-core.sh' "$SK/hooks/hooks.json" && grep -q 'on-compaction.sh' "$SK/hooks/hooks.json"; then pass; else fail "the compact group wires both the core re-attach and the reground (they run in parallel; order means nothing)"; fi
+# A --- rule inside a compiled source must not end it (it silently thinned a persona).
+if have_yq4; then
+  ( LIBD2="$(cd "$SK/../.." && pwd)/scripts/harness-lib"; tb="$(mktemp -d)"; printf -- '---\nname: x\n---\nabove the rule\n\n---\n\nbelow the rule\n' > "$tb/x.md"
+    AGENTS="$SK/skills/orchestrate/references/agents.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD2/common.sh"
+    body "$tb/x.md" | grep -q 'below the rule' ) && pass || fail "body() keeps what follows a --- rule inside the body"
+fi
 
 # --- Native worktree isolation: the implementer is dispatched into its own worktree.
 if grep -q '^isolation: worktree' "$SK/agents/implementer.md"; then pass; else fail "implementer.md carries isolation: worktree"; fi
@@ -82,7 +90,7 @@ done
 if have_yq4; then
   LIBD="$(cd "$SK/../.." && pwd)/scripts/harness-lib"
   tmpc="$(mktemp -d)"
-  yq 'del(.hooks.compaction_reground) | del(.hooks.status_page_check)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/shell-only.yaml"
+  yq 'del(.hooks.compaction_reground) | del(.hooks.core_reinject) | del(.hooks.status_page_check)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/shell-only.yaml"
   yq '.hooks = {}' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/none.yaml"
   for c in shell-only none; do
     ( AGENTS="$tmpc/$c.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; . "$LIBD/claude-code.sh"
@@ -92,7 +100,7 @@ if have_yq4; then
   assert_eq "$(grep -c '"matcher"' "$tmpc/shell-only.json")" 1 "cc_hooks_json shell-only emits one group"
   assert_eq "$(grep -c '"matcher"' "$tmpc/none.json")" 0 "cc_hooks_json with no hooks emits no group"
   # two classes under one event (shell + publish): one PreToolUse key, two groups, valid JSON
-  yq 'del(.hooks.compaction_reground)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/pre-only.yaml"
+  yq 'del(.hooks.compaction_reground) | del(.hooks.core_reinject)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/pre-only.yaml"
   ( AGENTS="$tmpc/pre-only.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; . "$LIBD/claude-code.sh"
     cc_hooks_json "$tmpc/pre-only.json" '${CLAUDE_PLUGIN_ROOT}/h' )
   if yq -p=json -o=json '.' "$tmpc/pre-only.json" >/dev/null 2>&1; then pass; else fail "cc_hooks_json (two PreToolUse classes) emits valid JSON"; fi
@@ -134,13 +142,70 @@ else
   echo "(skip contract-parity: $YQ4_SKIP)"
 fi
 
+# --- Craft guidance always loads: each persona's craft skill is inlined into its compiled
+#     definition at build time, so the persona never depends on a dispatch naming the
+#     guide or on choosing to read it. The mapping is fixed here and must match the
+#     contract; the actuator carries none. "Inlined" means every body line of the craft
+#     skill appears verbatim (headings demoted two levels), after the persona brief,
+#     under the heading, with the precedence rule, and none of its frontmatter.
+CRAFT_ROWS='researcher|research
+planner|plan
+implementer|build
+verifier|verify
+actuator|'
+craft_want(){ printf '%s\n' "$CRAFT_ROWS" | awk -F'|' -v p="$1" '$1 == p { print $2 }'; }
+fm_body(){ awk 'f>=2{print} /^---[[:space:]]*$/{f++}' "$1"; }   # a markdown file minus frontmatter (a --- rule in the body is content)
+for p in researcher planner implementer verifier actuator; do
+  c="$(craft_want "$p")"; a="$SK/agents/$p.md"
+  if [ -z "$c" ]; then
+    grep -q '^## Craft guidance' "$a" && fail "$p must carry no craft guidance" || pass
+    continue
+  fi
+  cf="$SK/skills/$c/SKILL.md"
+  if [ ! -f "$cf" ]; then fail "$p craft guide $cf does not exist"; continue; fi
+  hl="$(grep -nxF "## Craft guidance (\`$c\`)" "$a" | head -1 | cut -d: -f1)"
+  if [ -z "$hl" ]; then fail "$p compiled definition lacks the '## Craft guidance (\`$c\`)' heading"; continue; fi
+  pass
+  tail -n +"$hl" "$a" | grep -qF 'the persona brief above prevails on any conflict' && pass \
+    || fail "$p craft section states that the persona brief prevails"
+  # after the persona brief: the brief's last non-blank line sits above the craft heading
+  last="$(fm_body "$SK/skills/orchestrate/references/personas/$p.md" | awk 'NF{l=$0} END{print l}')"
+  ll="$(grep -nxF -- "$last" "$a" | head -1 | cut -d: -f1)"
+  { [ -n "$ll" ] && [ "$ll" -lt "$hl" ]; } && pass || fail "$p craft guidance must come after the persona brief"
+  missing=0
+  while IFS= read -r line; do
+    [ -n "${line//[[:space:]]/}" ] || continue
+    case "$line" in '#'*) line="##$line" ;; esac
+    tail -n +"$hl" "$a" | grep -qxF -- "$line" || { missing=1; echo "  $p missing craft line: $line" >&2; }
+  done < <(fm_body "$cf")
+  [ "$missing" = 0 ] && pass || fail "$p compiled definition lacks its $c craft guide's content"
+  grep -q 'disable-model-invocation' "$a" && fail "$p inlined the $c craft frontmatter (body only)" || pass
+done
+grep -qF 'craft guidance is included below' "$SK/agents/actuator.md" && fail "actuator brief must not promise craft guidance" || pass
+if have_yq4; then
+  AGC="$SK/skills/orchestrate/references/agents.yaml"
+  for p in $(yq '.personas | keys | .[]' "$AGC"); do
+    got="$(yq ".personas.$p.craft // \"\"" "$AGC")"
+    assert_eq "$got" "$(craft_want "$p")" "contract craft: for $p"
+    { [ -z "$got" ] || [ -f "$SK/skills/$got/SKILL.md" ]; } && pass || fail "contract craft '$got' for $p names no skills/$got/SKILL.md"
+  done
+  # a craft: naming a missing skill fails the emitter rather than shipping a thinner persona
+  tmpk="$(mktemp -d)"
+  yq '.personas.researcher.craft = "no-such-craft"' "$AGC" > "$tmpk/bad.yaml"
+  if ( AGENTS="$tmpk/bad.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$(cd "$SK/../.." && pwd)/scripts/harness-lib/common.sh"
+       persona_prompt researcher >/dev/null 2>&1 ); then fail "persona_prompt must fail on a craft: with no skill"; else pass; fi
+  rm -rf "$tmpk"
+else
+  echo "(skip craft contract mapping: $YQ4_SKIP)"
+fi
+
 # --- Drift guard: committed artifacts must equal a fresh build. Copy the plugin
 #     to a temp tree, rebuild there, diff the generated files. Skips without yq.
 #     HARNESS_LIB points the tmp copy at the real repo-level lib (ADR-0037): the
 #     lib is build-time-only and lives OUTSIDE the plugin, so the copied driver's
 #     relative default cannot resolve it.
 if have_yq4; then
-  t="$(mktemp -d)"; cp -r "$SK/." "$t/"
+  t="$(mktemp -d)"; cp -RL "$SK/." "$t/"   # -L: the sibling craft skills are relative symlinks
   ( HARNESS_LIB="$(cd "$SK/../.." && pwd)/scripts/harness-lib" bash "$t/scripts/build.sh" >/dev/null 2>&1 )
   for f in agents/researcher.md agents/planner.md agents/implementer.md agents/verifier.md agents/actuator.md hooks/hooks.json; do
     if diff -q "$SK/$f" "$t/$f" >/dev/null 2>&1; then pass; else fail "drift: committed $f != fresh build (run scripts/build.sh)"; fi
@@ -184,12 +249,12 @@ fi
 #     cc_model premium emits nothing (no model: line), which the table spells `inherit`.
 if have_yq4; then
   AGT="$SK/skills/orchestrate/references/agents.yaml"
-  SKMD="$SK/skills/orchestrate/SKILL.md"
+  SKMD="$SK/skills/orchestrate/references/sizing.md"
   . "$(cd "$SK/../.." && pwd)/scripts/harness-lib/claude-code.sh"   # function defs only
   for p in $(yq '.personas | keys | .[]' "$AGT"); do
     m="$(cc_model "$(yq ".personas.$p.tier.model" "$AGT")")"
     row="| $p | ${m:-inherit} | $(yq ".personas.$p.tier.effort" "$AGT") |"
-    if grep -qxF "$row" "$SKMD"; then pass; else fail "tier-table row missing from SKILL.md: '$row'"; fi
+    if grep -qxF "$row" "$SKMD"; then pass; else fail "tier-table row missing from references/sizing.md: '$row'"; fi
   done
 else
   echo "(skip tier-table parity: $YQ4_SKIP)"
