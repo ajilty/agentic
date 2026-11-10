@@ -26,6 +26,20 @@ val() { sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" <<< "$1"; }
 # spaces, and drop every other control character (each would make the line invalid JSON).
 jtext() { local x="${1//\\/\\\\}"; x="${x//\"/\\\"}"; printf '%s' "$x" | tr '\n\r\t' '   ' | tr -d '\000-\037\177'; }
 
+# Progress-page nudge (0.9.6): when the current goal has an accepted progress page,
+# every lane state change reminds the router, on stderr, that the page is due a
+# refresh before the turn ends. Stated by the helper the router already calls, so
+# the refresh rides the journal write instead of a rule it has to remember.
+page_on() { [ -f "$LEDGER" ] && awk '/"event":"goal"/{on=0}
+  /"event":"decision"/ && /"fork_id":"status-page"/{on=($0 ~ /"note":"accepted/)}
+  END{exit on?0:1}' "$LEDGER"; }
+page_nudge() {
+  case "$1" in dispatched|returned|verdict|fork|decision|lane|done) ;; *) return 0 ;; esac
+  case "${2:-}" in status-page) return 0 ;; esac
+  page_on && echo "ledger.sh: progress page is on for this goal; refresh it before this turn ends (/orchestrate:status, Progress page > Refresh)" >&2
+  return 0
+}
+
 cmd="${1:-}"; shift || true
 case "$cmd" in
   append)
@@ -50,7 +64,8 @@ case "$cmd" in
     if [ "$ev" = goal ]; then case "$line" in *'"note":'*) ;;
       *) echo "ledger.sh append: WARNING goal event without a \"note\" field: reground's goal anchor reads note; use: ledger.sh goal '<note>' [spec] [base]" >&2 ;;
     esac; fi
-    printf '%s\n' "$line" >> "$LEDGER" ;;
+    printf '%s\n' "$line" >> "$LEDGER"
+    page_nudge "$ev" "$(val "$line" fork_id)" ;;
 
   retries)   # derived, never held: compaction can't corrupt a disk count
     t="${1:?ticket}"; [ -f "$LEDGER" ] || { echo 0; exit 0; }
@@ -298,7 +313,8 @@ case "$cmd" in
               # prod "declined" never reads like an "approved": decision T prod-ack:<target> "" "approved: ..."
     tk="${1:?ticket}"; fid="${2:?fork_id}"; adr="${3:-}"; note="${4:-}"; mkdir -p "$ROOT"
     nl=""; if [ -n "$note" ]; then nl=",\"note\":\"$(jtext "$note")\""; fi
-    printf '{"ts":"%s","ticket":"%s","event":"decision","fork_id":"%s","adr":"%s"%s}\n' "$(date -u +%FT%TZ)" "$tk" "$fid" "$adr" "$nl" >> "$LEDGER" ;;
+    printf '{"ts":"%s","ticket":"%s","event":"decision","fork_id":"%s","adr":"%s"%s}\n' "$(date -u +%FT%TZ)" "$tk" "$fid" "$adr" "$nl" >> "$LEDGER"
+    page_nudge decision "$fid" ;;
 
   clarify)    # journal the router's intake-clarification decision (SKILL.md loop step 3, ADR-0004): which
               # clarification skill was selected (first-present-wins), so the choreography
@@ -333,7 +349,206 @@ case "$cmd" in
       T0*|t0*) ;;
       *) [ "$hv" = 1 ] || echo "orchestrate: warning: $tk closed without a Verifier verdict (tier=${tier:-unknown}); verify_coverage will show the gap" >&2 ;;
     esac
-    printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER" ;;
+    printf '{"ts":"%s","ticket":"%s","event":"done"}\n' "$(date -u +%FT%TZ)" "$tk" >> "$LEDGER"
+    page_nudge done ;;
+
+  page-check) # progress-page checks (0.9.6; contract in references/status-page.html).
+              #   page-check <file>            the page alone: prose budgets, finish dates that
+              #                                disagree, script that does not parse
+              #   page-check --publish <file>  plus the page against the board and the clock,
+              #                                run before every publish (the publish hook runs it)
+              # Prints one line per failure. Exit 1 on any failure, 2 when the page cannot be
+              # read at all (fail closed: an unparseable page is not a passing one).
+              # Why deterministic: the refresh rules were prose, and on quiet ticks a router
+              # bumped the stamp, appended a history line, and left the rest as written the
+              # night before (measured 2026-11-09/10). A fresh stamp proved nothing.
+    pub=0; if [ "${1:-}" = --publish ]; then pub=1; shift; fi
+    f="${1:?page file}"; [ -f "$f" ] || { echo "page-check: no such file: $f" >&2; exit 2; }
+    bad=0
+    awk '
+      function words(x,  n,a){ n=split(x,a,/[ \t]+/); return n - (a[1]=="") - (a[n]=="" && n>1) }
+      # A sentence ends at . ! or ? followed by a space and a capital, or at the end of
+      # the text; "e.g." and "11 a.m. ET" do not end one.
+      function sentences(x,  y,n){ y=x; gsub(/(^|[^A-Za-z])([aApP]\.[mM]|e\.g|i\.e|etc|vs|approx)\./,"",y)
+        n=gsub(/[.!?]+ +[A-Z]/,"",y); return n + 1 }
+      function report(name,x,maxw,maxs){
+        if (words(x) > maxw) { printf "%s: %d words (budget %d): %.60s...\n", name, words(x), maxw, x; bad=1 }
+        if (maxs && sentences(x) > maxs) { printf "%s: %d sentences (budget %d)\n", name, sentences(x), maxs; bad=1 }
+      }
+      # The string value of key on this line; key must start the line or follow { , or
+      # a space, so " t:" never matches inside "at:".
+      function field(line,key,  re,rest){ re="(^|[{ ,\t])" key ": *\""
+        if (!match(line,re)) return "\001"; rest=substr(line,RSTART+RLENGTH-1)
+        if (match(rest,/"([^"\\]|\\.)*"/)) return substr(rest,RSTART+1,RLENGTH-2); return "\001" }
+      # Every string on this line belongs to the open array; the array closes when what
+      # follows the last string contains ].
+      function scan(line,  rest){ rest=line
+        if (field(rest,"t")!="\001") { cnt++; report(arr" item "cnt, field(rest,"t"), 30, 0); rest="" ; if (line ~ /\][ \t]*,?[ \t]*$/ && line !~ /\}[ \t]*,?[ \t]*$/) rest="]" }
+        while (match(rest,/"([^"\\]|\\.)*"/)) { cnt++; report(arr" item "cnt, substr(rest,RSTART+1,RLENGTH-2), arr=="changed"?20:30, 0); rest=substr(rest,RSTART+RLENGTH) }
+        if (rest ~ /\]/) { if (arr=="changed" && cnt>5) { printf "changed: %d bullets (budget 5)\n", cnt; bad=1 }; arr="" } }
+      /const DATA = \{/ {in_data=1; seen_data=1; next}
+      in_data && /^\};/ {in_data=0}
+      !in_data {next}
+      arr != "" { scan($0); next }
+      /^[ \t]*(changed|needs): *\[/ { arr=($0 ~ /changed/) ? "changed" : "needs"; cnt=0
+        line=$0; sub(/^[^[]*\[/,"",line); scan(line); next }
+      { x=field($0,"headline"); if (x!="\001") { seen_head=1; report("headline", x, 20, 1); next } }
+      { x=field($0,"sublead");  if (x!="\001") { report("sublead", x, 40, 2); next } }
+      { x=field($0,"d"); if (x!="\001") report("window step", x, 25, 0) }
+      { x=field($0,"m"); if (x!="\001") report("stream item", x, 30, 0) }
+      { x=field($0,"t"); if (x!="\001") report("made/history entry", x, 25, 0) }
+      END {
+        if (!seen_data || !seen_head) { print "page-check: no DATA block with a double-quoted headline found; cannot check this page" > "/dev/stderr"; exit 2 }
+        exit bad ? 1 : 0 }
+    ' "$f" || { rc=$?; [ "$rc" = 2 ] && exit 2; bad=1; }
+
+    # The page script must parse (node when present; the banner and render are code).
+    if command -v node >/dev/null 2>&1; then
+      jsd="$(mktemp -d "${TMPDIR:-/tmp}/page-check.XXXXXX")"   # node judges a file by its extension
+      awk '/<script>/{f=1;next} /<\/script>/{f=0} f' "$f" > "$jsd/page.js"
+      node --check "$jsd/page.js" >/dev/null 2>&1 || { echo "script: the page code does not parse (node --check)"; bad=1; }
+      rm -rf "$jsd"
+    else
+      echo "page-check: node not installed; the parse check was skipped" >&2
+    fi
+
+    # Board facts for the cross-checks, read in journal order so the LAST word wins: a
+    # ticket closed and then dispatched again is open; a fork answered and then raised
+    # again is waiting. Field order inside a row is free.
+    facts="$(mktemp "${TMPDIR:-/tmp}/page-facts.XXXXXX")"
+    if [ "$pub" = 1 ] && [ -f "$LEDGER" ]; then
+      awk '
+        function j(k,  r){ r="\"" k "\":\"[^\"]*\""; if (match($0,r)) return substr($0,RSTART+length(k)+4,RLENGTH-length(k)-5); return "" }
+        { t=j("ticket"); e=j("event"); fk=j("fork_id"); if (t!="") T[t]=1
+          if (e=="done") D[t]=1
+          if (e=="dispatched" || e=="intake") { D[t]=0; A[t]=0 }          # reopened: earlier done/approval no longer stands
+          if (e=="verdict") { if (j("mode")=="plan") { if (j("verdict")=="APPROVED") P[t]=1; else P[t]=0 }
+                              else if (j("verdict")=="APPROVED") A[t]=1; else A[t]=0 }
+          if (e=="fork" && fk!="") K[t "/" fk]="open"
+          if (e=="decision" && fk!="") K[t "/" fk]="decided" }
+        END { for (t in T) print "ticket\t" t; for (t in D) if (D[t]) print "done\t" t
+              for (t in A) if (A[t]) print "approved\t" t; for (t in P) if (P[t]) print "plan\t" t
+              for (k in K) print "fork\t" k "\t" K[k] }' "$LEDGER" > "$facts"
+    fi
+    awk -v pub="$pub" -v facts="$facts" '
+      BEGIN { while ((getline line < facts) > 0) { split(line,a,"\t"); if (a[1]=="fork") K[a[2]]=a[3]; else F[a[1] "\t" a[2]]=1 }   # an empty facts file must not swallow the page
+              split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec",MON," ")
+              MRE="(Jan(uary)?|Feb(ruary)?|Mar(ch)?|Apr(il)?|May|June?|July?|Aug(ust)?|Sep(t(ember)?)?|Oct(ober)?|Nov(ember)?|Dec(ember)?)" }
+      function field(line,key,  re,rest){ re="(^|[{ ,\t])" key ": *\""
+        if (!match(line,re)) return "\001"; rest=substr(line,RSTART+RLENGTH-1)
+        if (match(rest,/"([^"\\]|\\.)*"/)) return substr(rest,RSTART+1,RLENGTH-2); return "\001" }
+      function fail(m){ print m; bad=1 }
+      # Dates in x, normalised to "Nov 18": "Nov 18", "November 18", "18 Nov", "2026-11-18".
+      # A month name must be a whole word ("Decision 4" is not December).
+      function dates(x, out,  n,m,y,pad,i,num){ n=0; pad=" " x " "; gsub(/[^A-Za-z0-9-]/," ",pad)
+        y=pad; while (match(y," " MRE " [0-9][0-9]? ")) { m=substr(y,RSTART+1,RLENGTH-2); y=substr(y,RSTART+RLENGTH-1)
+          num=m; sub(/^[A-Za-z]+ /,"",num); out[++n]=substr(m,1,3) " " (num+0) }
+        y=pad; while (match(y," [0-9][0-9]? " MRE " ")) { m=substr(y,RSTART+1,RLENGTH-2); y=substr(y,RSTART+RLENGTH-1)
+          num=m; sub(/ .*/,"",num); sub(/^[0-9]+ /,"",m); out[++n]=substr(m,1,3) " " (num+0) }
+        y=pad; while (match(y,/ 20[0-9][0-9]-[01][0-9]-[0-3][0-9] /)) { m=substr(y,RSTART+1,10); y=substr(y,RSTART+RLENGTH-1)
+          out[++n]=MON[substr(m,6,2)+0] " " (substr(m,9,2)+0) }
+        return n }
+      # Finish dates a sentence claims: a date in the same clause as a forward-looking
+      # finish word. Past tense ("completed Nov 7") is a report, not a claim.
+      function claims(where,x,  lx,seg,w,d,n,i){ lx=x
+        while (match(tolower(lx),/(target[a-z]*|finish[a-z]*|complet[a-z]*|done by|estimat[a-z]*|due)[^.;]*/)) {
+          seg=substr(lx,RSTART,RLENGTH); lx=substr(lx,RSTART+RLENGTH); w=tolower(seg); sub(/[^a-z].*/,"",w)
+          if (w ~ /^(finished|completed)$/) continue
+          n=dates(seg,d); for (i=1;i<=n;i++) { claim[++nc]=d[i]; cwhere[nc]=where } } }
+      function short(x){ return length(x)>50 ? substr(x,1,50) "..." : x }
+      # What the journal says about one page entry.
+      #   kind ask       listed as waiting on the operator (needs, pending)
+      #   kind unstarted shown as not started, or as waiting on the operator (next, you, queued, op)
+      #   kind finished  shown as done or live
+      #   kind other     in flight, built, or waiting on a date: a done ROW is not proof it is
+      #                  live, so merged-but-unproven work may stay here
+      function judge(sec,label,ref,kind,shown,  key,t){
+        if (ref=="\001" || ref=="") { if (sec!="streams") fail(sec ": \"" short(label) "\" has no ref, so it cannot be checked against the journal"); return }
+        if (ref ~ /^none:/) {
+          if (kind=="ask") fail(sec ": \"" short(label) "\" is an ask with no decision behind it; journal it as a fork and name it fork:<ticket>/<fork_id>")
+          else unver++
+          return }
+        if (ref ~ /^fork:/) { key=substr(ref,6)
+          if (!(key in K)) { fail(sec ": \"" short(label) "\" names a decision the journal does not have (" key ")"); return }
+          if (K[key]=="decided" && (kind=="ask" || kind=="unstarted")) fail(sec ": \"" short(label) "\" still waits on the operator, but the journal shows it answered")
+          return }
+        if (ref ~ /^plan:/) { t=substr(ref,6)
+          if (!(("ticket\t" t) in F)) { fail(sec ": \"" short(label) "\" names a ticket the journal does not have (" t ")"); return }
+          if (kind=="finished" && !(("plan\t" t) in F)) fail(sec ": \"" short(label) "\" is shown as " shown ", but the journal has no approved plan for " t)
+          return }
+        if (!(("ticket\t" ref) in F)) { fail(sec ": \"" short(label) "\" names a ticket the journal does not have (" ref ")"); return }
+        if (kind=="finished") { if (!(("done\t" ref) in F) && !(("approved\t" ref) in F)) fail(sec ": \"" short(label) "\" is shown as " shown ", but the journal has no done row or approved outcome verdict for " ref) }
+        else if ((kind=="ask" || kind=="unstarted") && (("done\t" ref) in F)) fail(sec ": \"" short(label) "\" is shown as " shown ", but the journal records " ref " as done") }
+      /const DATA = \{/ {in_data=1; next}
+      in_data && /^\};/ {in_data=0}
+      !in_data {next}
+      { if (match($0,/^[ \t]*[A-Za-z_]+:/)) { k=$0; sub(/^[ \t]*/,"",k); sub(/:.*/,"",k)
+          if (k ~ /^(headline|sublead|changed|tiles|needs|window|winTitle|winSub|states|order|streams|made|pending|later|estimate|history|howto|foot|updated|updated_at|cadence_minutes|eyebrow)$/) sec=k } }
+      sec=="headline" || sec=="sublead" || sec=="winSub" { x=field($0,sec); if (x!="\001") claims(sec,x) }
+      sec=="tiles" { l=field($0,"l"); v=field($0,"v"); if (l!="\001" && tolower(l) ~ /target|finish|complet|done by|estimat|due/ && tolower(l) !~ /(finished|completed)/) { n=dates(v " " l,d); for (i=1;i<=n;i++) { claim[++nc]=d[i]; cwhere[nc]="tiles" } } }
+      sec=="estimate" { x=field($0,"complete"); if (x!="\001") { ne=dates(x,EST) } }
+      sec=="window" { x=field($0,"name"); if (x!="\001") claims("window",x); x=field($0,"d"); if (x!="\001") claims("window",x) }
+      # Every entry on the line is judged, wherever the array opens or closes: objects
+      # {..} carry their own ref; a bare string in needs or pending has none.
+      pub=="1" && (sec=="needs" || sec=="pending" || sec=="window" || sec=="streams") {
+        rest=$0; if (sec=="needs" || sec=="pending") sub(/^[ \t]*(needs|pending):[ \t]*\[?/,"",rest)
+        while (match(rest,/\{[^{}]*\}|"([^"\\]|\\.)*"/)) { e=substr(rest,RSTART,RLENGTH); rest=substr(rest,RSTART+RLENGTH)
+          if (sec=="needs" || sec=="pending") {
+            if (substr(e,1,1)=="{") judge(sec,field(e,"t"),field(e,"ref"),"ask","waiting on the operator")
+            else judge(sec,substr(e,2,length(e)-2),"\001","ask","waiting on the operator") }
+          else if (substr(e,1,1)=="{" && sec=="window") { st=field(e,"state")
+            if (st!="\001") judge(sec,field(e,"name"),field(e,"ref"),(st=="done")?"finished":((st=="next"||st=="you")?"unstarted":"other"),st) }
+          else if (substr(e,1,1)=="{" && sec=="streams") { st=field(e,"st"); r=field(e,"ref")
+            if (st!="\001" && r!="\001") judge(sec,field(e,"n"),r,(st=="live")?"finished":((st=="queued"||st=="op")?"unstarted":"other"),st) } } }
+      END {
+        for (i=1;i<=nc;i++) {
+          if (!ne) { fail(cwhere[i] ": names " claim[i] " as the finish date, but the estimate card gives no date"); continue }
+          ok=0; for (q=1;q<=ne;q++) if (claim[i]==EST[q]) ok=1
+          if (!ok) fail(cwhere[i] ": names " claim[i] " as the finish date, but the estimate card says " EST[1] (ne>1 ? " to " EST[ne] : "")) }
+        if (pub=="1" && unver) print "note: " unver " entries marked none: cannot be checked against the journal"
+        exit bad ? 1 : 0 }
+    ' "$f" || bad=1
+    rm -f "$facts"
+
+    if [ "$pub" = 1 ]; then
+      # The stamp is the real publish time: UTC, not in the future, no older than ten
+      # minutes. Minutes are computed in awk (no GNU/BSD date arithmetic to differ on).
+      now="${PAGE_CHECK_NOW:-$(date -u +%FT%TZ)}"
+      ua="$(sed -n 's/^[[:space:]]*updated_at:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
+      case "$ua" in
+        20[0-9][0-9]-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z)
+          age="$(awk -v a="$ua" -v n="$now" '
+            function mins(ts,  y,m,d){ y=substr(ts,1,4)+0; m=substr(ts,6,2)+0; d=substr(ts,9,2)+0
+              if (m<=2) { y--; m+=12 }                                   # days from civil date
+              return (365*y + int(y/4) - int(y/100) + int(y/400) + int((153*(m-3)+2)/5) + d) * 1440 + substr(ts,12,2)*60 + substr(ts,15,2) }
+            BEGIN { print mins(n) - mins(a) }')"
+          if [ "$age" -lt 0 ]; then echo "updated_at: $ua is in the future (now $now)"; bad=1
+          elif [ "$age" -gt 10 ]; then echo "updated_at: $ua is not the publish time (now $now); stamp the page when you publish it, with date -u +%FT%TZ"; bad=1; fi ;;
+        *) echo "updated_at: \"$ua\" is not a UTC timestamp from date -u +%FT%TZ"; bad=1 ;;
+      esac
+      # The stale-top tripwire. Fingerprint everything in DATA except the stamp and the
+      # history, whitespace collapsed. If the journal has NEWS since the last passing
+      # check (a lane closed, a verdict, a fork raised or answered) and the fingerprint
+      # has not moved, only the stamp and history were touched. It catches the lazy
+      # refresh that was measured; a refresh that changes one word passes it, so the
+      # cross-checks above carry the weight, not this.
+      fp="$(awk '/const DATA = \{/{d=1;next} d&&/^\};/{d=0} !d{next}
+                 /^[ \t]*(updated|updated_at):/{next}
+                 /^[ \t]*history:[ \t]*\[/{h=1} h{ if ($0 ~ /\][ \t]*,?[ \t]*$/) h=0; next }
+                 { gsub(/[ \t]+/," "); sub(/^ /,""); sub(/ $/,""); if ($0!="") print }' "$f" | cksum | awk '{print $1}')"
+      ev=0; [ -f "$LEDGER" ] && ev="$(grep -E '"event":"(verdict|fork|decision|done)"' "$LEDGER" | grep -vcF '"fork_id":"status-page"' || true)"
+      st="$ROOT/status.check"
+      if [ -f "$st" ]; then
+        read -r ofp oev < "$st" || true
+        if [ "${oev:-0}" -lt "$ev" ] && [ "$ofp" = "$fp" ]; then
+          echo "stale: the journal has $((ev - ${oev:-0})) new results (lanes closed, verdicts, decisions) since the last checked publish, but nothing on the page changed except the stamp and the history. Rebuild the headline, lead, changed strip, tiles, needs, window, streams and calls from the journal, then add the history line."
+          bad=1
+        fi
+      fi
+      # Recorded only on a pass, so a refused page cannot make its own stale state the baseline.
+      if [ "$bad" = 0 ]; then mkdir -p "$ROOT"; printf '%s %s\n' "$fp" "$ev" > "$st"; fi
+    fi
+    exit "$bad" ;;
 
   *) echo "usage: ledger.sh {append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
 esac

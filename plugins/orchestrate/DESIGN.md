@@ -179,7 +179,7 @@ Each persona also carries a tier (`model`, `effort`) that compiles into its agen
 file. A persona never runs a bigger model than the main loop; the router
 overrides a tier only for a named hard item and journals the override.
 
-The same file declares the two Claude Code hooks (§10) and the routing enums
+The same file declares the three Claude Code hooks (§10) and the routing enums
 (§5). The generators read it and emit each harness's native definitions:
 
 - **Claude Code** (`scripts/build.sh`): `agents/*.md` with `tools:`, `model:`,
@@ -315,7 +315,7 @@ decides. They are also easy to over-use. The test the skill applies since 0.9.0
   the router's own discipline and on conventions the project may not share. Such
   a fact is prose in the router or persona brief, never a hook.
 
-That test yields two hooks, declared in `agents.yaml` under `hooks:` and wired by
+That test yields three hooks (the third added by ADR-0042), declared in `agents.yaml` under `hooks:` and wired by
 `hooks/hooks.json`:
 
 - **`guard-shared-checkout.sh`** (`shared_checkout_guard`, PreToolUse on Bash,
@@ -324,6 +324,10 @@ That test yields two hooks, declared in `agents.yaml` under `hooks:` and wired b
   primary checkout, resolved per statement (`git -C DIR`, else the last `cd DIR`
   before it in the line, else the hook payload's `cwd`), and leaves linked
   worktrees alone. Each refusal is journaled as a `denied` event (ADR-0032).
+- **`check-status-page.sh`** (`status_page_check`, PreToolUse on Artifact,
+  router). Before a run's canonical progress page is published, runs
+  `ledger.sh page-check --publish` and refuses a page that contradicts the
+  board or itself (ADR-0042).
 - **`on-compaction.sh`** (`compaction_reground`, SessionStart matcher
   `compact`, router). The automatic recovery described in §9.
 
@@ -348,7 +352,7 @@ The layering:
   Harness-neutral; about 360 lines, with depth pushed into `references/`.
 - `references/personas/*.md`: role bodies. Harness-neutral.
 - `references/agents.yaml`: the one machine-readable contract (capabilities,
-  tiers, routing enums, the two hooks, conventions, resume and trust policy).
+  tiers, routing enums, the three hooks, conventions, resume and trust policy).
 - `references/resume.md`: the ledger vocabulary and the durability algorithm.
 - `scripts/build.sh` and `scripts/install-*.sh`: the emitters, built on the
   repo-level `scripts/harness-lib/`.
@@ -367,7 +371,7 @@ plugins/orchestrate/
 ├── DESIGN.md                      This document
 ├── README.md · CONTEXT.md · KNOWN-LIMITATIONS.md · TODO.md
 ├── agents/*.md                    Generated: the five persona agents
-├── hooks/hooks.json               Generated: the two hooks
+├── hooks/hooks.json               Generated: the three hooks
 ├── bin/{ledger.sh,adr.sh}         PATH shims to the runtime
 ├── commands/{init,status,feedback}.md
 ├── scripts/

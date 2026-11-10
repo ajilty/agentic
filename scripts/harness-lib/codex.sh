@@ -1,6 +1,6 @@
 # harness-lib/codex.sh: compile the agents.yaml contract into Codex CLI native
 # surfaces (agent TOMLs). Source common.sh first. Codex gets no hook wiring
-# (ADR-0040): Claude Code gets both contract hooks, OpenCode's plugin only the
+# (ADR-0040): Claude Code gets every contract hook, OpenCode's plugin only the
 # post-compaction one.
 
 # capability vocabulary -> sandbox_mode (any write- or run-capable persona is

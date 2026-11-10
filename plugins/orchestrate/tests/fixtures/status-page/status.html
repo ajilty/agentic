@@ -81,6 +81,9 @@ header .top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16
 .changedbox .h{font-weight:600;font-size:.9rem}
 .changedbox ul{margin:0;padding-left:18px}
 
+/* out-of-date banner: drawn by the page itself from updated_at + cadence_minutes */
+.stale{border-left:4px solid var(--s-stop);background:var(--chip-stop-bg);border-radius:0 8px 8px 0;padding:10px 14px;font-size:.9rem}
+
 /* tiles */
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:grid;gap:2px;align-content:start}
@@ -190,6 +193,7 @@ details.box>div,details.box>p{margin-top:10px}
 </head>
 <body>
 <main>
+  <div class="stale" id="stale" role="status" hidden></div>
   <header>
     <div class="top"><span class="eyebrow" id="eyebrow"></span><span class="stamp" id="stamp"></span></div>
     <h1 id="headline"></h1>
@@ -256,10 +260,12 @@ details.box>div,details.box>p{margin-top:10px}
 /* ===== DATA: a refresh is an edit here plus a republish (fill contract in the
    top-of-file comment; register rules in commands/status.md). ===== */
 const DATA = {
+  updated_at: "2026-11-08T16:10:00Z",
+  cadence_minutes: 60,
   updated: "Sun Nov 8, 11:10 am ET",
   eyebrow: "pipeline hardening, day 1",
   headline: "Reviewed code is now the only path to the test pipeline; the production switch waits on your go.",
-  sublead: "Two of three building blocks are live and independently checked. The reviewer caught a real bypass on the first try and the fix is proven closed. One assumption about the runner image is still open and is listed where it belongs.",
+  sublead: "Next: the runner trust change clears review, then production waits on your go. One open assumption about the runner image is listed where it belongs.",
   changed: [
     "The branch guard is live after its reviewer-found bypass was closed and re-checked.",
     "The runner trust change finished its build with one open assumption, now in review."
@@ -270,13 +276,13 @@ const DATA = {
     {v: "1", l: "waiting on your go"}
   ],
   needs: [
-    "Your go on the production apply: the printed plan shows 3 changes and 0 destroys, matching the approved shape."
+    {t: "Your go on the production apply: the printed plan shows 3 changes and 0 destroys, matching the approved shape.", ref: "fork:prod-apply/prod-ack:prod-env"}
   ],
   window: [
-    {state: "done",    name: "Plan signed after independent review", when: "Sun 8:55 am"},
-    {state: "done",    name: "Branch guard built, bounced once, proven closed", when: "Sun 10:40 am", d: "The reviewer reproduced a bypass live; the fix round closed it and only the fix was re-checked."},
-    {state: "running", name: "Runner trust change in review", d: "Built with one open assumption (the runner image pin); the reviewer resolves it or bounces it."},
-    {state: "you",     name: "Production apply", d: "Held until you approve the printed plan; nothing in it destroys anything."}
+    {state: "done",    name: "Plan signed after independent review", when: "Sun 8:55 am", ref: "plan:pipeline-hardening"},
+    {state: "done",    name: "Branch guard built, bounced once, proven closed", when: "Sun 10:40 am", d: "The reviewer reproduced a bypass live; the fix round closed it and only the fix was re-checked.", ref: "guard-branch"},
+    {state: "running", name: "Runner trust change in review", d: "Built with one open assumption (the runner image pin); the reviewer resolves it or bounces it.", ref: "runner-trust"},
+    {state: "you",     name: "Production apply", d: "Held until you approve the printed plan; nothing in it destroys anything.", ref: "fork:prod-apply/prod-ack:prod-env"}
   ],
   winTitle: "This window",
   winSub: "Four steps, in order. Test first, production last.",
@@ -291,11 +297,11 @@ const DATA = {
   order: ["live", "built", "active", "queued", "op", "cal"],
   streams: [
     {name: "Guardrails", items: [
-      {st: "live", n: "Only reviewed branches reach the pipeline", m: "A guard on every run refuses anything not merged through review. The reviewer found a side door on the first pass; it is closed and the closure was reproduced.", on: "Nov 8"},
+      {st: "live", n: "Only reviewed branches reach the pipeline", m: "A guard on every run refuses anything not merged through review. The reviewer found a side door on the first pass; it is closed and the closure was reproduced.", on: "Nov 8", ref: "guard-branch"},
       {st: "live", n: "Plan signed", m: "The delivery plan passed an independent stress-test before any build started.", on: "Nov 8"}
     ]},
     {name: "Runner isolation", items: [
-      {st: "active", n: "Runners trust reviewed code only", m: "Built; in independent review with one open assumption about the runner image version."},
+      {st: "active", n: "Runners trust reviewed code only", m: "Built; in independent review with one open assumption about the runner image version.", ref: "runner-trust"},
       {st: "op", n: "Apply the hardened pipeline to production", m: "Plan printed and matching the approved shape: 3 changes, 0 destroys. Waits on your go."}
     ]}
   ],
@@ -304,7 +310,7 @@ const DATA = {
     {when: "Nov 8 am", t: "Your standing rule: obvious design calls are taken and reported; questions are kept for close calls and anything that destroys."}
   ],
   pending: [
-    "The production apply above: approve the printed plan or decline it."
+    {t: "The production apply above: approve the printed plan or decline it.", ref: "fork:prod-apply/prod-ack:prod-env"}
   ],
   later: [
     "Whether the old unreviewed-deploy path is deleted or left disabled for a fallback month."
@@ -337,7 +343,8 @@ $("sublead").textContent = DATA.sublead;
 $("changedbox").hidden = !DATA.changed.length;
 $("changed").innerHTML = DATA.changed.map(c => `<li>${esc(c)}</li>`).join("");
 $("tiles").innerHTML = DATA.tiles.map(t => `<div class="tile"><div class="v">${esc(t.v)}</div><div class="l">${esc(t.l)}</div></div>`).join("");
-$("needs").innerHTML = DATA.needs.length ? `<ul>${DATA.needs.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : `<div class="empty">Nothing right now.</div>`;
+const txt = x => typeof x === "string" ? x : x.t;   /* entries may carry a ref for ledger.sh page-check */
+$("needs").innerHTML = DATA.needs.length ? `<ul>${DATA.needs.map(n => `<li>${esc(txt(n))}</li>`).join("")}</ul>` : `<div class="empty">Nothing right now.</div>`;
 $("winTitle").textContent = DATA.winTitle;
 $("winSub").textContent = DATA.winSub;
 
@@ -364,7 +371,7 @@ $("rows").innerHTML = DATA.streams.map((s, i) => {
 }).join("");
 
 $("made").innerHTML = DATA.made.map(d => `<li><span class="when">${esc(d.when)}</span><span>${esc(d.t)}</span></li>`).join("");
-$("pending").innerHTML = DATA.pending.length ? DATA.pending.map(l => `<li>${esc(l)}</li>`).join("") : `<li>Nothing right now.</li>`;
+$("pending").innerHTML = DATA.pending.length ? DATA.pending.map(l => `<li>${esc(txt(l))}</li>`).join("") : `<li>Nothing right now.</li>`;
 $("later").innerHTML = DATA.later.map(l => `<li>${esc(l)}</li>`).join("");
 $("estDate").textContent = DATA.estimate.complete;
 $("estBasis").textContent = DATA.estimate.basis;
@@ -372,6 +379,19 @@ $("estRisks").innerHTML = DATA.estimate.risks.map(r => `<li>${esc(r)}</li>`).joi
 $("log").innerHTML = DATA.history.map(h => `<li><span class="stamp">${esc(h.at)}</span><span>${esc(h.t)}</span></li>`).join("");
 $("howto").textContent = DATA.howto;
 $("foot").textContent = DATA.foot;
+
+/* Out-of-date banner. The page cannot refresh itself; it can say when it is
+   behind. Re-checked every minute so a tab left open turns stale on its own. */
+const staleCheck = () => {
+  const el = $("stale"), t = Date.parse(DATA.updated_at), cad = Number(DATA.cadence_minutes) || 60;
+  if (isNaN(t)) { el.textContent = "This page cannot tell how current it is. Ask for a status update before relying on it."; el.hidden = false; return; }
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins <= 2 * cad) { el.hidden = true; return; }
+  const ago = mins < 120 ? `${mins} minutes` : mins < 2880 ? `${Math.floor(mins / 60)} hours` : `${Math.floor(mins / 1440)} days`;
+  el.textContent = `This page is out of date: last updated ${ago} ago, and it promises an update at least every ${cad} minutes. The run has likely moved on; ask for a status update for the current picture.`;
+  el.hidden = false;
+};
+staleCheck(); setInterval(staleCheck, 60000);
 
 const rows = [...document.querySelectorAll("details.row")];
 const tg = $("toggleAll");

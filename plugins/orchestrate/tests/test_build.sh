@@ -64,10 +64,12 @@ for p in researcher verifier; do
 done
 if grep -qE '^tools: .*(Write|Edit)' "$SK/agents/actuator.md"; then fail "actuator must not have Write/Edit"; else pass; fi
 
-# --- Hook groups: the contract declares two hooks, so hooks.json carries exactly two
-#     groups (PreToolUse/Bash -> shared-checkout floor, SessionStart/compact -> reground).
-assert_eq "$(grep -c '"matcher"' "$SK/hooks/hooks.json")" 2 "hooks.json has exactly two hook groups"
-if grep -q '"matcher": "Bash"' "$SK/hooks/hooks.json" && grep -q '"matcher": "compact"' "$SK/hooks/hooks.json"; then pass; else fail "hooks.json matchers are Bash and compact"; fi
+# --- Hook groups: the contract declares three hooks, so hooks.json carries exactly three
+#     groups (PreToolUse/Bash -> shared-checkout floor, PreToolUse/Artifact -> progress-page
+#     check (ADR-0042), SessionStart/compact -> reground).
+assert_eq "$(grep -c '"matcher"' "$SK/hooks/hooks.json")" 3 "hooks.json has exactly three hook groups"
+if grep -q '"matcher": "Bash"' "$SK/hooks/hooks.json" && grep -q '"matcher": "Artifact"' "$SK/hooks/hooks.json" && grep -q '"matcher": "compact"' "$SK/hooks/hooks.json"; then pass; else fail "hooks.json matchers are Bash, Artifact and compact"; fi
+assert_eq "$(grep -c '"PreToolUse"' "$SK/hooks/hooks.json")" 1 "both PreToolUse groups share one event key (a duplicate key would drop one)"
 
 # --- Native worktree isolation: the implementer is dispatched into its own worktree.
 if grep -q '^isolation: worktree' "$SK/agents/implementer.md"; then pass; else fail "implementer.md carries isolation: worktree"; fi
@@ -80,7 +82,7 @@ done
 if have_yq4; then
   LIBD="$(cd "$SK/../.." && pwd)/scripts/harness-lib"
   tmpc="$(mktemp -d)"
-  yq 'del(.hooks.compaction_reground)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/shell-only.yaml"
+  yq 'del(.hooks.compaction_reground) | del(.hooks.status_page_check)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/shell-only.yaml"
   yq '.hooks = {}' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/none.yaml"
   for c in shell-only none; do
     ( AGENTS="$tmpc/$c.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; . "$LIBD/claude-code.sh"
@@ -89,6 +91,13 @@ if have_yq4; then
   done
   assert_eq "$(grep -c '"matcher"' "$tmpc/shell-only.json")" 1 "cc_hooks_json shell-only emits one group"
   assert_eq "$(grep -c '"matcher"' "$tmpc/none.json")" 0 "cc_hooks_json with no hooks emits no group"
+  # two classes under one event (shell + publish): one PreToolUse key, two groups, valid JSON
+  yq 'del(.hooks.compaction_reground)' "$SK/skills/orchestrate/references/agents.yaml" > "$tmpc/pre-only.yaml"
+  ( AGENTS="$tmpc/pre-only.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; . "$LIBD/claude-code.sh"
+    cc_hooks_json "$tmpc/pre-only.json" '${CLAUDE_PLUGIN_ROOT}/h' )
+  if yq -p=json -o=json '.' "$tmpc/pre-only.json" >/dev/null 2>&1; then pass; else fail "cc_hooks_json (two PreToolUse classes) emits valid JSON"; fi
+  assert_eq "$(grep -c '"matcher"' "$tmpc/pre-only.json")" 2 "cc_hooks_json emits one group per PreToolUse class"
+  assert_eq "$(grep -c '"PreToolUse"' "$tmpc/pre-only.json")" 1 "cc_hooks_json keeps both groups under one PreToolUse key"
   rm -rf "$tmpc"
 else
   echo "(skip empty-class hooks.json: $YQ4_SKIP)"

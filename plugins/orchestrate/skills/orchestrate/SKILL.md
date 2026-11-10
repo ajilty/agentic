@@ -15,7 +15,7 @@ description: >-
   starts or resumes a run with /orchestrate:init. No config file; compaction recovers
   automatically.
 compatibility: >-
-  Harness-agnostic. The runtime (ledger.sh, adr.sh, two Claude Code hooks) needs git, awk,
+  Harness-agnostic. The runtime (ledger.sh, adr.sh, three Claude Code hooks) needs git, awk,
   coreutils, and jq (the shared-checkout floor refuses destructive git verbs it cannot parse
   without jq) and runs under bash 3.2 or later; HELDOUT_ROOT is optional. The generators in
   ../../scripts/ need yq v4: build.sh emits Claude Code's agents/ and hooks/hooks.json;
@@ -108,9 +108,11 @@ Run these in order on every invocation:
    not a plan: the harness delivers at most one and can lose it (measured
    2026-11-08: a builder's second handback was refused and the run sat idle
    overnight). When the goal carries an accepted progress page
-   (`/orchestrate:status`, a `status-page` decision row), each re-entry tick
-   past its cadence also refreshes the page, and reground re-arms the
-   schedule in a new session.
+   (`/orchestrate:status`, a `status-page` decision row), refresh it before
+   ending any turn that journaled a lane state change (`ledger.sh` reminds
+   you on each such write); a re-entry tick past its cadence is only the
+   backstop for quiet stretches, and reground re-arms the schedule in a new
+   session.
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. When the
    change is itself instructions (a skill, a persona brief, a hook message, an
    agent definition, operator preferences), dispatch three verifiers, one lens
@@ -393,7 +395,7 @@ contradicting an `active` ADR raises a fork that ends in `adr.sh supersede`.
 
 ## Hooks
 
-Claude Code runs both; OpenCode runs only compaction recovery; Codex neither.
+Claude Code runs all three; OpenCode runs only compaction recovery; Codex none.
 
 - **Shared-checkout floor** (every Bash command, every agent, you too): stops
   the canonical spellings of `reset --hard`, `clean -f`, `checkout -f`/`.`/`--`,
@@ -403,6 +405,10 @@ Claude Code runs both; OpenCode runs only compaction recovery; Codex neither.
   a list of what is safe: `restore`, `stash drop`, `branch -D`, `worktree
   remove --force`, and commands run through `sh -c` or `--git-dir` discard work
   too, and every linked worktree is left alone. Do that work in a worktree.
+- **Progress-page check** (every publish of `.agents/runs/orchestrate/status.html`):
+  runs `ledger.sh page-check --publish` and refuses a page that contradicts
+  the board or itself, naming each failure. Rebuild the page from the journal
+  and publish again; do not publish a copy from another path.
 - **Compaction recovery**: in a repo with a board, runs `ledger.sh reground`,
   injects the board as authoritative, and tells you to re-invoke this skill.
   After an interruption the operator re-runs `/orchestrate:init`.

@@ -66,12 +66,13 @@ personas:
     tier:         { model: standard, effort: high }     # runs a plan; the operator's prod confirmation is the safety, not raw horsepower
     # writes live state via run, not source via write; creds scoped to the declared target.
 
-# --- Hooks (Claude Code only; two survive, ADR-0040) -------------------------
-# Git facts stay deterministic; everything else is prose in the briefs.
+# --- Hooks (Claude Code only; two survive ADR-0040, ADR-0042 adds one) -------
+# Git facts stay deterministic; so does the progress page's agreement with the
+# board (ADR-0042); everything else is prose in the briefs.
 #
 # script: the runtime hook file (runtime/hooks/<script>), the ONE name->file map;
 #   the generator and the parity tests read it here.
-# watch: harness-neutral guard points (shell, post-compaction); the Claude Code
+# watch: harness-neutral guard points (shell, publish, post-compaction); the Claude Code
 #   emitter maps each class to its native matcher once.
 # Entry ORDER here is the wire order.
 hooks:
@@ -90,6 +91,21 @@ hooks:
       alone. Out of scope: --git-dir/--work-tree, GIT_DIR=, sh -c/eval/xargs, other
       discarding verbs, an operator checkout that is itself a linked worktree.
     fail_closed: true                # without jq any destructive verb is refused
+  status_page_check:
+    script: check-status-page.sh
+    watch: [publish]
+    event: pre-tool-use
+    applies_to: [router]
+    intent: >-
+      Before a run's canonical progress page (.agents/runs/orchestrate/status.html)
+      is published, run `ledger.sh page-check --publish` and refuse the publish
+      when the page contradicts the board or itself: finished work shown as
+      upcoming or as waiting on the operator, an answered ask still listed, an
+      item shown done with no done row or approved verdict, finish dates that
+      disagree, a stamp that is not the publish time, only the stamp and history
+      changed although the journal moved, or page code that does not parse.
+      A fact check of page against journal, not a workflow gate (ADR-0042).
+    fail_closed: false               # no jq, another file, another tool: allowed
   compaction_reground:
     script: on-compaction.sh
     watch: [post-compaction]

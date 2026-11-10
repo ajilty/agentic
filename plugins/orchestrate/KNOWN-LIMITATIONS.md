@@ -106,6 +106,21 @@ cannot change:
 - **Session-bound schedules die with the session.** A refresh cron or wakeup
   armed in one session does not outlive it. Reground re-arms the schedule
   whenever the goal carries an accepted `status-page` row.
+- **The page cannot refresh itself.** It is a snapshot republished by the
+  router in its own turns, never a live view. Refreshes ride lane state
+  changes, with the timer as a backstop that only fires when the session is
+  idle; the page draws an out-of-date banner itself when its last update is
+  older than twice the promised interval, so a lapse is visible, not hidden.
+- **The publish check sees the journal, not the world.** It refuses a page
+  that contradicts the board or itself, but it trusts the board: an entry
+  marked `none:`, a stream item with no `ref`, and a `done` row journaled
+  before its check was really seen all pass. Whether CI is green is not
+  something it can read. Its stale-page tripwire catches a refresh that
+  touches only the stamp and history; one changed word passes it. The shown
+  `updated` time is not compared with `updated_at`. A page published from a
+  copy or a symlink under another name is not checked. It runs only on Claude Code (the
+  one harness with an artifact surface), needs `jq` to read the publish call,
+  and skips the code-parse check when `node` is absent.
 - **Size.** The page is one self-contained file and must stay under the
   artifact size limit; the changelog grows per refresh, so a very long run
   should prune history older than the goal into the repo's run records (note

@@ -21,6 +21,9 @@ assert_contains "$(last | jq -r .error)" "Session is not logged in" "error text 
 assert_eq "$(last | jq -r .harness)" "claude-code" "harness stamped"
 [ -n "$(last | jq -r .fp)" ] && pass || fail "fingerprint present"
 fp1=$(last | jq -r .fp)
+# Pinned value: sha1 of "tool|error" plus the newline jq -r prints, first 16 hex. shasum (macOS, CI) and sha1sum
+# (minimal Linux) must agree, so a fingerprint means the same thing on every machine.
+assert_eq "$fp1" "2ceda3b9e18a772e" "fingerprint is the pinned sha1 prefix on this machine's hasher"
 run_hook "$J" "$(fail_payload mcp__splunk__run_query 'Request failed: Session is not logged in.')"
 assert_eq "$(last | jq -r .fp)" "$fp1" "same tool+error -> same fingerprint"
 run_hook "$J" "$(fail_payload mcp__splunk__run_query 'Request failed: Invalid earliest_time')"

@@ -74,7 +74,10 @@ row=$(printf '%s' "$payload" | jq -c --arg home "$HOME" --arg now "$(date -u +%Y
 
 # Fingerprint = sha1 of tool + first 200 chars of the redacted error, so repeats of one
 # failure collapse to a count at harvest time. jq has no hash; do it here, fail-open.
-fp=$(printf '%s' "$row" | jq -r '.tool + "|" + (.error | .[0:200])' 2>/dev/null | shasum 2>/dev/null | cut -c1-16)
+# shasum ships with macOS but not minimal Linux (Fedora has only sha1sum); both print
+# the same sha1 hex, so fingerprints match across machines.
+if command -v shasum >/dev/null 2>&1; then sha1=shasum; else sha1=sha1sum; fi
+fp=$(printf '%s' "$row" | jq -r '.tool + "|" + (.error | .[0:200])' 2>/dev/null | "$sha1" 2>/dev/null | cut -c1-16)
 [ -n "$fp" ] && row=$(printf '%s' "$row" | jq -c --arg fp "$fp" '.fp = $fp' 2>/dev/null || printf '%s' "$row")
 
 mkdir -p "$(dirname "$journal")" 2>/dev/null || exit 0

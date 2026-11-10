@@ -49,8 +49,9 @@ cc_agent_md() { # <persona> <dest.md>
 
 # Emit hooks.json derived from the contract's hooks: block (script + watch, in
 # document order). CC watch-class mapping: shell -> PreToolUse matcher "Bash",
-# post-compaction -> SessionStart matcher "compact". A class with no hooks emits
-# no group, so the JSON is valid for any subset of the contract.
+# publish -> PreToolUse matcher "Artifact", post-compaction -> SessionStart
+# matcher "compact". A class with no hooks emits no group, so the JSON is valid
+# for any subset of the contract.
 cc_hooks_json() { # <out.json> <hook-path-prefix>
   local out="$1" H="$2" cls s
   _cc_group() { # <matcher> <script>...  (one group, no trailing comma)
@@ -62,18 +63,26 @@ cc_hooks_json() { # <out.json> <hook-path-prefix>
     done
     printf ' ] }'
   }
-  _cc_event() { # <Event> <matcher> <class-regex>; prints nothing when the class is empty
-    local ev="$1" m="$2" arr
-    arr=($(hooks_watching "$3"))
-    [ "${#arr[@]}" -gt 0 ] || return 0
-    [ -z "$_cc_sep" ] || printf ',\n'
-    _cc_sep=1
-    printf '    "%s": [\n' "$ev"; _cc_group "$m" "${arr[@]}"; printf '\n    ]'
+  _cc_event() { # <Event> (<matcher> <class-regex>)...; one group per non-empty class,
+                # nothing at all when every class is empty
+    local ev="$1" arr open=0; shift
+    while [ $# -ge 2 ]; do
+      arr=($(hooks_watching "$2"))
+      if [ "${#arr[@]}" -gt 0 ]; then
+        if [ "$open" = 0 ]; then
+          [ -z "$_cc_sep" ] || printf ',\n'
+          _cc_sep=1; printf '    "%s": [\n' "$ev"; open=1
+        else printf ',\n'; fi
+        _cc_group "$1" "${arr[@]}"
+      fi
+      shift 2
+    done
+    [ "$open" = 0 ] || printf '\n    ]'
   }
   local _cc_sep=""
   {
     printf '{\n  "hooks": {\n'
-    _cc_event PreToolUse Bash 'shell'
+    _cc_event PreToolUse Bash 'shell' Artifact 'publish'
     _cc_event SessionStart compact 'post-compaction'
     printf '\n  }\n}\n'
   } > "$out"

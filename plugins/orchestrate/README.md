@@ -18,7 +18,7 @@ survives interruption and compaction and remembers its judgment across goals.
 /plugin install orchestrate@ajilty
 ```
 
-Everything ships in the plugin: the five persona agents, the two hooks
+Everything ships in the plugin: the five persona agents, the three hooks
 (`hooks/hooks.json` registers them automatically), the skill, the commands, and
 the `bin/` shims. Nothing runs at install time; artifacts are pre-built and
 committed (see "Generated artifacts" below).
@@ -85,8 +85,10 @@ with the one-line fix (`git remote set-head origin <base>`).
 - **`agents/{researcher,planner,implementer,verifier,actuator}.md`**: the five
   persona subagents, each with a tools allowlist, a model and effort tier, and,
   for the implementer, `isolation: worktree`. **Generated** (see below).
-- **`hooks/hooks.json`**: two hooks. The shared-checkout floor (PreToolUse on
-  Bash) and compaction recovery (SessionStart, matcher `compact`). Command paths
+- **`hooks/hooks.json`**: three hooks. The shared-checkout floor (PreToolUse on
+  Bash), the progress-page check (PreToolUse on Artifact: a page that
+  contradicts the run's journal is not published), and compaction recovery
+  (SessionStart, matcher `compact`). Command paths
   are `${CLAUDE_PLUGIN_ROOT}`-relative, so they are machine-independent.
   **Generated.**
 - **`skills/orchestrate/`**: the harness-neutral source of truth: `SKILL.md`
