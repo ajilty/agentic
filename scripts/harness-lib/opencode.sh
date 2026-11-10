@@ -29,13 +29,14 @@ oc_model() { case "$1" in
   *)        echo "" ;;   # premium / unknown / empty -> omit model line (inherit)
 esac; }
 
-# Emit one subagent markdown (frontmatter rewritten to OpenCode keys + persona body).
+# Emit one subagent markdown (frontmatter rewritten to OpenCode keys + persona body with
+# its craft skill inlined; persona_prompt in common.sh).
 oc_agent_md() { # <persona> <dest.md>
   local p="$1" dest="$2" m
   m="$(oc_model "$(p_tier "$p" model)")"
   { printf -- '---\ndescription: %s\nmode: subagent\n' "$(yaml_q "$(p_desc "$p")")"
     [ -n "$m" ] && printf 'model: %s\n' "$(yaml_q "$m")"
-    oc_tools "$p"; printf -- '---\n\n'; body "$(p_body "$p")"; } > "$dest"
+    oc_tools "$p"; printf -- '---\n\n'; persona_prompt "$p"; } > "$dest"
 }
 
 # Emit one command, description PARSED from the source frontmatter, never restated

@@ -136,13 +136,70 @@ else
   echo "(skip contract-parity: $YQ4_SKIP)"
 fi
 
+# --- Craft guidance always loads: each persona's craft skill is inlined into its compiled
+#     definition at build time, so the persona never depends on a dispatch naming the
+#     guide or on choosing to read it. The mapping is fixed here and must match the
+#     contract; the actuator carries none. "Inlined" means every body line of the craft
+#     skill appears verbatim (headings demoted two levels), after the persona brief,
+#     under the heading, with the precedence rule, and none of its frontmatter.
+CRAFT_ROWS='researcher|research
+planner|plan
+implementer|build
+verifier|verify
+actuator|'
+craft_want(){ printf '%s\n' "$CRAFT_ROWS" | awk -F'|' -v p="$1" '$1 == p { print $2 }'; }
+fm_body(){ awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$1"; }   # a markdown file minus frontmatter
+for p in researcher planner implementer verifier actuator; do
+  c="$(craft_want "$p")"; a="$SK/agents/$p.md"
+  if [ -z "$c" ]; then
+    grep -q '^## Craft guidance' "$a" && fail "$p must carry no craft guidance" || pass
+    continue
+  fi
+  cf="$SK/skills/$c/SKILL.md"
+  if [ ! -f "$cf" ]; then fail "$p craft guide $cf does not exist"; continue; fi
+  hl="$(grep -nxF "## Craft guidance (\`$c\`)" "$a" | head -1 | cut -d: -f1)"
+  if [ -z "$hl" ]; then fail "$p compiled definition lacks the '## Craft guidance (\`$c\`)' heading"; continue; fi
+  pass
+  tail -n +"$hl" "$a" | grep -qF 'the persona brief above prevails on any conflict' && pass \
+    || fail "$p craft section states that the persona brief prevails"
+  # after the persona brief: the brief's last non-blank line sits above the craft heading
+  last="$(fm_body "$SK/skills/orchestrate/references/personas/$p.md" | awk 'NF{l=$0} END{print l}')"
+  ll="$(grep -nxF -- "$last" "$a" | head -1 | cut -d: -f1)"
+  { [ -n "$ll" ] && [ "$ll" -lt "$hl" ]; } && pass || fail "$p craft guidance must come after the persona brief"
+  missing=0
+  while IFS= read -r line; do
+    [ -n "${line//[[:space:]]/}" ] || continue
+    case "$line" in '#'*) line="##$line" ;; esac
+    tail -n +"$hl" "$a" | grep -qxF -- "$line" || { missing=1; echo "  $p missing craft line: $line" >&2; }
+  done < <(fm_body "$cf")
+  [ "$missing" = 0 ] && pass || fail "$p compiled definition lacks its $c craft guide's content"
+  grep -q 'disable-model-invocation' "$a" && fail "$p inlined the $c craft frontmatter (body only)" || pass
+done
+grep -qF 'craft guidance is included below' "$SK/agents/actuator.md" && fail "actuator brief must not promise craft guidance" || pass
+if have_yq4; then
+  AGC="$SK/skills/orchestrate/references/agents.yaml"
+  for p in $(yq '.personas | keys | .[]' "$AGC"); do
+    got="$(yq ".personas.$p.craft // \"\"" "$AGC")"
+    assert_eq "$got" "$(craft_want "$p")" "contract craft: for $p"
+    { [ -z "$got" ] || [ -f "$SK/skills/$got/SKILL.md" ]; } && pass || fail "contract craft '$got' for $p names no skills/$got/SKILL.md"
+  done
+  # a craft: naming a missing skill fails the emitter rather than shipping a thinner persona
+  tmpk="$(mktemp -d)"
+  yq '.personas.researcher.craft = "no-such-craft"' "$AGC" > "$tmpk/bad.yaml"
+  if ( AGENTS="$tmpk/bad.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$(cd "$SK/../.." && pwd)/scripts/harness-lib/common.sh"
+       persona_prompt researcher >/dev/null 2>&1 ); then fail "persona_prompt must fail on a craft: with no skill"; else pass; fi
+  rm -rf "$tmpk"
+else
+  echo "(skip craft contract mapping: $YQ4_SKIP)"
+fi
+
 # --- Drift guard: committed artifacts must equal a fresh build. Copy the plugin
 #     to a temp tree, rebuild there, diff the generated files. Skips without yq.
 #     HARNESS_LIB points the tmp copy at the real repo-level lib (ADR-0037): the
 #     lib is build-time-only and lives OUTSIDE the plugin, so the copied driver's
 #     relative default cannot resolve it.
 if have_yq4; then
-  t="$(mktemp -d)"; cp -r "$SK/." "$t/"
+  t="$(mktemp -d)"; cp -RL "$SK/." "$t/"   # -L: the sibling craft skills are relative symlinks
   ( HARNESS_LIB="$(cd "$SK/../.." && pwd)/scripts/harness-lib" bash "$t/scripts/build.sh" >/dev/null 2>&1 )
   for f in agents/researcher.md agents/planner.md agents/implementer.md agents/verifier.md agents/actuator.md hooks/hooks.json; do
     if diff -q "$SK/$f" "$t/$f" >/dev/null 2>&1; then pass; else fail "drift: committed $f != fresh build (run scripts/build.sh)"; fi

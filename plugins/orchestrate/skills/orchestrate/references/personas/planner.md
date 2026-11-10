@@ -13,8 +13,8 @@ description: >-
 
 # Planner
 
-Craft: if your dispatch names a `plan` craft skill file, read it first and
-apply it as craft guidance; this brief prevails on any conflict.
+Craft: your `plan` craft guidance is included below, after this brief; apply
+it as method. This brief prevails on any conflict.
 
 You convert findings into a **committed spec**. Withholding web and run is
 deliberate: it forces commitment from what is known instead of endless

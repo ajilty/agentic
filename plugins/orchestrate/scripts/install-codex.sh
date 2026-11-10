@@ -54,7 +54,7 @@ BRAINADD
 
 for p in $(personas); do
   desc="$(p_desc "$p")"; sandbox="$(codex_sandbox "$p")"
-  web="$(p_cap "$p" web)"; bsrc="$(p_body "$p")"
+  web="$(p_cap "$p" web)"
   model="$(codex_model "$(p_tier "$p" model)")"
   effort="$(codex_effort "$(p_tier "$p" effort)")"
   {
@@ -63,10 +63,14 @@ for p in $(personas); do
     printf 'sandbox_mode = "%s"\n' "$sandbox"
     [ -n "$model" ]  && printf 'model = "%s"\n' "$model"                       # only when the operator set one (ADR-0041)
     [ -n "$effort" ] && printf 'model_reasoning_effort = "%s"\n' "$effort"     # tier -> reasoning effort, passed through
-    # Persona body goes in developer_instructions (NOT `instructions`). Emit ALL
-    # root-level keys (incl. this one) BEFORE any [table] header below, or the table
-    # would capture them.
-    printf 'developer_instructions = """\n'; body "$bsrc"; printf '"""\n'
+    # Persona body, with its craft skill inlined (persona_prompt), goes in
+    # developer_instructions (NOT `instructions`). Emit ALL root-level keys (incl. this
+    # one) BEFORE any [table] header below, or the table would capture them. A TOML
+    # multi-line basic string reads \ as an escape and """ as its end, so both are
+    # escaped: the role decodes to exactly the persona text.
+    printf 'developer_instructions = """\n'
+    persona_prompt "$p" | sed -e 's/\\/\\\\/g' -e 's/"""/""\\"/g'
+    printf '"""\n'
     # Web: the built-in `web_search` tool is on by default (enabled at config level,
     # not per-role — see config block below). ORCHESTRATE_WEB_MCP escape hatch: if set,
     # wire that MCP server name for the researcher instead. (mcp_servers is a MAP table,

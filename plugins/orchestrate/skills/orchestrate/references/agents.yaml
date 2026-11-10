@@ -17,6 +17,13 @@
 # isolation: worktree (optional, per persona) asks the harness to run that persona
 # in its own git worktree.
 # The role body for each persona lives in personas/<name>.md.
+# craft: <skill> (optional) names a sibling skill in the plugin's skills/ directory
+# (skills/<skill>/SKILL.md). Every generator inlines that skill's body, frontmatter
+# stripped, after the persona body under a "Craft guidance" heading, so the persona
+# always carries its method; the persona body prevails on any conflict. Inlined at
+# build/install time, not preloaded: the craft skills are user-invoked only
+# (disable-model-invocation), which Claude Code's subagent skills: preload refuses, and
+# Codex and OpenCode have no preload. The skill files stay standalone and unchanged.
 #
 # tier: { model, effort } is harness-neutral right-sizing (ADR-0041). No persona runs
 # a bigger model than the main loop:
@@ -34,6 +41,7 @@ version: 1
 personas:
   researcher:
     body: personas/researcher.md
+    craft: research
     description: "Read-only explorer; returns confidence- and provenance-labeled findings. The only persona with external intake. Doubles as Troubleshooter."
     capabilities: { read: true,  write: results,      run: none,      web: true  }
     tier:         { model: economy,  effort: medium }   # reduction work (read many, return little) — cheapest to downshift
@@ -41,12 +49,14 @@ personas:
     # to findings/_quarantine/ (durable, attributed; the router gates+promotes it, ADR-0014).
   planner:
     body: personas/planner.md
+    craft: plan
     description: "Turns findings into a decided spec with an oracle, disjoint tasks where it can, and named shared targets. No web, no run."
     capabilities: { read: true,  write: results,    run: none,        web: false }
     tier:         { model: premium,  effort: high }     # judgment: the spec+oracle gates everything downstream
     # writes only the spec/ADR artifact and its per-ticket files.
   implementer:
     body: personas/implementer.md
+    craft: build
     description: "Builds one task from the signed spec in its own worktree (write + run + git). No external intake."
     capabilities: { read: true,  write: full,       run: full,        web: false }
     isolation:    worktree                              # each writer builds in its own tree; coupling is reconciled at landing and by the verifier
@@ -54,6 +64,7 @@ personas:
     # builds in its own worktree (write + run + git). No external intake by design.
   verifier:
     body: personas/verifier.md
+    craft: verify
     description: "Fresh-context adversarial review. Runs the held-out suite + goal/provenance/downstream-breakage checks. Read-only; may run tests."
     capabilities: { read: true,  write: results,      run: tests-only, web: false }
     tier:         { model: premium,  effort: high }     # adversarial correctness at the main loop's model; xhigh only for a named hard ticket

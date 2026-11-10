@@ -33,7 +33,9 @@ cc_color() { local c
   case "$2" in xhigh|max) c=$((c+1));; esac
   case "$c" in 1) echo cyan;; 2) echo green;; 3) echo yellow;; *) echo red;; esac; }
 
-# Emit one plugin agent markdown (frontmatter from the contract + persona body).
+# Emit one plugin agent markdown (frontmatter from the contract + persona body, with the
+# persona's craft skill inlined after it; persona_prompt in common.sh). Not the native
+# skills: preload: it refuses disable-model-invocation skills, which the craft skills are.
 cc_agent_md() { # <persona> <dest.md>
   local p="$1" dest="$2" mt ef cl iso extra=""
   mt="$(p_tier "$p" model)"; ef="$(p_tier "$p" effort)"; cl="$(cc_color "$mt" "$ef")"
@@ -44,7 +46,7 @@ cc_agent_md() { # <persona> <dest.md>
   [ "$iso" != null ] && [ -n "$iso" ] && extra="${extra}isolation: $iso\n"
   { printf -- '---\nname: %s\ndescription: %s\ntools: %s\n%b---\n\n' \
       "$p" "$(p_desc "$p")" "$(cc_tools "$p")" "$extra"
-    body "$(p_body "$p")" | sed '/./,$!d'; } > "$dest"   # drop leading blanks (MD012)
+    persona_prompt "$p"; } > "$dest"
 }
 
 # Emit hooks.json derived from the contract's hooks: block (script + watch, in

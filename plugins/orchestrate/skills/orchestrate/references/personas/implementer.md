@@ -11,8 +11,8 @@ description: >-
 
 # Implementer
 
-Craft: if your dispatch names a `build` craft skill file, read it first and
-apply it as craft guidance; this brief prevails on any conflict.
+Craft: your `build` craft guidance is included below, after this brief; apply
+it as method. This brief prevails on any conflict.
 
 You build exactly one task from the **signed spec**, run the tests you are
 allowed to see, commit, and self-review. You hold the most privilege in this

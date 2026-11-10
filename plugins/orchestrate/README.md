@@ -96,7 +96,9 @@ with the one-line fix (`git remote set-head origin <base>`).
   (the router's short core, injected by the start command and re-attached after a compaction), `references/` (the detail each loop step reads on demand;  (`agents.yaml`, persona bodies,
   `resume.md`), and `runtime/` (`ledger.sh`, `adr.sh`, and the two hook
   scripts). Sibling craft skills (`research`, `plan`, `build`, `verify`) are
-  what each persona reads first.
+  inlined into the researcher, planner, implementer, and verifier definitions
+  at build time (`craft:` in `agents.yaml`), so each persona always carries its
+  method; they stay usable on their own as user-typed skills.
 
 ## Generated artifacts (build step)
 
@@ -105,7 +107,7 @@ are generated from `skills/orchestrate/references/agents.yaml` (the single
 capability contract, which also carries the hook wire map: `script:` + `watch:`
 per hook) by `scripts/build.sh` and committed — a marketplace install runs no
 build. All harness mapping logic lives in the repo-level `scripts/harness-lib/`
-(ADR-0037), shared by this and the Codex/OpenCode installers. After editing `agents.yaml` or any persona body, regenerate:
+(ADR-0037), shared by this and the Codex/OpenCode installers. After editing `agents.yaml`, any persona body, or a craft skill, regenerate:
 
 ```text
 scripts/build.sh

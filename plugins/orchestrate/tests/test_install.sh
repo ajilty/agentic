@@ -32,6 +32,23 @@ for p in researcher planner implementer verifier actuator; do
   want="$(yq ".personas.$p.tier.effort" "$SK/skills/orchestrate/references/agents.yaml")"
   grep -qx "model_reasoning_effort = \"$want\"" "$o/agents/$p.toml" && pass || fail "codex $p effort passes through as $want"
 done
+# craft guidance always loads (same inlining as the CC agents): each crafted role's
+# developer_instructions decodes to exactly persona_prompt (persona body + craft guide,
+# TOML escaping round-trips), and the actuator carries none.
+LIBD="$(cd "$SK/../.." && pwd)/scripts/harness-lib"
+want_prompt(){ ( AGENTS="$SK/skills/orchestrate/references/agents.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD/common.sh"; persona_prompt "$1" ); }
+for pc in researcher:research planner:plan implementer:build verifier:verify; do
+  p="${pc%%:*}"; c="${pc##*:}"
+  grep -qxF "## Craft guidance (\`$c\`)" "$o/agents/$p.toml" && pass || fail "codex $p role carries its $c craft guidance"
+done
+grep -q '^## Craft guidance' "$o/agents/actuator.toml" && fail "codex actuator must carry no craft guidance" || pass
+if printf 'k = """\na\\\\b\n"""\n' | yq -p toml -oy '.k' >/dev/null 2>&1; then
+  for p in researcher planner implementer verifier actuator; do
+    assert_eq "$(yq -p toml -oy '.developer_instructions' "$o/agents/$p.toml" 2>/dev/null)" "$(want_prompt "$p")" "codex $p developer_instructions decodes to the persona prompt"
+  done
+else
+  echo "(skip codex TOML round-trip: this yq cannot read TOML)"
+fi
 rm -rf "$o"
 o="${TMPDIR:-/tmp}/p4cxm.$$"; rm -rf "$o"
 ORCHESTRATE_STANDARD_MODEL=std-model ORCHESTRATE_ECONOMY_MODEL=eco-model \
@@ -68,6 +85,13 @@ for c in init status feedback; do
   got="$(yq --front-matter=extract '.description' "$o/commands/orchestrate-$c.md")"
   assert_eq "$got" "$want" "opencode $c command description matches source frontmatter"
 done
+# craft guidance always loads: each crafted agent's body is persona_prompt verbatim
+# (frontmatter stripped); the actuator carries none.
+for p in researcher planner implementer verifier actuator; do
+  assert_eq "$(awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$o/agents/$p.md" | sed '/./,$!d')" "$(want_prompt "$p")" "opencode $p body is the persona prompt"
+done
+grep -q '^## Craft guidance (`build`)' "$o/agents/implementer.md" && pass || fail "opencode implementer carries its build craft guidance"
+grep -q '^## Craft guidance' "$o/agents/actuator.md" && fail "opencode actuator must carry no craft guidance" || pass
 # tier -> model emission (ADR-0041): no default model IDs; unset means inherit
 grep -q '^model:' "$o"/agents/*.md && fail "opencode agents carry a model with no ORCHESTRATE_*_MODEL set (must inherit)" || pass
 # permission: layer emitted alongside deprecated tools: (read-only persona denies edit+bash)

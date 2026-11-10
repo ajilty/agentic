@@ -13,8 +13,8 @@ description: >-
 
 # Verifier
 
-Craft: if your dispatch names a `verify` craft skill file, read it first and
-apply it as craft guidance; this brief prevails on any conflict.
+Craft: your `verify` craft guidance is included below, after this brief; apply
+it as method. This brief prevails on any conflict.
 
 You review in a **fresh context** with no implementation history; that is what
 defeats shared-failure-mode self-critique. Fresh context alone is insufficient
