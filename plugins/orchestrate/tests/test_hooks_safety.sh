@@ -162,14 +162,17 @@ if command -v jq >/dev/null 2>&1; then
   o="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2>&1)"; assert_eq "$?" 0 "a page that agrees with the journal is published ($o)"
   assert_eq "$o" "" "allow path is silent"
   o="$(pub '{"file_path":".agents/runs/orchestrate/status.html"}' "$pr" 2>&1)"; assert_eq "$?" 0 "a relative path resolves against the payload cwd"
-  echo '{"ticket":"runner-trust","event":"done"}' >> "$pr/.agents/runs/orchestrate/board.jsonl"
+  echo '{"ticket":"prod-apply","event":"decision","fork_id":"prod-ack:prod-env","note":"approved"}' >> "$pr/.agents/runs/orchestrate/board.jsonl"
   o="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2>/dev/null)"; rc=$?
   assert_eq "$rc" 2 "a page that contradicts the journal is refused"
   assert_eq "$o" "" "deny path keeps stdout empty (reasons on stderr only)"
   e="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2>&1 >/dev/null)"
-  case "$e" in *"was not published"*"records runner-trust as done"*"Rebuild every field"*) pass;; *) fail "the refusal names each failure and what to do ($e)";; esac
+  case "$e" in *"was not published"*"the journal shows it answered"*"Rebuild every field"*) pass;; *) fail "the refusal names each failure and what to do ($e)";; esac
   o="$(pub "{\"file_path\":\"$PGP\"}" "$pr" 2026-11-09T09:00:00Z 2>&1 >/dev/null)"
   case "$o" in *"not the publish time"*) pass;; *) fail "a stale stamp at publish is named ($o)";; esac
+  o="$(pub "{\"file_path\":\"$pr/.agents/runs//orchestrate/../orchestrate/status.html\"}" "$pr" 2>/dev/null)"; assert_eq "$?" 2 "a non-canonical spelling of the page path is still checked"
+  ng="$(mktemp -d)"; mkdir -p "$ng/.agents/runs/orchestrate"; cp "$FX/board.jsonl" "$FX/status.html" "$ng/.agents/runs/orchestrate/"
+  pub "{\"file_path\":\"$ng/.agents/runs/orchestrate/status.html\"}" "$ng" >/dev/null 2>&1; assert_eq "$?" 0 "outside a git checkout the page's own journal is still found"
   pub "{\"action\":\"read\",\"url\":\"https://example.invalid/a\"}" "$pr" >/dev/null 2>&1; assert_eq "$?" 0 "a read is not a publish"
   pub "{\"action\":\"list\"}" "$pr" >/dev/null 2>&1; assert_eq "$?" 0 "a list is not a publish"
   pub "{\"file_path\":\"$pr/notes.html\"}" "$pr" >/dev/null 2>&1; assert_eq "$?" 0 "another page is none of its business"

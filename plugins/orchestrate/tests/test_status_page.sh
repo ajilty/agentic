@@ -169,21 +169,51 @@ sed -i.bak -e 's/updated_at: "2026-11-08T16:10:00Z"/updated_at: "2026-11-08T17:1
   -e 's/^  history: \[/  history: [\'$'\n''    {at: "Nov 8, 12:10 pm", t: "Hourly refresh."},/' "$d/$PG"
 out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 1 "journal moved, only stamp + history touched: refused"
 case "$out" in *"nothing on the page changed except the stamp and the history"*) pass;; *) fail "the stale-top refusal says what is wrong ($out)";; esac
+out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 1 "the same stale page is refused again (a refusal must not become the new baseline)"
+cp "$d/$PG" "$d/stale.html"
+sed -i.bak 's/^  headline: "/  headline:   "/; s/^  sublead: \(.*\)$/  sublead: \1  /' "$d/$PG"
+out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 1 "a whitespace-only edit does not count as a rebuild"
+cp "$d/stale.html" "$d/$PG"
+sed -i.bak 's/{v: "1", l: "waiting on your go"}/{v: "1", l: "bounced in review"}/' "$d/$PG"
+out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 0 "rebuilding a field other than the headline (a tile) clears it ($out)"
+cp "$d/stale.html" "$d/$PG"
 sed -i.bak 's/headline: "Reviewed code is now/headline: "Runner change bounced; reviewed code is/' "$d/$PG"
 out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 0 "the same refresh with the top rebuilt passes ($out)"
+# a dispatch is not news: an honest unchanged page on a lane already shown active passes
+echo '{"ticket":"runner-trust","event":"dispatched","persona":"verifier","dispatch_id":"d10"}' >> "$d/$BD"
+out="$(pc "$d" 2026-11-08T17:12:00Z)"; assert_eq "$?" 0 "a new dispatch alone does not demand a page change ($out)"
 
 # 10b) Finished work that still reads as upcoming, or as waiting on the operator.
 d="$(mkpage)"; echo '{"ticket":"runner-trust","event":"done"}' >> "$d/$BD"
-out="$(pc "$d")"; assert_eq "$?" 1 "a lane the board records done but the page shows running: refused"
-case "$out" in *"Runner trust change in review"*"records runner-trust as done"*) pass;; *) fail "names the stale entry ($out)";; esac
+sed -i.bak 's/{st: "active", n: "Runners trust reviewed code only"/{st: "queued", n: "Runners trust reviewed code only"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "a lane the board records done but the page shows not started: refused"
+case "$out" in *"Runners trust reviewed code only"*"records runner-trust as done"*) pass;; *) fail "names the stale entry ($out)";; esac
 d="$(mkpage)"; echo '{"ticket":"prod-apply","event":"decision","fork_id":"prod-ack:prod-env","note":"approved"}' >> "$d/$BD"
 out="$(pc "$d")"; assert_eq "$?" 1 "an ask the operator already answered still listed: refused"
 case "$out" in *"needs:"*"shows it answered"*) pass;; *) fail "names the satisfied ask ($out)";; esac
 
+# 10b2) A done row never forces "live": merged work whose check has not been seen green
+#       may stay running, waiting or built (forcing live would recreate "green before
+#       its run fired"). Not-started and waiting-on-you are still refused.
+d="$(mkpage)"; echo '{"ticket":"runner-trust","event":"done"}' >> "$d/$BD"
+sed -i.bak 's/{state: "running", name: "Runner trust change in review"/{state: "waiting", name: "Runner trust change in review"/; s/{st: "active", n: "Runners trust reviewed code only"/{st: "built", n: "Runners trust reviewed code only"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 0 "done on the board, shown waiting/built (merged, check not yet seen): allowed ($out)"
+sed -i.bak 's/{state: "waiting", name: "Runner trust change in review"/{state: "next", name: "Runner trust change in review"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "done on the board, shown as not started: refused"
+# The board's last word wins.
+d="$(mkpage)"; printf '%s\n' '{"ticket":"runner-trust","event":"done"}' '{"ticket":"runner-trust","event":"dispatched","persona":"implementer","dispatch_id":"d11"}' >> "$d/$BD"
+out="$(pc "$d")"; assert_eq "$?" 0 "a ticket closed then dispatched again is open: shown running passes ($out)"
+d="$(mkpage)"; printf '%s\n' '{"ticket":"prod-apply","event":"decision","fork_id":"prod-ack:prod-env","note":"declined"}' '{"ticket":"prod-apply","event":"fork","fork_id":"prod-ack:prod-env","state":"halted"}' >> "$d/$BD"
+out="$(pc "$d")"; assert_eq "$?" 0 "a fork answered then raised again is waiting: the ask passes ($out)"
+
 # 10c) Marked done or live without the evidence: no done row, no approved verdict.
 d="$(mkpage)"; sed -i.bak 's/{state: "running", name: "Runner trust change in review"/{state: "done", name: "Runner trust change in review"/' "$d/$PG"
 out="$(pc "$d")"; assert_eq "$?" 1 "an entry shown done with no done row or approved verdict: refused"
-case "$out" in *"no done row or approved verdict for runner-trust"*) pass;; *) fail "names the unevidenced entry ($out)";; esac
+case "$out" in *"no done row or approved outcome verdict for runner-trust"*) pass;; *) fail "names the unevidenced entry ($out)";; esac
+d="$(mkpage)"; sed -i.bak 's/ref: "plan:pipeline-hardening"/ref: "pipeline-hardening"/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "a plan approval is not evidence that work is done: refused"
+d="$(mkpage)"; sed -i.bak 's/{state: "running", name: "Runner trust change in review"\(.*\)ref: "runner-trust"}/{state: "done", name: "Runner trust change in review"\1ref: "plan:runner-trust"}/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "a plan: ref with no approved plan, shown done: refused"
 
 # 10d) Finish dates that disagree (static: no board needed), and a top that names one
 #      when the estimate card gives none (the live page said both "Nov 18" and "Re-estimating").
@@ -195,6 +225,16 @@ out="$(bash "$R" page-check "$d/$PG")"
 case "$out" in *"estimate card gives no date"*) pass;; *) fail "a finish date with no estimate date is refused ($out)";; esac
 d="$(mkpage)"; sed -i.bak 's/One open assumption about the runner image is listed where it belongs\./Backups lock from Nov 11./' "$d/$PG"
 out="$(bash "$R" page-check "$d/$PG")"; assert_eq "$?" 0 "a milestone date that is not a finish claim is left alone ($out)"
+dt(){ printf 'const DATA = {\n  headline: "%s",\n  estimate: {\n    complete: "%s"\n  }\n};\n' "$1" "$2" > "$d/dt.html"; bash "$R" page-check "$d/dt.html" 2>/dev/null | grep -c 'finish date'; }
+assert_eq "$(dt 'Completion waits on Decision 4' 'Nov 9')" 0 "a word that starts like a month is not a date"
+assert_eq "$(dt 'Cutover completed Nov 7' 'Nov 9')" 0 "past work is a report, not a finish claim"
+assert_eq "$(dt 'We finish by Jan 3' 'Dec 30 to Jan 3')" 0 "a date inside the estimate range agrees"
+assert_eq "$(dt 'We finish by 12 Nov' 'Nov 9')" 1 "day-first dates are read"
+assert_eq "$(dt 'Done by 2026-11-12' 'Nov 9')" 1 "ISO dates are read"
+assert_eq "$(dt 'Done by Nov 9' '2026-11-09')" 0 "an ISO estimate date agrees with the same day written out"
+assert_eq "$(dt 'Estimated completion December 3' 'Nov 9')" 1 "a full month name is read"
+d2="$(mkpage)"; sed -i.bak 's/d: "Held until you approve the printed plan; nothing in it destroys anything."/d: "Held until you approve; target to finish Nov 20."/' "$d2/$PG"
+out="$(bash "$R" page-check "$d2/$PG")"; assert_eq "$?" 1 "a finish date claimed in a timeline step is checked too ($out)"
 
 # 10e) The stamp is the publish time: not stale, not in the future, and a real UTC stamp.
 d="$(mkpage)"
@@ -209,6 +249,13 @@ d="$(mkpage)"; sed -i.bak 's/, ref: "runner-trust"},$/},/' "$d/$PG"
 out="$(pc "$d")"; assert_eq "$?" 1 "a window entry with no ref: refused"
 d="$(mkpage)"; sed -i.bak 's/reviewer resolves it or bounces it.", ref: "runner-trust"/reviewer resolves it or bounces it.", ref: "none:external review"/' "$d/$PG"
 out="$(pc "$d")"; assert_eq "$?" 0 "a none: ref is allowed ($out)"
+d="$(mkpage)"; sed -i.bak 's/ref: "fork:prod-apply\/prod-ack:prod-env"}$/ref: "none:tbd"}/' "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "an ask marked none: is refused (an ask is a journaled fork)"
+case "$out" in *"journal it as a fork"*) pass;; *) fail "says how to fix an ask with no fork ($out)";; esac
+d="$(mkpage)"; awk '/^  needs: \[$/{print "  needs: [\"Approve the apply.\"],"; skip=1; next} skip&&/^  \],$/{skip=0; next} !skip' "$d/$PG" > "$d/p2" && mv "$d/p2" "$d/$PG"
+out="$(pc "$d")"; assert_eq "$?" 1 "an old-style ask on the same line as its key is still judged"
+d="$(mkpage)"; sed -i.bak 's/reviewer resolves it or bounces it.", ref: "runner-trust"/reviewer resolves it or bounces it.", ref: "none:external review"/' "$d/$PG"
+out="$(pc "$d")"; case "$out" in *"1 entries marked none:"*) pass;; *) fail "the count of uncheckable entries is reported ($out)";; esac
 d="$(mkpage)"; sed -i.bak 's/ref: "guard-branch"/ref: "no-such-ticket"/' "$d/$PG"
 out="$(pc "$d")"; assert_eq "$?" 1 "a ref naming a ticket the board lacks: refused"
 

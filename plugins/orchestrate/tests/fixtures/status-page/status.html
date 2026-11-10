@@ -279,7 +279,7 @@ const DATA = {
     {t: "Your go on the production apply: the printed plan shows 3 changes and 0 destroys, matching the approved shape.", ref: "fork:prod-apply/prod-ack:prod-env"}
   ],
   window: [
-    {state: "done",    name: "Plan signed after independent review", when: "Sun 8:55 am", ref: "pipeline-hardening"},
+    {state: "done",    name: "Plan signed after independent review", when: "Sun 8:55 am", ref: "plan:pipeline-hardening"},
     {state: "done",    name: "Branch guard built, bounced once, proven closed", when: "Sun 10:40 am", d: "The reviewer reproduced a bypass live; the fix round closed it and only the fix was re-checked.", ref: "guard-branch"},
     {state: "running", name: "Runner trust change in review", d: "Built with one open assumption (the runner image pin); the reviewer resolves it or bounces it.", ref: "runner-trust"},
     {state: "you",     name: "Production apply", d: "Held until you approve the printed plan; nothing in it destroys anything.", ref: "fork:prod-apply/prod-ack:prod-env"}

@@ -28,11 +28,18 @@
   ref (not shown on the page): what the journal knows this entry as, so
   `ledger.sh page-check --publish` can catch a page that contradicts it.
     "<ticket>"                    a ticket on the board
+    "plan:<ticket>"               that ticket's plan sign-off
     "fork:<ticket>/<fork_id>"     a decision waiting on the operator
-    "none:<why>"                  nothing on the board backs it (a calendar wait)
+    "none:<why>"                  nothing on the board backs it (a calendar wait);
+                                  never on needs or pending: an ask is a fork
   Required on every needs, pending and window entry (needs and pending entries
   are written {t: "...", ref: "..."}); optional on stream items, checked when
-  present. One entry per line, double-quoted strings: the check reads lines. Other budgets: needs <= 30 words
+  present. Double-quoted strings, each entry whole on one line.
+  What the check holds you to: done or live needs the ticket's done row or an
+  approved outcome verdict (a plan: ref needs the approved plan); next, queued
+  and "your go" are refused once the board says done or answered. A done row
+  does NOT force "live": merged work whose check you have not seen green stays
+  built, waiting or running until you have. Other budgets: needs <= 30 words
   per item (one ask per item), window d <= 25, stream item m <= 30, made and
   history t <= 25. `ledger.sh page-check <file>` reports any field over budget,
   finish dates that disagree with the estimate card, and code that does not

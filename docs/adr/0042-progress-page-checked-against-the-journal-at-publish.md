@@ -25,22 +25,40 @@ canonical page (`.agents/runs/orchestrate/status.html`) and refuses it when
 `ledger.sh page-check --publish` fails. The check is deterministic and reads
 only the page and the board:
 
-- an entry shown as upcoming, or as waiting on the operator, that the board
-  records as done or answered;
-- an entry shown done or live with no `done` row or approved verdict;
-- finish dates in the headline, lead, tiles or timeline that disagree with
-  the estimate card;
-- a stamp that is not the publish time;
-- journal events since the last checked publish with nothing changed on the
-  page except the stamp and the history;
+- an entry shown as not started, or as waiting on the operator, that the
+  board records as done or answered (the board's last word wins: a reopened
+  ticket or a re-raised fork is open again);
+- an entry shown done or live with no `done` row or approved outcome verdict
+  (a plan approval proves only a plan);
+- an ask with no journaled fork behind it;
+- a finish date claimed in the headline, lead, tiles, or timeline text that
+  disagrees with the estimate card;
+- an `updated_at` that is not the publish time;
 - page code that does not parse.
+
+One more check is a tripwire, not a guarantee: when the journal has new
+results since the last passing check and nothing on the page changed except
+the stamp and the history, the publish is refused. It catches exactly the
+lazy refresh that was measured. A refresh that changes one word passes it,
+and it does police how a refresh is done, which is closer to a workflow rule
+than ADR-0040's test allows. It is kept because it is cheap, it names the
+failure in the operator's own terms, and the cross-checks above, which are
+plain facts, carry the weight.
+
+A `done` row never forces an entry to read live. Merged work whose check has
+not been seen green may stay built, waiting or running; forcing "live" would
+rebuild the failure where a check was called green before its run fired.
 
 Entries carry a `ref` (a ticket, a fork, or `none:<why>`) so the check can
 tie them to the board. That is structure for a deterministic consumer, the
 case the repo reserves structure for.
 
-This fits ADR-0040's test: it is a fact check of one artifact against the
-journal, it needs no arming, and it does not judge how the work was done.
+The cross-checks fit ADR-0040's test: facts about one artifact against the
+journal, nothing to arm. The tripwire is the stated exception.
+
+What stays prose because nothing deterministic can see it: whether CI was
+really green (the board's `done` row is the evidence, so the router journals
+`done` only after seeing the check), and whether the rebuilt text is true.
 
 ## Considered options
 
@@ -57,8 +75,9 @@ journal, it needs no arming, and it does not judge how the work was done.
 - The hook count is three; ADR-0040's "two survive" is amended here.
 - A page built before 0.9.6 has no refs and is refused until it is moved onto
   the current template.
-- The check trusts the board. `none:` entries, stream items without a ref, and
-  a `done` row journaled too early pass. KNOWN-LIMITATIONS says so.
+- The check trusts the board. `none:` entries outside asks, stream items
+  without a ref, and a `done` row journaled too early pass. The shown
+  `updated` time is not compared with `updated_at`. KNOWN-LIMITATIONS says so.
 - Claude Code only; it needs `jq`, and skips the parse check without `node`.
 
 ## Amends

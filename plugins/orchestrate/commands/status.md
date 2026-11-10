@@ -121,11 +121,13 @@ A refresh rebuilds the page; it never patches it. In this order:
 2. **Rebuild every field above the history** from what you gathered: headline,
    lead, changed strip, tiles, needs, window, streams, calls, estimate. Each
    needs, pending and window entry carries a `ref` naming what the journal
-   knows it as (a ticket, `fork:<ticket>/<fork_id>`, or `none:<why>`; the
-   template's top comment has the forms). An entry is shown done or live only
-   when the board has its `done` row or an approved verdict; an ask is listed
-   only while its fork has no decision; one finish date, the estimate card's,
-   everywhere it appears.
+   knows it as (a ticket, `plan:<ticket>`, `fork:<ticket>/<fork_id>`, or
+   `none:<why>`; the template's top comment has the forms). An entry is shown
+   done or live only when the board has its `done` row or an approved outcome
+   verdict AND you have seen its check green; merged work whose check has not
+   run stays built or waiting. An ask is listed only while its fork has no
+   decision, and every ask is a journaled fork. One finish date, the estimate
+   card's, everywhere it appears.
 3. **History last.** Append one entry per change (newest first) only after the
    rest is rebuilt. A refresh that touches only the stamp and the history is
    the failure this order exists to prevent: the stamp stays fresh while the
@@ -158,9 +160,12 @@ measured state. Prose rules carry over from this command; "Calls that are
 yours" is first-class, attributed ("Your decision", "Your standing rule",
 "Made for you, reversible on your word").
 
-What the check cannot see: an entry marked `none:`, a stream item with no
-`ref`, and anything the board itself has wrong. Keep `none:` for things the
-board truly does not track.
+What the check cannot see: whether a check really ran green (it sees the
+board's `done` row, so journal `done` only after you have seen it), an entry
+marked `none:`, a stream item with no `ref`, the displayed `updated` time
+against `updated_at`, and a refresh that changes one word and no more. Keep
+`none:` for things the board truly does not track. The check is a floor; the
+rebuild order above is the job.
 
 A page created before 0.9.6 lacks `updated_at` and `ref`s; on its next refresh, move it
 onto the current template (copy the template, carry DATA across, add the new
