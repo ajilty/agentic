@@ -117,8 +117,8 @@ finished while the plan is open. Reground runs under macOS `/bin/bash` 3.2.
 - **Compaction → automatic, hands-off.** In a repo with a board, the compaction
   hook (Claude Code `SessionStart` with source `compact`) runs `ledger.sh
   reground` and **injects the reconstructed board as authoritative state**,
-  plus an instruction to re-invoke the skill, because compaction keeps only
-  part of an invoked skill or drops it. With no board it says nothing.
+  and a second hook prints your core instructions back (`ledger.sh core`),
+  because compaction keeps only part of an invoked skill or drops it. With no board it says nothing.
 
 ## Halt on a lost lane
 
@@ -131,18 +131,8 @@ paused board beats a wrong one.
 
 ## Hooks, in total
 
-Two on Claude Code (OpenCode's generated plugin runs only the compaction one;
-Codex runs none); everything else is the orchestrator driving its own loop:
+Four on Claude Code, two of them after a compaction (the core re-attach, then
+the reground above); OpenCode's generated plugin runs those two; Codex runs
+none. `runtime.md` describes each. Everything else is the orchestrator driving
+its own loop.
 
-- **Shared-checkout floor** (`guard-shared-checkout.sh`, before every Bash
-  command, every agent): stops the canonical spellings of `reset --hard`,
-  `clean -f`, `checkout -f`/`.`/`--`, and `switch -f`/`--discard-changes` aimed
-  at the primary checkout. The command is split into shell words (quotes
-  honoured) and statements; the target is tracked through `cd`, `pushd`,
-  `popd`, subshells, and `git -C`, starting at the payload's `cwd`. A
-  destructive verb whose checkout cannot be resolved is refused; without jq any
-  destructive verb is refused. Out of scope: `--git-dir`/`--work-tree`,
-  `GIT_DIR=`, `sh -c`/`eval`/`xargs`, other discarding verbs, and an operator
-  checkout that is itself a linked worktree. Journals `denied`.
-- **Compaction recovery** (`on-compaction.sh`, `SessionStart` matcher
-  `compact`): automatic reground + inject, as above, only where a board exists.

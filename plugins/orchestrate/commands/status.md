@@ -1,13 +1,13 @@
 ---
 description: "Operator status update: glanceable, zoomed-out to detail, surfaces only what needs you."
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh rules status-page-rules)
+allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" rules status-page-rules)
 ---
 
 # Orchestrate status
 
 Give the **operator** a re-entry status update for the current orchestrate run, read **only
 from durable disk state** so it survives a context switch or compaction. Do not rely on
-conversation memory. This is a **read-only projection: write nothing** (no `STATUS.md`; the one exception is
+conversation memory. This is a **read-only projection: write nothing** (no `STATUS.md`; the exceptions are a progress page the operator accepted, below, and
 reground's own archive of 0.8.x run state, which it announces).
 
 Gather, keeping raw output OUT of your reply (glance, don't dump):
@@ -76,8 +76,8 @@ apply`. The one-shot nudge after `plugin update` is missable; this is the persis
 ## Progress page (optional; inline stays the default)
 
 The rules for offering, creating, refreshing and checking a run's progress page
-follow. If nothing appears below this line, read
+follow. If the text below says they could not be printed, read
 `references/status-page-rules.md` in the orchestrate skill's directory before
 touching a page.
 
-!`${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh rules status-page-rules`
+!`"${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" rules status-page-rules`

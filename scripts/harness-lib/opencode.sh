@@ -45,6 +45,7 @@ oc_agent_md() { # <persona> <dest.md>
 # OpenCode has no plugin root, so that path becomes the installed runtime's (third arg).
 oc_command() { # <src.md> <dest.md> [runtime_abs_path]
   local desc rt="${3:-}"; desc="$(yq --front-matter=extract '.description' "$1")"
+  rt="$(printf '%s' "$rt" | sed 's/[\\&#]/\\&/g')"          # literal in the sed replacement below
   { printf -- '---\ndescription: %s\n---\n' "$(yaml_q "$desc")"
     if [ -n "$rt" ]; then body "$1" | sed "s#\${CLAUDE_PLUGIN_ROOT}/bin/\\([a-z]*\\.sh\\)#$rt/\\1#g"; else body "$1"; fi; } > "$2"
 }

@@ -28,10 +28,15 @@
 # brief under test. replay-postcompact-score.py prints the second scorecard.
 # The budget covers all three turns (default 8 in this mode).
 #
-# Safety: each session runs on a `git archive` snapshot (tracked files only, no
-# remote) with a throwaway HOME, a scrubbed environment (no inherited cloud,
-# vault, or SSH credentials), and replay-guard.py refusing every dispatch,
-# every network/cloud/credential command, and every path outside the sandbox.
+# Safety: what keeps a replay harmless is that the session has nothing to misuse.
+# It runs on a `git archive` snapshot (tracked files only, no remote) with a
+# throwaway HOME and a scrubbed environment (no inherited cloud, vault, SSH or
+# git-remote credentials). On top of that, replay-guard.py refuses dispatches,
+# connected services and the web, the network/cloud/credential commands it
+# recognises, and the paths outside the sandbox it recognises. The guard is
+# best effort (it pattern-matches commands), never the boundary. The sandbox
+# HOME does carry the model account's login, which is why connected services
+# are refused by name.
 # The headless session has no human: a router that wants to ask can only
 # journal the ask and say it. That is the signal.
 #

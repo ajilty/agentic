@@ -14,7 +14,8 @@ operator.
 | `NEEDS_CONTEXT` | supply the named artifact, re-dispatch the same persona |
 | `BLOCKED(reason, backing)` | the backing table below |
 | `DECISION_FORK(payload)` | halt that lane, surface the payload |
-| `APPROVED` | land |
+| `APPROVED` (outcome) | land (`landing.md`) |
+| `APPROVED` (plan mode) | journal `goal` again with the signed spec, then dispatch implementers |
 | `REJECTED` (outcome) | implementer once (`ledger.sh retries <ticket>`) with the verdict file's path (`verdicts/<ticket>.<dispatch_id>.md`, or `round<N>.md` on an instructions lane), then the operator; the next verifier re-checks the fixes, not the whole change |
 | `REJECTED` (plan mode) | planner with the verdict and pin, then a plan-mode re-review; spends no implementer retry |
 | `INCONSISTENT_ORACLE` | the operator; never shape code to a bad test |

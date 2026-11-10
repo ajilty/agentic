@@ -115,7 +115,7 @@ hundreds of lines you read to reach them.
 
 If research turns up a genuine fork the spec can't settle (two viable
 architectures, an either/or credential model), report it as a `DECISION_FORK`
-candidate (SKILL "Routing") with the options and tradeoffs you found, and stop
+candidate (the router's routing reference) with the options and tradeoffs you found, and stop
 there. Surfacing the fork cleanly *is* the win; choosing is the human's call.
 
 ## Craft guidance (`research`)

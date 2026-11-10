@@ -80,7 +80,7 @@ with the one-line fix (`git remote set-head origin <base>`).
 ## What ships
 
 - **`commands/{init,status,feedback}.md`**: `/orchestrate:init` (the entry
-  point; the router brief is `skills/orchestrate/SKILL.md`), `/orchestrate:status`
+  point; it injects the router's core from `skills/orchestrate/SKILL.md`), `/orchestrate:status`
   (read-only board view), and `/orchestrate:feedback` (durable run review).
 - **`agents/{researcher,planner,implementer,verifier,actuator}.md`**: the five
   persona subagents, each with a tools allowlist, a model and effort tier, and,
@@ -88,12 +88,12 @@ with the one-line fix (`git remote set-head origin <base>`).
 - **`hooks/hooks.json`**: four hooks. The shared-checkout floor (PreToolUse on
   Bash), the progress-page check (PreToolUse on Artifact: a page that
   contradicts the run's journal is not published), and two after a compaction
-  (SessionStart, matcher `compact`): the router's core instructions are put
-  back in context, then the board. Command paths
+  (SessionStart, matcher `compact`): one puts the router's core instructions
+  back in context, the other the board. Command paths
   are `${CLAUDE_PLUGIN_ROOT}`-relative, so they are machine-independent.
   **Generated.**
 - **`skills/orchestrate/`**: the harness-neutral source of truth: `SKILL.md`
-  (the router's short core, injected by the start command and re-attached after a compaction), `references/` (the detail each loop step reads on demand;  (`agents.yaml`, persona bodies,
+  (the router's short core, injected by the start command and re-attached after a compaction), `references/` (the detail each loop step needs, `agents.yaml`, persona bodies,
   `resume.md`), and `runtime/` (`ledger.sh`, `adr.sh`, and the two hook
   scripts). Sibling craft skills (`research`, `plan`, `build`, `verify`) are
   inlined into the researcher, planner, implementer, and verifier definitions

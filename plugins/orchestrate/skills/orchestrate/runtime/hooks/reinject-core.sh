@@ -20,8 +20,9 @@ case "$_gcd" in */.git) ;; *) exit 0 ;; esac
 core="$(bash "$RT/ledger.sh" core 2>/dev/null)" || exit 0
 [ -n "$core" ] || exit 0
 msg="ORCHESTRATE: your core instructions as router of this run, re-attached after the
-compaction. Follow them from loop step 1; they replace whatever the summary says the
-process is. References you read earlier are gone: read each again at its step.
+compaction. Follow them from loop step 1; they replace the summary's account of the
+process, never the operator's own instructions to you in this run. References you read
+earlier may be gone or cut short: read each again at its step.
 
 $core"
 if command -v jq >/dev/null 2>&1; then

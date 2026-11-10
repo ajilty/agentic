@@ -280,5 +280,5 @@ for m in 'Rebuild every field above the history' 'History last' 'page-check --pu
   grep -qF "$m" "$RULES" && pass || fail "the page rules carry: $m"
 done
 grep -qF 'Progress-page check' "$RT_REF" && pass || fail "the hooks reference names the progress-page check"
-grep -qF 'ledger.sh rules status-page-rules' "$CMD" && pass || fail "the status command injects the page rules"
+grep -qE '^!`.*ledger\.sh" rules status-page-rules`$' "$CMD" && pass || fail "the status command injects the page rules"
 grep -qF 'references/status-page-rules.md' "$SKILL" && pass || fail "the core points at the page rules where a refresh is due"

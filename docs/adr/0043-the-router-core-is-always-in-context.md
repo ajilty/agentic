@@ -29,13 +29,18 @@ nothing.
 ## Decision
 
 1. **A short core.** `SKILL.md` is the router's core: the trust model, the
-   loop, the journal rule and an index of references. It stays under 9,500
-   characters, a test holds the line, and the detail each step needs moves to
-   `references/`, named at the step with the condition for reading it.
+   loop with the rules every dispatch, sizing, landing and production change
+   must obey, the journal rule and pointers to references. Its printed form
+   (`ledger.sh core`) stays under 9,500 characters and a test holds the line.
+   The detail each step needs moves to `references/`, named at the step with
+   the condition for reading it. Most text moved unchanged; the trust table
+   became prose and the routing table gained a row for an approved plan.
 2. **One printer.** `ledger.sh core` prints that core and the absolute path of
-   the references. Every delivery path calls it.
-3. **Delivered three ways.** The start command injects it before the model
-   sees anything. A hook re-attaches it after every compaction. The skill
+   the references; `ledger.sh brief` adds the six references a run with a
+   writer needs. Every delivery path calls one of them.
+3. **Delivered three ways.** The start command injects the brief before the
+   model sees anything (a start has no size cap; a live check showed routers
+   do not open reference files unprompted). A hook re-attaches it after every compaction. The skill
    itself is now small enough to survive the harness's own re-attach whole.
 4. **Craft guides are compiled into the personas** at build time, from a
    mapping in the contract, so a persona holds its guide without anyone
@@ -60,6 +65,11 @@ nothing.
   The replay harness measures whether that happens.
 - The hook count is four (this adds the core re-attach).
 - Codex gets the short core as its skill but no injection and no hook.
+  OpenCode gets the injection but no re-attach: its compaction event has no
+  documented way to pass a script's output to the model.
+- A failed or blocked injection aborts the start command outright (the
+  harness's rule), so the printers behind it never fail on content and the
+  injected path is quoted.
 - Tests that pinned prose in `SKILL.md` now pin it in the reference that holds
   it; `test_core_brief.sh` pins what must stay in the core.
 

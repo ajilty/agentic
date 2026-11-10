@@ -31,10 +31,9 @@ returns, keep the board on disk, and bring the operator the calls that are
 theirs. Make no design calls; those belong in a persona. `/orchestrate:init`
 with a goal starts or adds work; with nothing, it resumes. 
 
-This file is the core, and it is all you hold after a compaction. The detail
-for a step lives in `references/`, named at the step that needs it; a reference
-read before a compaction is gone after it, so read it again at the step.
-`ledger.sh` and `adr.sh` are on your PATH: call them by name.
+This is the core: all you hold after a compaction. Each step names the
+`references/` file with its detail; one read before a compaction is gone
+after it, so read it again. `ledger.sh` and `adr.sh` are on your PATH.
 
 ## Trust model
 
@@ -100,7 +99,11 @@ Run these in order on every invocation:
    outside a lane's worktree (a plan or apply, a cluster, a database, CI, a
    branch two lanes push) and before any production change;
    `references/routing.md` to route a returned status or verdict and to
-   promote a researcher's findings. At T2, run `adr.sh reindex` before dispatching
+   promote a researcher's findings. One dispatch at a time on a shared
+   target. A production apply waits for the operator: journal `fork`
+   `prod-ack:<target>`, show the plan and ask, journal the `decision`, and
+   dispatch the apply only on approved. A `DECISION_FORK` halts only its own
+   lane; a `BLOCKED` with no backing goes to the operator. At T2, run `adr.sh reindex` before dispatching
    the planner, then dispatch a plan-mode verifier on the spec before any
    implementer and journal its verdict with `"mode":"plan"`. The pin, the
    rejected-plan round and the re-review are in `references/review-rounds.md`;
@@ -108,8 +111,8 @@ Run these in order on every invocation:
    verifiers: dispatch a verifier the moment its lane returns, in parallel
    with everything else; only a verifier whose check touches a shared target
    waits its turn. When a writer has
-   been out about 20 minutes, tell the operator in one plain sentence what it
-   has done so far, from its commits ahead of the base.
+   been out about 20 minutes, tell the operator in one sentence what it has
+   done, from its commits ahead of the base.
    **Never end a turn with a dispatch or a background command in flight and
    nothing scheduled to re-enter you.** Schedule your own re-entry (the
    mechanism is the harness's own; `references/agents.yaml` names it per
@@ -126,13 +129,16 @@ Run these in order on every invocation:
    stretches, and reground re-arms the schedule in a new session.
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. A change
    to instructions (a skill, a persona brief, a hook message, an agent
-   definition, operator preferences) takes three lens verifiers; a `REJECTED`
-   goes back to the implementer with the verdict file's path. The lens split,
+   definition, operator preferences) takes three lens verifiers. A `REJECTED`
+   goes back to the implementer once, with the verdict file's path
+   (`ledger.sh retries <ticket>`), then to the operator. The lens split,
    the merged round file and the next-round rules are in
    `references/review-rounds.md`; read it before the first verifier dispatch.
-7. **Land** as `references/landing.md` says, then `ledger.sh done <ticket>`. An instructions change never
-   auto-lands: on `APPROVED`, open a pull request (or hand it over) and bring
-   the operator every finding you did not fix, with a recommendation.
+7. **Land** on `APPROVED`, then `ledger.sh done <ticket>`. Push the lane's
+   branch and open a pull request, or hand the change over; integrate onto
+   the base yourself only when the operator asked for that in this run and
+   `references/landing.md` (read it first) allows it. Bring the operator
+   every finding you did not fix, with a recommendation.
 8. **Feedback.** When the goal closes or the session winds down, follow
    `/orchestrate:feedback` (its review shape and its `ledger.sh feedback` row).
    A rating you write yourself starts `router:`; quote the operator's own words
@@ -152,9 +158,7 @@ routine prod confirmations (`prod_acks`).
 
 ## References
 
-The loop names most references at the step that needs them. Also:
-`references/resume.md` before acting on a board you did not build this turn;
-`references/personas/<name>.md` before dispatching that persona;
-`references/runtime.md` when a fork resolves (decision records) or a hook
-refuses you; `references/agents.yaml` for capabilities, tiers and routing
-enums.
+Also: `references/resume.md` before acting on a board you did not build this
+turn; `references/personas/<name>.md` before dispatching that persona;
+`references/runtime.md` when a fork resolves or a hook refuses you;
+`references/agents.yaml` for capabilities, tiers and routing enums.

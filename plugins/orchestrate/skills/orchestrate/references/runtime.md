@@ -13,7 +13,7 @@ contradicting an `active` ADR raises a fork that ends in `adr.sh supersede`.
 
 ## Hooks
 
-Claude Code runs all four; OpenCode runs the two compaction hooks; Codex none.
+Claude Code runs all four. OpenCode is wired to run the two compaction scripts, but their output does not reach you there. Codex runs none.
 
 - **Shared-checkout floor** (every Bash command, every agent, you too): stops
   the canonical spellings of `reset --hard`, `clean -f`, `checkout -f`/`.`/`--`,

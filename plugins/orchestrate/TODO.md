@@ -85,7 +85,7 @@ Verifier), validated on its own construction.
 
 **Tier 1, zero-dep bash suite** (`tests/run.sh`, CI). Runtime logic (ledger
 append, goal, retries, metrics, feedback, conformance, reground, legacy 0.8.x
-boards); the two hooks (shared-checkout floor, compaction handoff, hook-safety
+boards); the hooks (shared-checkout floor, compaction handoff, hook-safety
 floor); generation and contract (allowlist, drift, hooks.json, manifest);
 reference integrity (`test_integrity.sh`); and installer smoke for Codex and
 OpenCode (`test_install.sh`: skill and persona definitions, no hook wiring).

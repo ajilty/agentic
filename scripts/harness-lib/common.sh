@@ -15,7 +15,9 @@ require_yq4() {
 }
 
 # Strip the persona file's frontmatter; the body is the role text every harness embeds.
-body() { awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$1"; }
+# Everything after the frontmatter. `f>=2`, not `f==2`: a `---` rule inside the body
+# is content, and stopping at it silently thinned whatever was compiled from the file.
+body() { awk 'f>=2{print} /^---[[:space:]]*$/{f++}' "$1"; }
 
 # Drop leading and trailing blank lines (one blank between sections, MD012).
 trim_blank() { awk '{l[NR]=$0} NF{if(!s)s=NR; e=NR} END{for(i=s;s&&i<=e;i++)print l[i]}'; }

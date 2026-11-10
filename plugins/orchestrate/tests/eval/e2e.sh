@@ -20,6 +20,10 @@
 # every arm. The held-out oracle is never copied into the sandbox and
 # HELDOUT_ROOT is not set: the session cannot see it.
 #
+# There is no command guard here, unlike replay.sh: the loop must really run.
+# The isolation above is the whole control, so point this only at a toy fixture,
+# never at a snapshot of a real project.
+#
 # The seed is a git repo with a local bare `origin` (the loop needs worktrees and
 # a base). The router's default landing is a hand-over, so the change may sit on
 # a lane branch: the oracle is run on the main checkout first, then on every

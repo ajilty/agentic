@@ -12,13 +12,13 @@ core="$(bash "$R" core)"; assert_eq "$?" 0 "ledger.sh core prints"
 n="$(printf '%s' "$core" | wc -c | tr -d ' ')"
 [ "$n" -le 9500 ] && pass || fail "core is $n characters; the post-compaction hook can carry 9,500"
 w="$(wc -c < "$SD/SKILL.md" | tr -d ' ')"
-[ "$w" -le 16000 ] && pass || fail "SKILL.md is $w characters; a compaction re-attaches only its first 5,000 tokens"
+[ "$w" -le 15000 ] && pass || fail "SKILL.md is $w characters; a compaction re-attaches only its first 5,000 tokens"
 
 # 2) Content: no frontmatter, the whole loop, the journal rule, the helper-on-PATH line,
 #    and the absolute path the references are read from.
 case "$core" in "---"*) fail "core carries frontmatter";; *) pass;; esac
 for m in '1. **Reground.**' '2. **Intake and goal.**' '3. **Clarify' '4. **Right-size.**' '5. **Drive lanes.**' '6. **Verify**' '7. **Land**' '8. **Feedback.**' \
-         'Never end a turn with a dispatch' 'Journal only canonical events' 'fresh `dispatch_id`' 'T2: the full chain' 'orchestrate:complete' 'are on your PATH' 'again after a compaction' "$SD/references/"; do
+         'Never end a turn with a dispatch' 'Journal only canonical events' 'fresh `dispatch_id`' 'T2: the full chain' 'orchestrate:complete' 'open a pull request' 'implementer once' 'prod-ack:<target>' 'One dispatch at a time on a shared' 'halts only its own' 'are on your PATH' 'again after a compaction' "$SD/references/"; do
   case "$core" in *"$m"*) pass;; *) fail "core carries: $m";; esac
 done
 
@@ -34,11 +34,11 @@ grep -q 'Point at the craft' "$SD/references/dispatching.md" && fail "dispatchin
 
 # 4) Delivery one: the start command injects the core and pre-approves exactly that command.
 I="$SK/commands/init.md"
-grep -qF '!`${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh brief`' "$I" && pass || fail "init.md injects the brief (core plus every-run references)"
-grep -qF 'allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh brief)' "$I" && pass || fail "init.md pre-approves the injected command"
-assert_eq "$(awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$I" | grep -c 'ledger.sh brief')" 1 "the injection survives the installers' frontmatter split (no --- rule in the body)"
+grep -qF '!`"${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" brief`' "$I" && pass || fail "init.md injects the brief (core plus every-run references)"
+grep -qF 'allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" brief)' "$I" && pass || fail "init.md pre-approves the injected command"
+assert_eq "$(awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$I" | grep -c 'ledger.sh" brief')" 1 "the injection survives the installers' frontmatter split (no --- rule in the body)"
 br="$(bash "$SK/bin/ledger.sh" brief)"; assert_eq "$?" 0 "the bin shim the command calls prints the brief"
-for m in '5. **Drive lanes.**' '# Right-sizing and context economy' '# Dispatching' '# Routing and quarantine' '| **T0** |' 'DECISION_FORK:'; do
+for m in '5. **Drive lanes.**' '# Right-sizing and context economy' '# Dispatching' '# Routing and quarantine' '| **T0** |' 'DECISION_FORK:' '# Review rounds' '# Shared targets and production changes' '# Worktrees and landing'; do
   case "$br" in *"$m"*) pass;; *) fail "the brief carries: $m";; esac
 done
 
@@ -60,4 +60,28 @@ grep -q 're-invoke the orchestrate skill' "$SD/runtime/hooks/on-compaction.sh" &
 # 6) rules: prints a reference by bare name, refuses a path.
 bash "$R" rules status-page-rules | grep -q 'Progress page' && pass || fail "ledger.sh rules prints a reference"
 bash "$R" rules ../SKILL >/dev/null 2>&1; assert_eq "$?" 2 "ledger.sh rules refuses a path"
-bash "$R" rules nope >/dev/null 2>&1; assert_eq "$?" 2 "ledger.sh rules fails on an unknown name"
+
+# 7) Injected text can never abort the command: a plugin root with a space in it works,
+#    and a broken install prints one line and exits 0 (a failed injection would abort the
+#    whole command before the model saw anything).
+sp="$(mktemp -d)/my plugins/orchestrate"; mkdir -p "$sp"; cp -RL "$SK/bin" "$SK/skills" "$sp/" 2>/dev/null
+o="$(CLAUDE_PLUGIN_ROOT="$sp" bash -c "$(grep -o '"${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" brief' "$I" | head -1)")"; assert_eq "$?" 0 "the injected command line runs from a plugin root with a space in it"
+case "$o" in *"5. **Drive lanes.**"*) pass;; *) fail "and prints the brief from there";; esac
+o="$(CLAUDE_PLUGIN_ROOT="$sp" bash -c "$(grep -o '"${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" rules status-page-rules' "$SK/commands/status.md" | head -1)")"; assert_eq "$?" 0 "the status command's injected line runs from a spaced path too"
+mv "$sp/skills/orchestrate/SKILL.md" "$sp/skills/orchestrate/SKILL.md.gone"
+o="$(bash "$sp/bin/ledger.sh" brief)"; assert_eq "$?" 0 "a missing core does not fail the injected command"
+case "$o" in *"could not be printed"*"Load the orchestrate skill"*) pass;; *) fail "it says what to do instead ($o)";; esac
+bash "$sp/bin/ledger.sh" core >/dev/null 2>&1; assert_eq "$?" 2 "core itself still fails loudly (the hook then prints nothing)"
+o="$(bash "$R" rules no-such-reference)"; assert_eq "$?" 0 "a missing reference does not fail an injected rules line"
+bash "$R" rules -x >/dev/null 2>&1; assert_eq "$?" 2 "a leading dash is misuse"
+printf 'no frontmatter here\n' > "$sp/skills/orchestrate/SKILL.md"
+bash "$sp/bin/ledger.sh" core >/dev/null 2>&1; assert_eq "$?" 2 "a SKILL.md with no frontmatter prints no half-core"
+
+# 8) Each command's pre-approval is exactly the command it injects, and the injection is
+#    its own line (the allowed-tools line alone must not satisfy these).
+for f in "$SK/commands/init.md" "$SK/commands/status.md"; do
+  inj="$(grep -E '^!`.*`$' "$f" | sed 's/^!`//; s/`$//')"
+  alw="$(sed -n 's/^allowed-tools: Bash(\(.*\))$/\1/p' "$f")"
+  [ -n "$inj" ] && pass || fail "$(basename "$f") has an injection line"
+  assert_eq "$alw" "$inj" "$(basename "$f") pre-approves exactly what it injects"
+done

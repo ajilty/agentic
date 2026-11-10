@@ -296,8 +296,9 @@ a `decision` event (`fork_id` `prod-ack:<target>`, `note` "approved: ..." or
   `/orchestrate:init`; step 1 of the loop is reground and reconcile, then continue.
 - **Compaction**: automatic. The `SessionStart` hook with matcher `compact`
   (`runtime/hooks/on-compaction.sh`) runs `ledger.sh reground` and injects the
-  reconstructed board as authoritative state, telling the router to re-invoke
-  the skill (compaction re-injects invoked skills truncated). It hands back the
+  reconstructed board as authoritative state, while `reinject-core.sh` prints
+  the router's core instructions back (compaction re-attaches invoked skills
+  truncated, or not at all). It hands back the
   state itself, not a pointer to go re-read the ledger.
 
 ## 10. Hook philosophy
@@ -350,16 +351,19 @@ persona *bodies* (portable) are decoupled from the sub-agent *definitions*
 
 The layering:
 
-- `skills/orchestrate/SKILL.md`: the router brief. The loop, dispatching,
-  shared-target steps, routing, quarantine, landing, and the ledger.
-  Harness-neutral; about 360 lines, with depth pushed into `references/`.
+- `skills/orchestrate/SKILL.md`: the router's core. The trust model, the
+  loop with the every-dispatch and sizing essentials, and the ledger rule;
+  its printed form stays under 9,500 characters (ADR-0043). Harness-neutral.
+- `references/{sizing,dispatching,routing,review-rounds,shared-targets,landing,runtime,status-page-rules}.md`:
+  the detail each loop step needs, injected at the start and read again on
+  demand.
 - `references/personas/*.md`: role bodies. Harness-neutral.
 - `references/agents.yaml`: the one machine-readable contract (capabilities,
-  tiers, routing enums, the three hooks, conventions, resume and trust policy).
+  tiers, routing enums, the four hooks, conventions, resume and trust policy).
 - `references/resume.md`: the ledger vocabulary and the durability algorithm.
 - `scripts/build.sh` and `scripts/install-*.sh`: the emitters, built on the
   repo-level `scripts/harness-lib/`.
-- `skills/orchestrate/runtime/`: `ledger.sh`, `adr.sh`, and the two hook
+- `skills/orchestrate/runtime/`: `ledger.sh`, `adr.sh`, and the four hook
   scripts. Pure git and coreutils; no harness dependency.
 
 The test of this architecture: you can read `SKILL.md` end to end and never learn
@@ -374,7 +378,7 @@ plugins/orchestrate/
 ├── DESIGN.md                      This document
 ├── README.md · CONTEXT.md · KNOWN-LIMITATIONS.md · TODO.md
 ├── agents/*.md                    Generated: the five persona agents
-├── hooks/hooks.json               Generated: the three hooks
+├── hooks/hooks.json               Generated: the four hooks
 ├── bin/{ledger.sh,adr.sh}         PATH shims to the runtime
 ├── commands/{init,status,feedback}.md
 ├── scripts/
@@ -383,7 +387,7 @@ plugins/orchestrate/
 │   └── install-opencode.sh        Skill + agents + commands + PATH/compaction plugin
 ├── skills/
 │   ├── orchestrate/
-│   │   ├── SKILL.md               The router brief
+│   │   ├── SKILL.md               The router's core
 │   │   ├── references/
 │   │   │   ├── agents.yaml        The contract
 │   │   │   ├── resume.md          Ledger vocabulary, reground, resume paths

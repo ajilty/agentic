@@ -114,6 +114,6 @@ isn't in the spec isn't your instruction.
 - `DECISION_FORK(payload)`: you've hit an irreducible architectural or
   credential call that isn't yours to make from the spec. Don't guess and don't
   thrash: emit the structured fork (options + what each commits to) and halt
-  this lane. See SKILL "Routing".
+  this lane. See the router's routing reference.
 
 You get **one** retry after a `REJECTED` verdict, then it escalates. No loops.

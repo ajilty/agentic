@@ -71,7 +71,13 @@ assert_eq "$(grep -c '"matcher"' "$SK/hooks/hooks.json")" 3 "hooks.json has exac
 if grep -q '"matcher": "Bash"' "$SK/hooks/hooks.json" && grep -q '"matcher": "Artifact"' "$SK/hooks/hooks.json" && grep -q '"matcher": "compact"' "$SK/hooks/hooks.json"; then pass; else fail "hooks.json matchers are Bash, Artifact and compact"; fi
 assert_eq "$(grep -c '"PreToolUse"' "$SK/hooks/hooks.json")" 1 "both PreToolUse groups share one event key (a duplicate key would drop one)"
 assert_eq "$(grep -c 'hooks/.*\.sh' "$SK/hooks/hooks.json")" 4 "hooks.json wires four hook scripts"
-if awk '/reinject-core.sh/{a=NR} /on-compaction.sh/{b=NR} END{exit !(a&&b&&a<b)}' "$SK/hooks/hooks.json"; then pass; else fail "the compact group runs the core re-attach and the reground, core first"; fi
+if grep -q 'reinject-core.sh' "$SK/hooks/hooks.json" && grep -q 'on-compaction.sh' "$SK/hooks/hooks.json"; then pass; else fail "the compact group wires both the core re-attach and the reground (they run in parallel; order means nothing)"; fi
+# A --- rule inside a compiled source must not end it (it silently thinned a persona).
+if have_yq4; then
+  ( LIBD2="$(cd "$SK/../.." && pwd)/scripts/harness-lib"; tb="$(mktemp -d)"; printf -- '---\nname: x\n---\nabove the rule\n\n---\n\nbelow the rule\n' > "$tb/x.md"
+    AGENTS="$SK/skills/orchestrate/references/agents.yaml"; SKILL_DIR="$SK/skills/orchestrate"; . "$LIBD2/common.sh"
+    body "$tb/x.md" | grep -q 'below the rule' ) && pass || fail "body() keeps what follows a --- rule inside the body"
+fi
 
 # --- Native worktree isolation: the implementer is dispatched into its own worktree.
 if grep -q '^isolation: worktree' "$SK/agents/implementer.md"; then pass; else fail "implementer.md carries isolation: worktree"; fi
@@ -148,7 +154,7 @@ implementer|build
 verifier|verify
 actuator|'
 craft_want(){ printf '%s\n' "$CRAFT_ROWS" | awk -F'|' -v p="$1" '$1 == p { print $2 }'; }
-fm_body(){ awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$1"; }   # a markdown file minus frontmatter
+fm_body(){ awk 'f>=2{print} /^---[[:space:]]*$/{f++}' "$1"; }   # a markdown file minus frontmatter (a --- rule in the body is content)
 for p in researcher planner implementer verifier actuator; do
   c="$(craft_want "$p")"; a="$SK/agents/$p.md"
   if [ -z "$c" ]; then

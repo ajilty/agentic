@@ -3,8 +3,13 @@
 
 A replay asks one question: what does the router do with an ask before any
 work starts? So nothing may run: every dispatch is recorded and refused, and
-the session is confined to its sandbox. The source repo is a real project; its
-snapshot must never reach the real thing.
+the session is steered back into its sandbox. The source repo is a real
+project; its snapshot must never reach the real thing.
+
+This guard is best effort, not a boundary. It pattern-matches commands, and a
+shell has more spellings than a pattern has cases. What actually keeps a replay
+harmless is set up by replay.sh: a scrubbed environment and a throwaway HOME, so
+the session holds no cloud, vault, SSH or git-remote credential to misuse.
 
 Env: REPLAY_LOG (jsonl log), REPLAY_ROOTS (colon-separated allowed path roots).
 """
@@ -56,10 +61,12 @@ if tool == "Bash":
     # what a nested `sh -c '...'` would run.
     bare = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?.*?\n\s*\1\b", " ", cmd, flags=re.S)
     nested = [m[1] for m in re.findall(r"(?:ba)?sh\s+-c\s+(['\"])(.*?)\1", bare, flags=re.S)]
+    # A quoted bare word is still that word to the shell ("curl" runs curl).
+    bare = re.sub(r"(['\"])([\w./-]+)\1", r"\2", bare)
     bare = re.sub(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", " Q ", bare)
     for part in [bare] + nested:
         if re.search(risky, part) or re.search(
-                r"\bgit\s+(push|fetch|pull|clone|ls-remote|submodule|remote\s+(add|set-url|update))\b", part):
+                r"\bgit\s+(?:-\S+\s+(?:[^-\s]\S*\s+)?)*(push|fetch|pull|clone|ls-remote|submodule|remote\s+(add|set-url|update))\b", part):
             deny("Replay harness: this sandbox has no network, cloud, or credential access.")
     # Absolute paths outside the sandbox (the operator's real home above all).
     for p in re.findall(r"(?<![\w.-])(/(?:var/home|home|root|etc|mnt|media|run/user)[^\s'\";|&)]*|~[^\s'\";|&)]*)", cmd):
@@ -71,4 +78,8 @@ for key in ("file_path", "path", "notebook_path"):
     p = inp.get(key)
     if p and not inside(p):
         deny("Replay harness: paths outside the sandbox are off limits.")
+# A Glob pattern may itself be absolute; judge the part before its first wildcard.
+pat = str(inp.get("pattern", "")) if tool == "Glob" else ""
+if pat[:1] in ("/", "~") and not inside(re.split(r"[*?\[{]", pat)[0].rstrip("/") or "/"):
+    deny("Replay harness: paths outside the sandbox are off limits.")
 log("allow")

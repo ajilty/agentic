@@ -144,7 +144,7 @@ inherits the judgment instead of re-deriving it.
 If planning surfaces an irreducible architectural or credential fork (competing
 designs with no dominant option, a choice that forecloses a future path), do
 **not** pick one to keep moving and do **not** bury it in a `#DECISION`. Emit
-`DECISION_FORK` (SKILL "Routing") with the options, what each commits to, and
+`DECISION_FORK` (the router's routing reference) with the options, what each commits to, and
 the one you recommend and why (say when it is close), and let the human own
 it. A spec that quietly resolves a real fork is worse
 than one that halts on it: it launders a judgment call into a fact.

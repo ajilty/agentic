@@ -78,6 +78,14 @@ grep -q 'hooks/on-compaction.sh' "$o/plugins/orchestrate.ts" && pass || fail "op
 ! grep -q 'tool.execute.before' "$o/plugins/orchestrate.ts" && pass || fail "opencode plugin has no tool.execute.before floor"
 grep -q "$SKD/runtime" "$o/plugins/orchestrate.ts" && pass || fail "opencode plugin points at the skill's runtime (single copy)"
 for c in init status feedback; do assert_file "$o/commands/orchestrate-$c.md"; done
+# the injected printer must point at the installed runtime: Claude Code's plugin-root
+# variable means nothing to OpenCode, and a failed injection aborts the command
+for c in init status; do
+  f="$o/commands/orchestrate-$c.md"
+  grep -q 'CLAUDE_PLUGIN_ROOT' "$f" && fail "opencode $c command still names CLAUDE_PLUGIN_ROOT" || pass
+  l="$(grep -oE '/[^"`]*runtime/ledger\.sh' "$f" | head -1)"
+  [ -n "$l" ] && [ -x "$l" ] && pass || fail "opencode $c command injects from an installed, executable ledger.sh (got: $l)"
+done
 grep -q -- '--models=' "$o/commands/orchestrate-init.md" && fail "opencode init command still carries the dropped --models flag (ADR-0040)" || pass
 # command descriptions are parsed from the commands/*.md source frontmatter, never restated
 for c in init status feedback; do
