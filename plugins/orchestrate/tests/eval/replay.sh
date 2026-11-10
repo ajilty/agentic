@@ -18,6 +18,16 @@
 # (per session, default 4), REPLAY_ALLOW_AGENTS (comma-separated read-only
 # personas that may really run; every other dispatch is recorded and refused).
 #
+# Post-compaction mode, REPLAY_POSTCOMPACT=1: does the router still hold and
+# follow its instructions after a compaction? One process runs three turns
+# (replay-turns.py): the start command with the ask (as above), then `/compact`,
+# then the line in the optional <case>/after.md (default below). Per-turn output:
+# result.json + guard.jsonl (turn 1, so the scorecard line still means "before
+# any work"), compact.result.json + guard.compact.jsonl, turn2.result.json +
+# guard.turn2.jsonl + board.turn2.jsonl + turn2.say.md; skill.md is the router
+# brief under test. replay-postcompact-score.py prints the second scorecard.
+# The budget covers all three turns (default 8 in this mode).
+#
 # Safety: each session runs on a `git archive` snapshot (tracked files only, no
 # remote) with a throwaway HOME, a scrubbed environment (no inherited cloud,
 # vault, or SSH credentials), and replay-guard.py refusing every dispatch,
@@ -40,7 +50,9 @@ int_space_ok   || { echo "(skip replay: low tmp space)"; exit 0; }
 
 MODEL="${REPLAY_MODEL:-opus}"; EFFORT="${REPLAY_EFFORT:-low}"; K="${REPLAY_K:-1}"
 PDIR="$(cd "${REPLAY_PLUGIN_DIR:-$PLUGIN_DIR}" && pwd)"; JOBS="${REPLAY_JOBS:-4}"
-BUDGET="${REPLAY_BUDGET_USD:-4}"; GUARD="$HERE/replay-guard.py"
+PC="${REPLAY_POSTCOMPACT:-}"; [ "$PC" = 0 ] && PC=""
+AFTER_DEFAULT="Continue. What is the state of this run and what is your next step?"
+BUDGET="${REPLAY_BUDGET_USD:-$([ -n "$PC" ] && echo 8 || echo 4)}"; GUARD="$HERE/replay-guard.py"
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 [ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
 
@@ -68,15 +80,36 @@ run_one(){ # <case> <k>
 JSON
   # The snapshot may carry the source repo's own tracked board; score only what this run adds.
   { wc -l < "$repo/.agents/runs/orchestrate/board.jsonl" 2>/dev/null || echo 0; } | tr -d ' ' > "$o/board.base"
-  { printf '/orchestrate:init '; cat "$cd_/ask.md"; } | ( cd "$repo" && env -i \
+  local board="$repo/.agents/runs/orchestrate/board.jsonl"
+  local cargs=(-p --model "$MODEL" --effort "$EFFORT" --plugin-dir "$PDIR" --settings "$o/settings.json"
+               --max-budget-usd "$BUDGET" --allowedTools "Read,Grep,Glob,Write,Edit,Bash,Agent,Task,Skill")
+  # /usr/bin/env, not `env`: an interactive caller's shell may define an `env` function.
+  session(){ ( cd "$repo" && /usr/bin/env -i \
       HOME="$home" PATH="$CLEAN_PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" TMPDIR="${TMPDIR:-/tmp}" \
       ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
       ${ANTHROPIC_DEFAULT_OPUS_MODEL:+ANTHROPIC_DEFAULT_OPUS_MODEL="$ANTHROPIC_DEFAULT_OPUS_MODEL"} \
       REPLAY_ALLOW_AGENTS="${REPLAY_ALLOW_AGENTS:-}" REPLAY_LOG="$o/guard.jsonl" REPLAY_ROOTS="$repo:$home:$PDIR:$_INT_RUN_DIR" \
-      timeout 900 claude -p --model "$MODEL" --effort "$EFFORT" --plugin-dir "$PDIR" \
-        --settings "$o/settings.json" --output-format json --max-budget-usd "$BUDGET" \
-        --allowedTools "Read,Grep,Glob,Write,Edit,Bash,Agent,Task,Skill" ) > "$o/result.json" 2> "$o/stderr.txt"
-  tail -n +"$(( $(cat "$o/board.base") + 1 ))" "$repo/.agents/runs/orchestrate/board.jsonl" > "$o/board.jsonl" 2>/dev/null
+      "$@" ); }
+  { printf '/orchestrate:init '; cat "$cd_/ask.md"; } > "$o/turn1.md"
+  if [ -z "$PC" ]; then
+    session timeout 900 claude "${cargs[@]}" --output-format json < "$o/turn1.md" > "$o/result.json" 2> "$o/stderr.txt"
+  else
+    printf '/compact\n' > "$o/compact.md"
+    if [ -f "$cd_/after.md" ]; then cp "$cd_/after.md" "$o/after.md"; else printf '%s\n' "$AFTER_DEFAULT" > "$o/after.md"; fi
+    cp "$PDIR/skills/orchestrate/SKILL.md" "$o/skill.md" 2>/dev/null
+    session timeout 2700 python3 "$HERE/replay-turns.py" --split "$o/guard.jsonl" --lines "$board" \
+        "$o/turn" "$o/turn1.md" "$o/compact.md" "$o/after.md" -- claude "${cargs[@]}" > /dev/null 2> "$o/stderr.txt"
+    mv "$o/turn.1.json" "$o/result.json" 2>/dev/null; mv "$o/turn.2.json" "$o/compact.result.json" 2>/dev/null
+    mv "$o/turn.3.json" "$o/turn2.result.json" 2>/dev/null
+    mv "$o/guard.jsonl.turn1" "$o/guard.jsonl" 2>/dev/null; mv "$o/guard.jsonl.turn2" "$o/guard.compact.jsonl" 2>/dev/null
+    mv "$o/guard.jsonl.turn3" "$o/guard.turn2.jsonl" 2>/dev/null
+    # Rows journaled after the compaction (turn 2 only).
+    local after_compact
+    after_compact="$(python3 -c 'import json,sys;print(list(json.load(open(sys.argv[1]))["_lines"].values())[0])' "$o/compact.result.json" 2>/dev/null || echo 0)"
+    tail -n +"$(( after_compact + 1 ))" "$board" > "$o/board.turn2.jsonl" 2>/dev/null
+    python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("result",""))' "$o/turn2.result.json" > "$o/turn2.say.md" 2>/dev/null
+  fi
+  tail -n +"$(( $(cat "$o/board.base") + 1 ))" "$board" > "$o/board.jsonl" 2>/dev/null
   cat "$home"/.claude/projects/*/*.jsonl > "$o/transcript.jsonl" 2>/dev/null
   # Everything the session changed since the snapshot, committed or not.
   ( cd "$repo" && { git diff --name-only "$(git rev-list --max-parents=0 HEAD | tail -1)" 2>/dev/null
@@ -105,3 +138,7 @@ done; done; wait
 # marks in the closing message; then the cost of getting this far.
 printf '%-24s %-7s %-15s %-4s %-4s %-9s %-4s %-5s %-4s %-5s %-5s %s\n' case kind outcome tier read verdict rows edits asks turns secs cost
 for o in "$OUT"/*/; do python3 "$HERE/replay-score.py" "$o"; done | tee "$OUT/scorecard.txt"
+[ -n "$PC" ] && { echo; python3 "$HERE/replay-postcompact-score.py" --header
+  for o in "$OUT"/*/; do [ -f "$o/compact.result.json" ] && python3 "$HERE/replay-postcompact-score.py" "$o"; done; } \
+  | tee "$OUT/scorecard-postcompact.txt"
+exit 0
