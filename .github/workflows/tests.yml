@@ -19,6 +19,12 @@ jobs:
       - run: uv tool install rumdl && rumdl --version
       - name: Run every plugin suite (plugins/*/tests/run.sh)
         run: bash scripts/check.sh plugin-tests
+  script-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run every scripts/*/test.sh (the replay harness guard)
+        run: bash scripts/check.sh script-tests
   validate-plugins:
     runs-on: ubuntu-latest
     steps:

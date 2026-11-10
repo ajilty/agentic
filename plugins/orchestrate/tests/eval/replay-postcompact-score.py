@@ -158,7 +158,7 @@ def score(o):
               (n in ("Write", "Edit") and str(i.get("file_path", "")).endswith("board.jsonl")) or
               (n == "Bash" and "board.jsonl" in str(i.get("command", "")) and "ledger.sh" not in str(i.get("command", ""))
                and re.search(r">>?\s*\S*board\.jsonl", str(i.get("command", "")))))
-    rows2 = len(jl(o + "/board.turn2.jsonl"))
+    rows2 = len(jl(o + "/journal.turn2.jsonl"))
     disp2 = sum(1 for g in jl(o + "/guard.turn2.jsonl") if g.get("tool") in ("Agent", "Task") and g.get("decision") == "deny")
 
     r1, rc, r2 = jload(o + "/result.json"), jload(o + "/compact.result.json"), jload(o + "/turn2.result.json")

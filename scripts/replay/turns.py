@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Drive several turns through ONE headless `claude` process (tests/eval/replay.sh).
+"""Drive several turns through ONE headless `claude` process (scripts/replay/replay.sh).
 
-    replay-turns.py [--split FILE] [--lines FILE ...] <out-prefix> <turn-file> ... -- <claude argv>
+    turns.py [--split FILE] [--lines FILE ...] <out-prefix> <turn-file> ... -- <claude argv>
 
 Runs the claude argv with stream-json input and output, sends each turn file's
 text as one user message, waits for that turn's `result` event before sending
@@ -12,7 +12,7 @@ the ones the compacting process itself saw invoked. Probed on 2.1.322: `/compact
 sent in the same process wrote an `invoked_skills` attachment carrying the first
 ~5,000 tokens of the skill; the same `/compact` sent from a separate `--resume`
 process wrote none. Forcing the compaction on a resumed run would measure the
-harness, not the router.
+harness, not the plugin.
 
 Writes <out-prefix>.stream.jsonl (every event) and <out-prefix>.<n>.json (turn
 n's result event, from 1, plus `_lines`: line counts of each --lines FILE when

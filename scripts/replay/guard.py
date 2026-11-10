@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""PreToolUse guard for tests/eval/replay.sh.
+"""PreToolUse guard for scripts/replay/replay.sh.
 
-A replay asks one question: what does the router do with an ask before any
-work starts? So nothing may run: every dispatch is recorded and refused, and
-the session is steered back into its sandbox. The source repo is a real
-project; its snapshot must never reach the real thing.
+A replay asks what a session does with an ask, not what its subagents or the
+outside world do with it. So every dispatch is recorded and refused, and the
+session is steered back into its sandbox. The source repo is a real project;
+its snapshot must never reach the real thing.
 
-This guard is best effort, not a boundary (it fails closed: its own errors exit 2, and replay.sh sets the hook to block
-on a timeout or a failure to start). It pattern-matches commands, and a
-shell has more spellings than a pattern has cases. What actually keeps a replay
-harmless is set up by replay.sh: a scrubbed environment and a throwaway HOME, so
-the session holds no cloud, vault, SSH or git-remote credential to misuse.
+This guard is best effort, not a boundary (it fails closed: its own errors exit
+2, and replay.sh sets the hook to block on a timeout or a failure to start). It
+pattern-matches commands, and a shell has more spellings than a pattern has
+cases. What actually keeps a replay harmless is set up by replay.sh: a scrubbed
+environment and a throwaway HOME, so the session holds no cloud, vault, SSH or
+git-remote credential to misuse.
 
 Env: REPLAY_LOG (jsonl log), REPLAY_ROOTS (colon-separated allowed path roots).
 """
@@ -41,11 +42,11 @@ def inside(p):
     p = os.path.realpath(os.path.join(ev.get("cwd", "."), os.path.expanduser(p)))
     return any(p == r or p.startswith(r + os.sep) for r in roots)
 
-# REPLAY_ALLOW_AGENTS names read-only personas that may really run (an intake
-# assessor, say); their own tool calls come back through this guard.
+# REPLAY_ALLOW_AGENTS names read-only subagents that may really run (matched on
+# the name after any plugin prefix); their own tool calls come back through this guard.
 allowed = [a for a in os.environ.get("REPLAY_ALLOW_AGENTS", "").split(",") if a]
 if tool in ("Agent", "Task") and str(inp.get("subagent_type", "")).split(":")[-1] in allowed:
-    log("allow", "allowed persona"); sys.exit(0)
+    log("allow", "allowed subagent"); sys.exit(0)
 if tool in ("Agent", "Task"):
     deny("Replay harness: dispatches are recorded, not run. End your turn now.")
 

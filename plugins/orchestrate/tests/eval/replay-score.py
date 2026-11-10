@@ -13,7 +13,7 @@ def jl(p):
     except Exception: pass
     return out
 
-rows, guard = jl(o + "/board.jsonl"), jl(o + "/guard.jsonl")
+rows, guard = jl(o + "/journal.jsonl"), jl(o + "/guard.jsonl")
 ev = [r.get("event") for r in rows]
 ci = ev.index("clarify") if "clarify" in ev else None
 di = ev.index("dispatched") if "dispatched" in ev else None

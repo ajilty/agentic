@@ -3,7 +3,7 @@
 # per section, so there is one source of truth).
 #
 #   scripts/check.sh                  # every section
-#   scripts/check.sh <section>...     # plugin-tests | validate-plugins |
+#   scripts/check.sh <section>...     # plugin-tests | script-tests | validate-plugins |
 #                                     # review-workflow-guards | library-wiring
 #
 # Locally, a missing tool (yq, rumdl, claude) is reported as SKIPPED: its section
@@ -55,6 +55,17 @@ plugin_tests() {
   if [ "$found" -eq 0 ]; then echo "no plugin suites found"; failed+=("plugin-tests: no suites"); fi
 }
 
+# Tooling under scripts/ that carries its own test.sh (the replay harness).
+script_tests() {
+  local t
+  for t in scripts/*/test.sh; do
+    [ -f "$t" ] || continue
+    group "$t"
+    bash "$t" || failed+=("script-tests: $t")
+    endgroup
+  done
+}
+
 validate_plugins() {
   need validate-plugins "claude CLI" have claude || return 0
   echo "claude $(claude --version 2>/dev/null) (CI uses the latest release)"
@@ -99,10 +110,11 @@ library_wiring() {
 }
 
 sections=("$@")
-[ ${#sections[@]} -gt 0 ] || sections=(plugin-tests validate-plugins review-workflow-guards library-wiring)
+[ ${#sections[@]} -gt 0 ] || sections=(plugin-tests script-tests validate-plugins review-workflow-guards library-wiring)
 for s in "${sections[@]}"; do
   case "$s" in
     plugin-tests) plugin_tests ;;
+    script-tests) script_tests ;;
     validate-plugins) validate_plugins ;;
     review-workflow-guards) review_workflow_guards ;;
     library-wiring) library_wiring ;;
