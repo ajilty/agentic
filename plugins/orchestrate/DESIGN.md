@@ -487,7 +487,8 @@ shared-target and production-change prose in §9. Backlog: `TODO.md`.
 
 0.9.0 removed the workflow-enforcing hooks, the leases, the active-writer
 record, the worktree helper, the Codex and OpenCode hook wiring, and the
-`--models` flag, and kept the two hooks in §10 and the ledger. The decision, the
+`--models` flag, and kept the two hooks §10 held then and the ledger (0.9.6 and 0.9.7 added
+a third and a fourth). The decision, the
 evidence from field boards and run reviews, and the list of superseded ADRs are
 in `docs/adr/0040-gates-become-guidance.md`; the design is
 `docs/specs/2026-11-06-orchestrate-gates-to-guidance-design.md`.

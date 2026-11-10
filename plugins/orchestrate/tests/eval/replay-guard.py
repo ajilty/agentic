@@ -6,7 +6,8 @@ work starts? So nothing may run: every dispatch is recorded and refused, and
 the session is steered back into its sandbox. The source repo is a real
 project; its snapshot must never reach the real thing.
 
-This guard is best effort, not a boundary (it does fail closed on its own errors). It pattern-matches commands, and a
+This guard is best effort, not a boundary (it fails closed: its own errors exit 2, and replay.sh sets the hook to block
+on a timeout or a failure to start). It pattern-matches commands, and a
 shell has more spellings than a pattern has cases. What actually keeps a replay
 harmless is set up by replay.sh: a scrubbed environment and a throwaway HOME, so
 the session holds no cloud, vault, SSH or git-remote credential to misuse.

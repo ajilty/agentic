@@ -49,13 +49,12 @@ o="$(cd "$nb" && bash "$H" 2>&1)"; assert_eq "$o" "" "no board: the hook prints 
 wb="$(mktemp_repo)"; ( cd "$wb" && git commit -qm init --allow-empty && bash "$R" goal "g" >/dev/null 2>&1 )
 o="$(cd "$wb" && bash "$H" 2>/dev/null)"
 case "$o" in *"5. **Drive lanes.**"*) pass;; *) fail "with a board the hook output carries the loop";; esac
-n="$(printf '%s' "$o" | wc -c | tr -d ' ')"
-[ "$n" -le 10000 ] && pass || fail "raw hook output is $n characters (JSON escaping included); the cap is 10,000"
+n="$(printf '%s' "$o" | wc -c | tr -d ' ')"   # plain stdout (no jq) is measured whole
 if command -v jq >/dev/null 2>&1; then
   n="$(printf '%s' "$o" | jq -r '.hookSpecificOutput.additionalContext' | wc -c | tr -d ' ')"
   assert_eq "$(printf '%s' "$o" | jq -r '.hookSpecificOutput.hookEventName')" "SessionStart" "hook output is the SessionStart shape"
 fi
-[ "$n" -le 10000 ] && pass || fail "hook context is $n characters; over 10,000 the harness replaces it with a file pointer"
+[ "$n" -le 10000 ] && pass || fail "hook context is $n characters; over 10,000 the harness replaces it with a file pointer (the cap is per additionalContext string, or on plain stdout whole)"
 grep -q 're-invoke the orchestrate skill' "$SD/runtime/hooks/on-compaction.sh" && fail "the reground hook still asks for a reload" || pass
 
 # 6) rules: prints a reference by bare name, refuses a path.

@@ -139,7 +139,9 @@ Run these in order on every invocation:
    branch and open a pull request, or hand the change over; integrate onto
    the base yourself only when the operator asked for that in this run and
    `references/landing.md` (read it first) allows it. Bring the operator
-   every finding you did not fix, with a recommendation.
+   every finding you did not fix, with a recommendation. In a long session a
+   closed lane on a quiet board is the time to suggest `/compact` (wording in
+   `references/landing.md`).
 8. **Feedback.** When the goal closes or the session winds down, follow
    `/orchestrate:feedback` (its review shape and its `ledger.sh feedback` row).
    A rating you write yourself starts `router:`; quote the operator's own words

@@ -34,7 +34,9 @@
 # git-remote credentials). On top of that, replay-guard.py refuses dispatches,
 # connected services and the web, the network/cloud/credential commands it
 # recognises, and the paths outside the sandbox it recognises. The guard is
-# best effort (it pattern-matches commands), never the boundary. PATH is the
+# best effort (it pattern-matches commands), never the boundary. It is wired to
+# block the tool when it errors, times out or cannot start ("onFailure": "block",
+# Claude Code 2.1.295 or later; an older CLI runs the tool on a guard failure). PATH is the
 # caller's (minus installed plugin bins), so tools stay reachable; that a vault
 # or cloud CLI cannot authenticate without the inherited environment is
 # assumed, not verified. The sandbox
@@ -84,7 +86,7 @@ run_one(){ # <case> <k>
     [ -d "$HOME/.claude/skills/$s" ] && cp -rL "$HOME/.claude/skills/$s" "$home/.claude/skills/" 2>/dev/null
   done
   cat > "$o/settings.json" <<JSON
-{"hooks":{"PreToolUse":[{"matcher":"Agent|Task|Bash|Read|Write|Edit|Glob|Grep|NotebookEdit|WebFetch|WebSearch|mcp__.*","hooks":[{"type":"command","command":"python3 $GUARD","timeout":10}]}]}}
+{"hooks":{"PreToolUse":[{"matcher":"Agent|Task|Bash|Read|Write|Edit|Glob|Grep|NotebookEdit|WebFetch|WebSearch|mcp__.*","hooks":[{"type":"command","command":"python3 $GUARD","timeout":10,"onFailure":"block"}]}]}}
 JSON
   # The snapshot may carry the source repo's own tracked board; score only what this run adds.
   { wc -l < "$repo/.agents/runs/orchestrate/board.jsonl" 2>/dev/null || echo 0; } | tr -d ' ' > "$o/board.base"

@@ -27,9 +27,11 @@ keep both and tell the operator where they are. Fix a stale base by recreating
 the worktree, never by `reset --hard`. Treat a worktree you did not create as
 the operator's; the floor does not cover it.
 
-An instructions change (a skill, a persona brief) never lands on its own
-approval, whatever the operator asked for other lanes: open the pull request
-or hand it over, and bring the operator every finding you did not fix.
+An instructions change (anything core step 6 counts as one: a skill, a persona
+brief, a hook message, an agent definition, operator preferences) lands only by
+pull request or hand-over, even when the operator asked you to integrate other
+lanes directly. A verifier's `APPROVED` never lands it; the operator does, by
+merging or by naming that change in an explicit request to land it.
 
 In a long session, a closed lane on a quiet board is the cheapest compaction
 point: tell the operator "clean boundary: good time for `/compact keep the goal

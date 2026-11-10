@@ -118,11 +118,12 @@ orchestrate compensates on both sides instead:
   board records none. A session doing other work there gets the core (about
   2,500 tokens per compaction) headed by a line telling it to ignore it. A
   board with no goal, intake or dispatch row prints nothing.
-- **The re-attach sits close to the harness's 10,000-character cap on hook
-  output** (about 9,850 with its JSON escaping). The printed core embeds the
-  install path, so a path about 150 characters longer than usual would push it
-  over, and the harness would then hand the router a file pointer instead of
-  the text. Tests hold the line at this checkout's path.
+- **The re-attach sits close to the harness's 10,000-character cap** on a
+  hook's context string (about 9,750 characters at this checkout's path). The
+  printed core embeds the install path, so a path about 250 characters longer
+  than this checkout's would push it over, and the harness would then hand the
+  router a file pointer instead of the text. Tests hold the line at the path
+  they run from.
 - **After a compaction the core can arrive more than once**: from the hook,
   from the harness re-attaching the skill, and from the first part of the
   start command. The core text is the same in each; the hook copy adds a line

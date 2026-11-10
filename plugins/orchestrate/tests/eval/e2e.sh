@@ -64,7 +64,11 @@ CLEAN_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v -e '/\.claude/plugins/
 stage_plugin(){ # <src> <dest-root> ; echoes the staged plugin dir
   local src="$1" root="$2" dst
   dst="$root/plugins/$(basename "$src")"; mkdir -p "$root/plugins"
-  cp -RL "$src" "$dst" 2>/dev/null; rm -rf "$dst/tests"   # -L: links become copies, so nothing in the sandbox points back into the real checkout
+  # -L: links become copies, so nothing in the sandbox points back into the real
+  # checkout. A link that does not resolve (an arm copied out of the repo with
+  # `cp -a` loses its craft guides) fails the arm instead of staging it short.
+  if ! cp -RL "$src" "$dst"; then echo "e2e: could not stage $src whole (a link did not resolve); stage from a checkout or an installed copy" >&2; return 1; fi
+  rm -rf "$dst/tests"
   printf '%s\n' "$dst"
 }
 
@@ -101,7 +105,7 @@ run_one(){ # <label> <k>
   local l="$1" k="$2" o="$OUT/$1.$2" root home repo pdir
   rm -rf "$o"; mkdir -p "$o"
   root="$(mk_tmp)"; home="$(mk_authed_home)"; repo="$root/repo"
-  pdir="$(stage_plugin "${ARM[$l]}" "$root")"
+  pdir="$(stage_plugin "${ARM[$l]}" "$root")" || { echo "rc=staging-failed wall=0" > "$o/exit.env"; return 1; }
   seed_repo "$repo"
   [ -f "$HOME/.claude/CLAUDE.md" ] && cp -L "$HOME/.claude/CLAUDE.md" "$home/.claude/CLAUDE.md" 2>/dev/null
   mkdir -p "$home/.claude/skills"

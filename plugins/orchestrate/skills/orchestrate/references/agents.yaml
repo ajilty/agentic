@@ -6,7 +6,8 @@
 # Code, install-codex.sh / install-opencode.sh) read this file and compile it
 # into each harness's native subagent definitions. Claude Code also gets all four
 # hooks in the hooks: block below; OpenCode's generated plugin runs the
-# post-compaction ones; Codex gets none. Keep this file free of any single
+# post-compaction scripts, but their output never reaches its model, so it gets
+# no re-attach; Codex gets none. Keep this file free of any single
 # harness's vocabulary.
 #
 # Capability vocabulary:
