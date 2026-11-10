@@ -1,11 +1,6 @@
 # Routing and quarantine
 
-Router reference (core: `../SKILL.md`, loop step 5). Where each returned status or verdict goes, the decision-fork payload, and how untrusted findings are neutralized.
-
-## Routing
-
-Map enums; never classify. A status missing its required backing goes to the
-operator.
+Map enums; never classify.
 
 | Status or verdict | Route |
 |-------------------|-------|
@@ -16,8 +11,8 @@ operator.
 | `DECISION_FORK(payload)` | halt that lane, surface the payload |
 | `APPROVED` (outcome) | land (`landing.md`) |
 | `APPROVED` (plan mode) | journal `goal` again with the signed spec, then dispatch implementers |
-| `REJECTED` (outcome) | implementer once (`ledger.sh retries <ticket>`) with the verdict file's path (`verdicts/<ticket>.<dispatch_id>.md`, or `round<N>.md` on an instructions lane), then the operator; the next verifier re-checks the fixes, not the whole change |
-| `REJECTED` (plan mode) | planner with the verdict and pin, then a plan-mode re-review; spends no implementer retry |
+| `REJECTED` (outcome) | implementer once with the verdict file, then the operator (`review-rounds.md`) |
+| `REJECTED` (plan mode) | planner, then a plan-mode re-review (`review-rounds.md`) |
 | `INCONSISTENT_ORACLE` | the operator; never shape code to a bad test |
 
 | Reason | Required backing (else the operator) | Route if backed |
@@ -27,9 +22,9 @@ operator.
 | `reasoning` | Two failed attempts on the same sub-step, diffs attached | Escalate the model for that dispatch |
 | `plan_wrong` | A named `#ASSUMPTION`/`#ASSUMED` shown false with `file:line` | Reopen planning |
 
-A `DECISION_FORK` is an irreducible call the spec cannot settle. Halt only
-`blocking_lane`, do not retry, keep other lanes running; the resolution
-returns as a `TRUSTED` `#DECISION` into planning. Required payload:
+A `DECISION_FORK` is an irreducible call the spec cannot settle. Do not retry
+it; the resolution returns as a `TRUSTED` `#DECISION` into planning. Required
+payload:
 
 ```yaml
 DECISION_FORK:
@@ -40,7 +35,7 @@ DECISION_FORK:
       commits_to: "<what choosing this forecloses / enables>"
       tradeoff: "<cost vs. benefit, in trusted-origin terms>"
   recommendation: A             # required: the option to pick and why; say so when it is close
-  blocking_lane: <ticket/lane that waits>   # other lanes keep running
+  blocking_lane: <ticket/lane that waits>
 ```
 
 ## Quarantine

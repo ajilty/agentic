@@ -1,19 +1,12 @@
 # Right-sizing and context economy
 
-Router reference (core: `../SKILL.md`, loop step 4). Which tier a task takes, which model each persona runs, and when to delegate.
+Count the signals behind the core's tiers, never assert them, and default
+down. The file counts are `tiers.t0_max_files` and `tiers.t1_max_files` in
+`agents.yaml`. T0 also needs its files single or grep-proven disjoint, no open
+`#UNKNOWN`, and an oracle that already exists as an independent function probe.
+T1 needs no spec gap: the change is clear and the check is what matters.
 
-## Right-sizing
-
-Select a tier from counted signals (never asserted), defaulting down:
-
-| Tier | Pipeline | Selected when (all true) |
-|------|----------|--------------------------|
-| **T0** | one Implementer vs. oracle | task ≤ `tiers.t0_max_files`, no open `#UNKNOWN`, single-file or grep-proven-disjoint, **and the oracle already exists as an independent function probe** |
-| **T1** | Implementer → Verifier | above T0 but ≤ `tiers.t1_max_files` and no spec gap (the change is clear, the *check* is what matters) |
-| **T2** | full chain | any open `#UNKNOWN`, coupling across files, missing oracle, or above `tiers.t1_max_files` |
-
-Promote a lane that fails its oracle or surfaces an `#UNKNOWN`; never demote
-one. The oracle is held-out tests, else spec-derived acceptance checks written
+The oracle is held-out tests, else spec-derived acceptance checks written
 before implementation, else plan one first ("no tests, so it passed" is
 `#GAP(no-oracle)`). For a T1 bug fix it is the repro test, red before the fix.
 It must be a *function probe*, green only if the feature works, independent of
@@ -22,10 +15,9 @@ qualifies a lane for T0: pair the verifier. For a refactor, ask the operator at
 intake "what would you reject?" and write it into the oracle; a refactor-shaped
 T1 needs a planner-grade work item, not a bigger implementer.
 
-Each persona's model and effort live in its agent file, compiled from
-`agents.yaml`; `inherit` means the persona runs on the main loop's model. The
-aliases are Claude Code's; on Codex and OpenCode the installer decides and you
-pass no model:
+Each persona's model and effort, as compiled into its agent file (`inherit` is
+the main loop's model; on Codex and OpenCode the installer decides and you pass
+no model):
 
 | persona | model | effort |
 |---------|-------|--------|

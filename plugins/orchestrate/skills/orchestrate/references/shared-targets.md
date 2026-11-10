@@ -1,7 +1,5 @@
 # Shared targets and production changes
 
-Router reference (core: `../SKILL.md`, loop step 5). Steps whose effect lands outside a lane's worktree run one at a time; production applies wait for the operator.
-
 ## Shared-target steps
 
 A step is *worktree-local* when all it reads or changes lives in the lane's own
@@ -23,12 +21,10 @@ Any plan or apply against a shared target is an actuator task, its own task
 since you cannot pause a step inside a running persona: hold a target from its
 first plan task until its apply returns, including the wait for the operator,
 and dispatch nothing else on it meanwhile. A verifier check that touches the
-target (a probe, a plan against real state) is a step on it. Worktree-local
-tasks still run in parallel. The tool's own lock (Terraform's state lock) is
+target (a probe, a plan against real state) is a step on it. The tool's own lock (Terraform's state lock) is
 the backstop: a lock error means wait or ask, never force-unlock. This
 serialization lives only in this router; another session on the same state is
-not seen. Example: three implementers edit and `terraform validate` three
-modules in parallel; their plans and applies then run one lane at a time.
+not seen.
 
 When a second lane's shared-target step follows a first lane's change to the
 same target, recreate its worktree from the integration base that now includes
@@ -45,11 +41,10 @@ commit, or the lane's approved commit while its pull request is still open),
 with that path and SHA. The tree lives from the plan dispatch through the apply
 dispatch (the saved plan file stays in it between them); remove it after the
 apply lands or the operator declines, and a declined prod-ack also releases the
-target for the next lane. Before an apply at
-a `consequence: prod` target (untagged reads as `prod`), journal `fork` with
-`fork_id` `prod-ack:<target>`, show the operator the target, the commit, and
-the plan output, with your recommendation and the risk relative to today, ask,
-and journal the answer either way: `ledger.sh decision <ticket>
-prod-ack:<target> "" "<approved|declined>: <one line>"`. Dispatch the apply
-only on approved; `safe` targets proceed. The verifier then runs the acceptance
+target for the next lane. The core's
+confirmation applies at a `consequence: prod` target (untagged reads as
+`prod`): show the operator the target, the commit, and the plan output, with
+your recommendation and the risk relative to today, and journal the answer
+either way: `ledger.sh decision <ticket> prod-ack:<target> ""
+"<approved|declined>: <one line>"`. `safe` targets proceed. The verifier then runs the acceptance
 probe.

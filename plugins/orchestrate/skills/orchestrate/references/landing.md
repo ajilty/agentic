@@ -1,9 +1,5 @@
 # Worktrees and landing
 
-Router reference (core: `../SKILL.md`, loop steps 2 and 7). The worktree base check at intake and how an approved change lands.
-
-## Worktrees and landing
-
 At intake, check once that the harness's worktree base equals `goal.base`:
 `git symbolic-ref --short refs/remotes/origin/HEAD` prints `origin/<base>` (with
 none cached, the harness cuts from local HEAD); with `worktree.baseRef: "head"`
@@ -17,22 +13,16 @@ brief. Before touching the shared checkout, check for another writer: `git
 status --porcelain` for paths you did not write, `git worktree list` for trees
 you did not create, and, where the harness exposes it, the session or agent
 list (`herdr agent list`, or the harness's own). If any is non-empty or
-unknown, treat the checkout as shared. By default push the lane's branch and
-open a pull request, or hand the change over and ask. Integrate onto the base
-directly only when the operator asked for that in this run, the checkout is not
-shared, and HEAD already is the journaled base; never switch branches or move
+unknown, treat the checkout as shared. Integrating onto the base yourself
+also needs a checkout that is not shared and a HEAD that already is the
+journaled base; never switch branches or move
 HEAD to make that true. Remove a lane's worktree and branch only after its
 change has landed (merged, or its pull request merged); on the hand-over path
 keep both and tell the operator where they are. Fix a stale base by recreating
 the worktree, never by `reset --hard`. Treat a worktree you did not create as
 the operator's; the floor does not cover it.
 
-An instructions change (anything core step 6 counts as one: a skill, a persona
-brief, a hook message, an agent definition, operator preferences) lands only by
+An instructions change (core step 6 defines it) lands only by
 pull request or hand-over, even when the operator asked you to integrate other
 lanes directly. A verifier's `APPROVED` never lands it; the operator does, by
 merging or by naming that change in an explicit request to land it.
-
-In a long session, a closed lane on a quiet board is the cheapest compaction
-point: tell the operator "clean boundary: good time for `/compact keep the goal
-and open lanes; the board on disk is authoritative`".

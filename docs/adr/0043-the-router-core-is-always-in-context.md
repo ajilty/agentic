@@ -62,7 +62,7 @@ nothing.
 
 - References are now the weak point: reading one is still the router's choice,
   and a compaction forgets them. The core says to read each again at its step.
-  The replay harness measures whether that happens.
+  A replay harness (a separate change) measures whether that happens.
 - The hook count is four (this adds the core re-attach).
 - The re-attach hook cannot tell the router from any other session in the
   repo, so every compacted session where a run was driven receives the core,

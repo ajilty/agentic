@@ -18,7 +18,7 @@ w="$(wc -c < "$SD/SKILL.md" | tr -d ' ')"
 #    and the absolute path the references are read from.
 case "$core" in "---"*) fail "core carries frontmatter";; *) pass;; esac
 for m in '1. **Reground.**' '2. **Intake and goal.**' '3. **Clarify' '4. **Right-size.**' '5. **Drive lanes.**' '6. **Verify**' '7. **Land**' '8. **Feedback.**' \
-         'Never end a turn with a dispatch' 'Journal only canonical events' 'fresh `dispatch_id`' 'T2: the full chain' 'orchestrate:complete' 'open a pull request' 'implementer once' 'prod-ack:<target>' 'One dispatch at a time on a shared' 'halts only its own' 'are on your PATH' 'again after a compaction' "$SD/references/"; do
+         'Never end a turn with a dispatch' 'Journal only canonical events' 'fresh `dispatch_id`' 'T2: the full chain' 'orchestrate:complete' 'open a pull request' 'implementer once' 'prod-ack:<target>' 'One dispatch at a time on a shared' 'halts only its own' 'are on your PATH' 'so read it again' "$SD/references/"; do
   case "$core" in *"$m"*) pass;; *) fail "core carries: $m";; esac
 done
 
@@ -38,7 +38,7 @@ grep -qF '!`"${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" brief`' "$I" && pass || fail "
 grep -qF 'allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/ledger.sh" brief)' "$I" && pass || fail "init.md pre-approves the injected command"
 assert_eq "$(awk 'f==2{print} /^---[[:space:]]*$/{f++}' "$I" | grep -c 'ledger.sh" brief')" 1 "the injection survives the installers' frontmatter split (no --- rule in the body)"
 br="$(bash "$SK/bin/ledger.sh" brief)"; assert_eq "$?" 0 "the bin shim the command calls prints the brief"
-for m in '5. **Drive lanes.**' '# Right-sizing and context economy' '# Dispatching' '# Routing and quarantine' '| **T0** |' 'DECISION_FORK:' '# Review rounds' '# Shared targets and production changes' '# Worktrees and landing'; do
+for m in '5. **Drive lanes.**' '# Right-sizing and context economy' '# Dispatching' '# Routing and quarantine' '`tiers.t0_max_files`' 'DECISION_FORK:' '# Review rounds' '# Shared targets and production changes' '# Worktrees and landing'; do
   case "$br" in *"$m"*) pass;; *) fail "the brief carries: $m";; esac
 done
 

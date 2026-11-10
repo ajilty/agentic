@@ -17,10 +17,8 @@ description: >-
 compatibility: >-
   Harness-agnostic. The runtime (ledger.sh, adr.sh, four Claude Code hooks) needs git, awk,
   coreutils, and jq (the shared-checkout floor refuses destructive git verbs it cannot parse
-  without jq) and runs under bash 3.2 or later; HELDOUT_ROOT is optional. The generators in
-  ../../scripts/ need yq v4: build.sh emits Claude Code's agents/ and hooks/hooks.json;
-  install-codex.sh and install-opencode.sh install this skill and the persona definitions.
-  No network access required.
+  without jq) and runs under bash 3.2 or later; HELDOUT_ROOT is optional. Building or
+  installing needs yq v4. No network access required.
 ---
 
 # Orchestrate: the router
@@ -55,9 +53,8 @@ Run these in order on every invocation:
 
 1. **Reground.** Run `ledger.sh reground` and act on every line as
    `references/resume.md` says. Never re-dispatch an actuator without asking
-   the operator, nor an implementer before matching each unclaimed worktree to its ticket id
-   in the commit subjects (`git -C <path> log --oneline origin/<base>..HEAD`;
-   adopt a match, or ask). On a HALT, show the
+   the operator, nor an implementer before checking its result file and each
+   unclaimed worktree as that file says. On a HALT, show the
    operator and dispatch nothing.
 2. **Intake and goal.** If the goal is non-code or a one-call fix, do it
    directly without the pipeline and journal nothing. Otherwise write the work
@@ -93,8 +90,7 @@ Run these in order on every invocation:
    `effort`; pass `isolation: worktree` to an implementer; hand over only the
    artifact the persona needs and a result path under `tickets/<ticket>/`;
    completion is that file ending `<!-- orchestrate:complete -->`, read from
-   disk, never the chat reply. Read the reference at the moment it applies,
-   and again after a compaction: `references/dispatching.md` for the result
+   disk, never the chat reply. Read at the moment it applies: `references/dispatching.md` for the result
    paths and what each persona is handed; `references/shared-targets.md` before any step whose effect lands
    outside a lane's worktree (a plan or apply, a cluster, a database, CI, a
    branch two lanes push) and before any production change;
@@ -121,13 +117,10 @@ Run these in order on every invocation:
    from the approved shape; a page; a prod change needing a go; all lanes
    done; a named clock time. On re-entry, reground; for every `dispatched`
    row older than about 15 minutes with no `returned` row, read the lane's
-   result file or worktree and route it. Waiting for a handback in chat is
-   not a plan: the harness delivers at most one and can lose it. When the goal carries an accepted progress page
+   result file or worktree and route it. When the goal carries an accepted progress page
    (a `status-page` decision row), refresh it as
    `references/status-page-rules.md` says before ending any turn that
-   journaled a lane state change (`ledger.sh` reminds you on each such
-   write); a re-entry tick past its cadence is only the backstop for quiet
-   stretches, and reground re-arms the schedule in a new session.
+   journaled a lane state change (`ledger.sh` reminds you on each such write).
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. A change
    to instructions (a skill, a persona brief, a hook message, an agent
    definition, operator preferences) takes three lens verifiers. A `REJECTED`
@@ -139,9 +132,9 @@ Run these in order on every invocation:
    branch and open a pull request, or hand the change over; integrate onto
    the base yourself only when the operator asked for that in this run and
    `references/landing.md` (read it first) allows it. Bring the operator
-   every finding you did not fix, with a recommendation. In a long session a
-   closed lane on a quiet board is the time to suggest `/compact` (wording in
-   `references/landing.md`).
+   every finding you did not fix, with a recommendation. In a long session,
+   at a closed lane on a quiet board, tell the operator it is a good time for
+   `/compact keep the goal and open lanes; the board on disk is authoritative`.
 8. **Feedback.** When the goal closes or the session winds down, follow
    `/orchestrate:feedback` (its review shape and its `ledger.sh feedback` row).
    A rating you write yourself starts `router:`; quote the operator's own words

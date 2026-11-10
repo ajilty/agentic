@@ -1,6 +1,5 @@
 # Progress page rules
 
-Router reference (core: `../SKILL.md`, loop step 5; command: `/orchestrate:status`). How a run's progress page is offered, created, refreshed and checked. The template is `status-page.html` beside this file.
 
 ## Progress page (optional; inline stays the default)
 

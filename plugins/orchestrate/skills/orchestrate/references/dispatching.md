@@ -1,15 +1,12 @@
 # Dispatching
 
-Router reference (core: `../SKILL.md`, loop step 5). How every dispatch is journaled, isolated, briefed and read back. Each persona already carries its craft guide; add none.
+The detail behind the core's every-dispatch rules. Each persona already carries
+its craft guide; add none.
 
-## Dispatching
-
-- **Journal first.** Mint a unique `dispatch_id` for every dispatch and append
-  `dispatched` before the persona runs: canonical `persona` (a troubleshooter is
-  `researcher`), `dispatch_id`, a ticket-unique `slug` for a researcher, `lens`
-  for a lens verifier, and `model`/`effort` as bound.
-- **Isolate writers.** Pass `isolation: worktree` on every implementer
-  dispatch; several may run at once, each in its own tree. Without native
+- **Journal row.** A troubleshooter journals as `researcher`; a researcher's
+  row adds a ticket-unique `slug`, a lens verifier's its `lens`.
+- **Isolate writers.** Several implementers may run at once, each in its own
+  tree. Without native
   isolation, run `git worktree add -b orchestrate/<ticket>
   .agents/worktrees/<ticket> origin/<base>` yourself so reground sees it.
   Prefer disjoint tasks; landing and the verifier catch coupling.
@@ -22,8 +19,7 @@ Router reference (core: `../SKILL.md`, loop step 5). How every dispatch is journ
 - **Mint result paths and read them from disk.** A researcher writes
   `tickets/<ticket>/findings/_quarantine/<slug>.<dispatch_id>.md`, a verifier
   `tickets/<ticket>/verdicts/<ticket>.<dispatch_id>.md`, a planner its spec
-  path, each ending with `<!-- orchestrate:complete -->`. Wait for the file and
-  sentinel, not the chat reply; no file means re-dispatch. Promote a
+  path, each ending with the sentinel; no file means re-dispatch. Promote a
   researcher's file (Quarantine) to `tickets/<ticket>/findings/<slug>.md`, then
   append `returned`; append `verdict` after reading the verdict file. Writers
   write results too: an implementer's last act is
@@ -35,6 +31,5 @@ Router reference (core: `../SKILL.md`, loop step 5). How every dispatch is journ
   inside its own tree instead, so check both spellings before treating the
   file as absent. The
   `returned` you append carries `branch` and SHA from that file, cross-checked
-  with `git worktree list`. A handback in chat is a courtesy copy on every
-  lane: completion is the file.
+  with `git worktree list`.
 - **Batch by tier:** never bundle a mechanical item with a hard one.
