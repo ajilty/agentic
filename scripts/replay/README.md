@@ -37,8 +37,22 @@ is the worked example: a wrapper of settings plus two scorecards.
 
 ## What keeps a replay safe
 
-The session has nothing to misuse: a `git archive` snapshot with no remote, a
-throwaway home directory, and an environment with no inherited credentials.
-`guard.py` adds a best-effort refusal of dispatches, connected services, the
-web, and recognised network, cloud and outside-path commands. The guard is not
-the boundary. `test.sh` pins what the guard promises.
+On Linux each session runs inside a bubblewrap sandbox: a read-only
+filesystem, your home directory and runtime directory replaced by empty ones,
+its own process table, and an environment built from nothing. It can write
+only its snapshot, a throwaway home and its output directory. The snapshot is
+a `git archive` with no remote, taken with your git configuration switched off.
+
+The network stays open, because the model is reached over it. The session holds
+one credential, the model login, which is why `guard.py` refuses connected
+services by name. The guard also refuses dispatches, the web, recognised
+network and cloud commands, and any tool it does not know. It is best effort,
+not the boundary.
+
+Without bubblewrap (macOS) there is no boundary: the session runs as you. The
+harness refuses to start unless `REPLAY_UNCONFINED=1`. Do not use that on a
+machine or a repository where a session reading your home directory would
+matter.
+
+`test.sh` pins what the guard promises and, with a stand-in for the CLI, that
+the sandbox hides the home directory and the caller's environment.

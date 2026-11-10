@@ -26,7 +26,7 @@ sys.excepthook = _closed
 ev = json.load(sys.stdin)
 tool, inp = ev.get("tool_name", ""), ev.get("tool_input", {})
 if not isinstance(inp, dict): inp = {}
-roots = [r for r in os.environ.get("REPLAY_ROOTS", "").split(":") if r]
+roots = [os.path.realpath(r) for r in os.environ.get("REPLAY_ROOTS", "").split(":") if r]
 
 def log(decision, why=""):
     with open(os.environ["REPLAY_LOG"], "a") as f:
@@ -62,8 +62,8 @@ if tool == "Bash":
     # Matched at command position only (line start, after ; & | ( ` $( or a wrapper),
     # so a search pattern that merely mentions a tool is not refused. This is the
     # second line of defence: the session's environment carries no credentials.
-    risky = (r"(^|[;&|(`\n]|\$\()\s*((sudo|env|nohup|time|exec|xargs( -\S+)*|timeout \S+)\s+|(ba)?sh -c\s+['\"]?\s*)*"
-             r"(\w+=\S*\s+)*(aws|terraform|tofu|kubectl|helm|flux|talosctl|gh|ssh|scp|rsync|curl|wget|nc|op|"
+    risky = (r"(^|[;&|(`\n]|\$\()\s*((sudo|env|nohup|time|exec|command|builtin|xargs( -\S+)*|timeout \S+)\s+|(ba)?sh -c\s+['\"]?\s*)*"
+             r"(\w+=\S*\s+)*\\?(?:\S*/)?(aws|terraform|tofu|kubectl|helm|flux|talosctl|gh|ssh|scp|rsync|curl|wget|nc|op|"
              r"just|nix|nixos-rebuild|ansible[\w-]*|pulumi|docker|podman|sops|with-secrets|sudo|pip|npm|npx|brew)(\s|$)")
     # Judge the commands, not the text they carry: drop heredoc bodies and quoted
     # strings (a commit message or a search pattern may name any tool), but keep
@@ -77,12 +77,19 @@ if tool == "Bash":
         if re.search(risky, part) or re.search(
                 r"\bgit\s+(?:-\S+\s+(?:[^-\s]\S*\s+)?)*(push|fetch|pull|clone|ls-remote|submodule|remote\s+(add|set-url|update))\b", part):
             deny("Replay harness: this sandbox has no network, cloud, or credential access.")
-    # Absolute paths outside the sandbox (the operator's real home above all).
-    for p in re.findall(r"(?<![\w.-])(/(?:var/home|home|root|etc|mnt|media|run/user)[^\s'\";|&)]*|~[^\s'\";|&)]*)", cmd):
+    # Paths outside the sandbox (the operator's real home above all): absolute
+    # ones, ones that climb with .., and a bare `cd /`.
+    for p in re.findall(r"(?<![\w.-])(/(?:var/home|home|Users|root|etc|proc|mnt|media|run/user|private)[^\s'\";|&)]*"
+                        r"|~[^\s'\";|&)]*|(?:\.\./)+[^\s'\";|&)]*|\.\.(?=[\s'\";|&)]|$)|(?<=\bcd\s)/(?=[\s;|&)]|$))", cmd):
         if not inside(p):
             deny("Replay harness: paths outside the sandbox are off limits.")
     log("allow"); sys.exit(0)
 
+# Any tool this guard does not know is refused: a tool it cannot judge must not
+# run. The ones below only read or write under a path, or touch nothing outside.
+if tool not in ("Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit", "Skill", "ToolSearch", "TodoWrite",
+                "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
+    deny("Replay harness: this tool is not available in this sandbox.")
 for key in ("file_path", "path", "notebook_path"):
     p = inp.get(key)
     if p and not inside(p):
