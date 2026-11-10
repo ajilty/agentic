@@ -3,15 +3,15 @@
 
 A replay asks what a session does with an ask, not what its subagents or the
 outside world do with it. So every dispatch is recorded and refused, and the
-session is steered back into its sandbox. The source repo is a real project;
-its snapshot must never reach the real thing.
+session is steered back into its snapshot.
 
-This guard is best effort, not a boundary (it fails closed: its own errors exit
-2, and replay.sh sets the hook to block on a timeout or a failure to start). It
-pattern-matches commands, and a shell has more spellings than a pattern has
-cases. What actually keeps a replay harmless is set up by replay.sh: a scrubbed
-environment and a throwaway HOME, so the session holds no cloud, vault, SSH or
-git-remote credential to misuse.
+This guard is best effort, never the boundary: it pattern-matches commands, and
+a shell has more spellings than a pattern has cases. The boundary is the OS
+sandbox replay.sh starts the session in. What the guard alone holds is what the
+sandbox cannot see: the connected services that come with the model login, and
+the web. It fails closed (its own errors exit 2, and replay.sh sets the hook to
+block on a timeout or a failure to start), and it refuses any tool it does not
+know.
 
 Env: REPLAY_LOG (jsonl log), REPLAY_ROOTS (colon-separated allowed path roots).
 """
@@ -77,10 +77,13 @@ if tool == "Bash":
         if re.search(risky, part) or re.search(
                 r"\bgit\s+(?:-\S+\s+(?:[^-\s]\S*\s+)?)*(push|fetch|pull|clone|ls-remote|submodule|remote\s+(add|set-url|update))\b", part):
             deny("Replay harness: this sandbox has no network, cloud, or credential access.")
-    # Paths outside the sandbox (the operator's real home above all): absolute
-    # ones, ones that climb with .., and a bare `cd /`.
-    for p in re.findall(r"(?<![\w.-])(/(?:var/home|home|Users|root|etc|proc|mnt|media|run/user|private)[^\s'\";|&)]*"
-                        r"|~[^\s'\";|&)]*|(?:\.\./)+[^\s'\";|&)]*|\.\.(?=[\s'\";|&)]|$)|(?<=\bcd\s)/(?=[\s;|&)]|$))", cmd):
+    # The session's own settings carry this guard's wiring.
+    if ".claude/settings" in cmd:
+        deny("Replay harness: the session's settings are off limits.")
+    # Absolute paths outside the sandbox (the operator's real home above all). A
+    # package manager's own home (linuxbrew) holds tools, not the operator's files.
+    for p in re.findall(r"(?<![\w.-])(/(?:var/home|home|Users|root|etc|proc|mnt|media|run/user|private)[^\s'\";|&)]*|~[^\s'\";|&)]*)", cmd):
+        if re.match(r"/(var/)?home/linuxbrew(/|$)", p): continue
         if not inside(p):
             deny("Replay harness: paths outside the sandbox are off limits.")
     log("allow"); sys.exit(0)
@@ -88,10 +91,13 @@ if tool == "Bash":
 # Any tool this guard does not know is refused: a tool it cannot judge must not
 # run. The ones below only read or write under a path, or touch nothing outside.
 if tool not in ("Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit", "Skill", "ToolSearch", "TodoWrite",
-                "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
+                "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskOutput", "TaskStop", "BashOutput", "KillShell",
+                "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"):
     deny("Replay harness: this tool is not available in this sandbox.")
 for key in ("file_path", "path", "notebook_path"):
     p = inp.get(key)
+    if p and tool != "Read" and re.search(r"/\.claude/settings(\.local)?\.json$", str(p)):
+        deny("Replay harness: the session's settings are off limits.")
     if p and not inside(p):
         deny("Replay harness: paths outside the sandbox are off limits.")
 # A Glob pattern may itself be absolute; judge the part before its first wildcard.

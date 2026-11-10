@@ -43,27 +43,37 @@
 #   settings.json stderr.txt      the hook wiring used, and the CLI's stderr
 # and <out-dir>/summary.txt, one line per run.
 #
-# Safety. The session runs inside an OS sandbox (bubblewrap, Linux): the whole
-# filesystem is read-only, the caller's home directory and per-user runtime
-# directory are replaced by empty ones, it has its own process table (so no
-# other process's environment is readable), and it can write only its snapshot,
-# its throwaway HOME and its output directory. Its environment is built from
-# nothing: HOME, PATH, TERM, LANG, TMPDIR and the model login. The snapshot is a
-# `git archive` (tracked files only, no remote), taken with the caller's git
-# configuration switched off so no filter, hook or signer of theirs runs.
-# The network stays open, because the model is reached over it; the session
-# holds no credential but the model login to use on it. That login is why
-# guard.py refuses connected services by name. guard.py also refuses dispatches,
-# the web, the network/cloud/credential commands it recognises and the outside
-# paths it recognises, and refuses any tool it does not know. The guard is best
-# effort (it pattern-matches commands), never the boundary; it is wired to block
-# the tool when it errors, times out or cannot start ("onFailure": "block"),
-# which needs Claude Code 2.1.295 or later, checked below.
-# Without bubblewrap (macOS) there is no boundary, only the scrubbed environment
-# and the guard: the session runs as you, can read your home directory by a
-# path the guard does not recognise, and can read the environment of your other
-# processes. The harness refuses to run that way unless REPLAY_UNCONFINED=1;
-# use it only on a repository and a machine where that is acceptable.
+# Safety. On Linux each session runs inside an OS sandbox (bubblewrap):
+#   - the filesystem is read-only, and these are replaced by empty directories:
+#     the caller's home, /tmp, /var/tmp, TMPDIR, /run (sockets of the caller's
+#     other programs live there), the source repo, the set and the out dir;
+#   - it has its own process table, so no other process's environment is
+#     readable, and an environment built from nothing: HOME, PATH, TERM, LANG,
+#     TMPDIR and the model login;
+#   - it can write only its snapshot, its throwaway HOME and a log directory.
+#     It never sees the out dir. The runner copies results there itself, never
+#     following a link the session left, and runs git on the snapshot only
+#     inside the sandbox, because the snapshot's git configuration is the
+#     session's to edit;
+#   - with pasta present it has a network of its own, so this machine's local
+#     services are out of reach. Without pasta the runner says so and the
+#     session shares the machine's network.
+# The snapshot is a `git archive` (tracked files only, no remote), taken with
+# the caller's git configuration switched off so no filter, hook or signer of
+# theirs runs.
+# What the sandbox does not cover: the internet stays reachable, because the
+# model is reached over it, and the session holds the model login. guard.py is
+# what refuses the web and the connected services that come with that login
+# (they are also switched off by ENABLE_CLAUDEAI_MCP_SERVERS=false); it refuses
+# dispatches and any tool it does not know as well. The guard is best effort (it
+# pattern-matches commands), never the boundary. It blocks the tool when it
+# errors, times out or cannot start, which needs Claude Code 2.1.295 or later,
+# checked below. A session that got past the guard could send what it can read
+# (the snapshot, the plugin, the operator's CLAUDE.md) anywhere on the internet.
+# Tools installed under the caller's home are not on the session's PATH.
+# Without a usable bubblewrap (macOS, some containers) there is no boundary,
+# only the scrubbed environment and the guard: the session runs as you. The
+# runner refuses to start that way unless REPLAY_UNCONFINED=1.
 #
 # Claude Code only: Codex and OpenCode would each need their own driver.
 # Reporting only; never a CI gate. Self-skips without claude/auth/python3.
@@ -84,46 +94,77 @@ ver="$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -
 [ "$(printf '%s\n' 2.1.295 "${ver:-0}" | sort -V | head -1)" = 2.1.295 ] \
   || { echo "replay: needs Claude Code 2.1.295 or later (found ${ver:-none})" >&2; exit 2; }
 CLAUDE_BIN="$(readlink -f "$(command -v claude)" 2>/dev/null || command -v claude)"
+TIMEOUT="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
+[ -n "$TIMEOUT" ] || { echo "replay: needs timeout (GNU coreutils)" >&2; exit 2; }
+REAL_HOME="$(cd "$HOME" 2>/dev/null && pwd -P)"
+[ -n "$REAL_HOME" ] || { echo "replay: HOME is not a directory" >&2; exit 2; }
+SRC="$(cd "$SRC" && pwd -P)"; SET="$(cd "$SET" && pwd -P)"; mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd -P)"
+[ -n "$OUT" ] || { echo "replay: cannot use the out dir" >&2; exit 2; }
+
+# The sandbox, probed with the flags the sessions use: a tool that is present
+# but not permitted here (a container, a restricted runner) counts as absent.
+BOX_BASE=(--ro-bind / / --dev /dev --proc /proc --unshare-pid --unshare-ipc --new-session --die-with-parent --tmpfs /tmp)
 BWRAP="$(command -v bwrap 2>/dev/null || true)"
-[ -z "$BWRAP" ] || "$BWRAP" --ro-bind / / true 2>/dev/null || BWRAP=""   # present but not permitted here
+[ -z "$BWRAP" ] || "$BWRAP" "${BOX_BASE[@]}" true 2>/dev/null || BWRAP=""
 [ -n "$BWRAP" ] || [ "${REPLAY_UNCONFINED:-}" = 1 ] || {
   echo "replay: no usable bubblewrap, so no sandbox boundary; set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }
 [ -n "$BWRAP" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
+# A network of its own (user-mode, via pasta) keeps this machine's local
+# services and abstract sockets out of reach while the model stays reachable.
+NET=(); PASTA="$(command -v pasta 2>/dev/null || true)"
+if [ -n "$BWRAP" ] && [ -n "$PASTA" ] && "$PASTA" --config-net --no-map-gw -t none -u none -T none -U none -- true >/dev/null 2>&1; then
+  NET=("$PASTA" --config-net --no-map-gw -t none -u none -T none -U none --)
+elif [ -n "$BWRAP" ]; then
+  echo "replay: no usable pasta: sessions share this machine's network, so its local services stay reachable" >&2
+fi
 
 MODEL="${REPLAY_MODEL:-opus}"; EFFORT="${REPLAY_EFFORT:-low}"; K="${REPLAY_K:-1}"
-PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd)"; JOBS="${REPLAY_JOBS:-4}"
+PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd -P)"; JOBS="${REPLAY_JOBS:-4}"
 PC="${REPLAY_POSTCOMPACT:-}"; [ "$PC" = 0 ] && PC=""
 AFTER_DEFAULT="Continue. What is the state of this work and what is your next step?"
 BUDGET="${REPLAY_BUDGET_USD:-$([ -n "$PC" ] && echo 8 || echo 4)}"; GUARD="$HERE/guard.py"
 IGNORE="${REPLAY_IGNORE-.agents/}"; JOURNAL="${REPLAY_JOURNAL:-}"
-mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 [ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
 
 # Every sandbox nests under one directory made here, in the parent shell, so one
 # trap removes them all whichever subshell made them.
-RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/replay.XXXXXXXX")"; RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
-trap 'cd /; rm -rf "$RUN_DIR"' EXIT
+RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/replay.XXXXXXXX")" || exit 2
+RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
+trap 'cd /; [ -n "$RUN_DIR" ] && rm -rf "$RUN_DIR"' EXIT
 # An interrupt must stop the paid sessions too, so `timeout` runs them in this
 # process group (--foreground) and the whole group is signalled.
-trap 'trap "" INT TERM; kill 0 2>/dev/null; exit 130' INT TERM
-REAL_HOME="$(cd "$HOME" && pwd -P)"
+trap 'trap "" INT TERM; kill 0 2>/dev/null; exit 130' INT
+trap 'trap "" INT TERM; kill 0 2>/dev/null; exit 143' TERM
 # The caller's git configuration (filters, hooks, signing) must not run on the snapshot.
 cgit(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"; }
 mk_tmp(){ mktemp -d "$RUN_DIR/t.XXXXXXXX"; }
+# Read a file the session could have written, only if it is a regular file that
+# really lives under <root>: the session may have left a link pointing elsewhere.
+# take copies it to <dest> (and writes nothing when it is not there); emit prints it.
+real_under(){ # <root> <file> -> prints the real path, or fails
+  local real; real="$(readlink -f "$2" 2>/dev/null)" || return 1
+  case "$real" in "$1"/*) [ -f "$real" ] && printf '%s\n' "$real" ;; *) return 1 ;; esac; }
+emit(){ local r; r="$(real_under "$1" "$2")" && cat "$r"; }
+take(){ local r; r="$(real_under "$1" "$2")" && cat "$r" > "$3"; }
+jget(){ python3 -c 'import json,sys;v=json.load(open(sys.argv[1]));print(list(v["_lines"].values())[0] if sys.argv[2]=="_lines" else v.get("result",""))' "$1" "$2" 2>/dev/null; }
 
 # The caller may itself be an agent session whose PATH carries an INSTALLED copy of
 # the plugin's helpers; the replay must run the helpers of the plugin under test.
 CLEAN_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v -e '/\.claude/plugins/' -e '/plugins/[^/]*/bin$' | paste -sd: -)"
 
 run_one(){ # <case> <k>
-  local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo commit s f turn1_end=""
+  local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n turn1_end=""
   [ -f "$cd_/ask.md" ] && [ -f "$cd_/commit" ] || { echo "replay: $c lacks ask.md or commit" >&2; return; }
   commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
     || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
-  home="$(mk_tmp)"; repo="$(mk_tmp)"; rm -rf "$o"; mkdir -p "$o" "$home/.claude/skills" "$home/tmp"
+  # Four directories per run. The session can write its snapshot, its HOME and
+  # its log directory; it can only read cfg. The output directory is the
+  # caller's: the session never sees it, and nothing in it is written by it.
+  home="$(mk_tmp)"; repo="$(mk_tmp)"; log="$(mk_tmp)"; cfg="$(mk_tmp)"
+  rm -rf "${OUT:?}/$c.$k"; mkdir -p "$o" "$home/.claude/skills" "$home/tmp"
   cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
   # Project-level harness config can start servers and hooks of its own: drop it.
-  rm -rf "$repo/.mcp.json" "$repo/.claude/settings.json" "$repo/.claude/settings.local.json" "$repo/.envrc"
+  ( cd "$repo" && rm -rf .mcp.json .claude/settings.json .claude/settings.local.json .envrc )
   ( cd "$repo" && cgit init -q && git config user.email t@t && git config user.name t \
       && { [ -z "$IGNORE" ] || printf '%s\n' "$IGNORE" >> .git/info/exclude; } \
       && cgit add --all >/dev/null 2>&1 && cgit commit -qm snapshot ) \
@@ -134,61 +175,77 @@ run_one(){ # <case> <k>
     [ -f "$HOME/.claude/$f" ] && cp -L "$HOME/.claude/$f" "$home/.claude/$f" 2>/dev/null
   done
   for s in ${REPLAY_CARRY_SKILLS:-}; do
-    [ -d "$HOME/.claude/skills/$s" ] && cp -rL "$HOME/.claude/skills/$s" "$home/.claude/skills/" 2>/dev/null
+    [ -d "$HOME/.claude/skills/$s" ] && cp -RL "$HOME/.claude/skills/$s" "$home/.claude/skills/" 2>/dev/null
   done
-  cat > "$o/settings.json" <<JSON
+  # The hook wiring is read-only to the session, and so is its user settings
+  # file, so it cannot unhook the guard from there.
+  echo '{}' > "$home/.claude/settings.json"
+  cat > "$cfg/settings.json" <<JSON
 {"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"python3 '$GUARD'","timeout":10,"onFailure":"block"}]}]}}
 JSON
+  cp "$cfg/settings.json" "$o/settings.json"
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(wc -l < "$journal" | tr -d ' ')"
-  local cargs=(-p --model "$MODEL" --effort "$EFFORT" --plugin-dir "$PDIR" --settings "$o/settings.json"
+  local cargs=(-p --model "$MODEL" --effort "$EFFORT" --plugin-dir "$PDIR" --settings "$cfg/settings.json"
                --max-budget-usd "$BUDGET" --allowedTools "Read,Grep,Glob,Write,Edit,Bash,Agent,Task,Skill")
+  # Mount order matters: the empty directories first, then what is put back on top.
+  local box=()
+  if [ -n "$BWRAP" ]; then
+    box=(${NET[@]+"${NET[@]}"} "$BWRAP" "${BOX_BASE[@]}")
+    for d in /var/tmp /run "$REAL_HOME" "$(cd "${TMPDIR:-/tmp}" && pwd -P)" "$SRC" "$SET" "$OUT"; do
+      [ -d "$d" ] && box+=(--tmpfs "$d")
+    done
+    d="$(dirname "$(readlink -f /etc/resolv.conf 2>/dev/null)")"          # name resolution may live under /run
+    case "$d" in /run/*) box+=(--ro-bind "$d" "$d") ;; esac
+    box+=(--bind "$repo" "$repo" --bind "$home" "$home" --bind "$log" "$log" --ro-bind "$cfg" "$cfg"
+          --ro-bind "$home/.claude/settings.json" "$home/.claude/settings.json"
+          --ro-bind "$PDIR" "$PDIR" --ro-bind "$HERE" "$HERE" --ro-bind "$CLAUDE_BIN" "$CLAUDE_BIN" --chdir "$repo")
+  fi
   # The environment is built from nothing BEFORE the sandbox starts, so the
   # sandbox's own first process carries none of the caller's variables either.
   # /usr/bin/env, not `env`: an interactive caller's shell may define an `env` function.
-  local box=()
-  [ -z "$BWRAP" ] || box=("$BWRAP" --ro-bind / / --dev /dev --proc /proc --unshare-pid --unshare-ipc --die-with-parent
-      --tmpfs "$REAL_HOME" --tmpfs "$RUN_DIR" --bind "$repo" "$repo" --bind "$home" "$home" --bind "$o" "$o"
-      --ro-bind "$PDIR" "$PDIR" --ro-bind "$HERE" "$HERE" --ro-bind "$CLAUDE_BIN" "$CLAUDE_BIN" --chdir "$repo")
-  [ -z "$BWRAP" ] || [ ! -d "/run/user/$(id -u)" ] || box+=(--tmpfs "/run/user/$(id -u)")
-  session(){ ( cd "$repo" && /usr/bin/env -i \
-      HOME="$home" PATH="$CLEAN_PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" TMPDIR="$home/tmp" \
+  inbox(){ ( cd "$repo" && /usr/bin/env -i HOME="$home" PATH="$CLEAN_PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" \
+      TMPDIR="$home/tmp" "$@" ); }
+  session(){ inbox ENABLE_CLAUDEAI_MCP_SERVERS=false \
       ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
       ${CLAUDE_CODE_OAUTH_TOKEN:+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"} \
       ${ANTHROPIC_DEFAULT_OPUS_MODEL:+ANTHROPIC_DEFAULT_OPUS_MODEL="$ANTHROPIC_DEFAULT_OPUS_MODEL"} \
-      REPLAY_ALLOW_AGENTS="${REPLAY_ALLOW_AGENTS:-}" REPLAY_LOG="$o/guard.jsonl" REPLAY_ROOTS="$repo:$home:$PDIR" \
-      ${box[@]+"${box[@]}"} "$@" ); }
-  { printf '%s' "${REPLAY_PREFIX:-}"; cat "$cd_/ask.md"; } > "$o/turn1.md"
+      REPLAY_ALLOW_AGENTS="${REPLAY_ALLOW_AGENTS:-}" REPLAY_LOG="$log/guard.jsonl" REPLAY_ROOTS="$repo:$home:$PDIR" \
+      "$TIMEOUT" --foreground -k 10 "$1" ${box[@]+"${box[@]}"} "${@:2}"; }
+  { printf '%s' "${REPLAY_PREFIX:-}"; cat "$cd_/ask.md"; } > "$log/turn1.md"; cp "$log/turn1.md" "$o/turn1.md"
   if [ -z "$PC" ]; then
-    session timeout --foreground 900 "$CLAUDE_BIN" "${cargs[@]}" --output-format json < "$o/turn1.md" > "$o/result.json" 2> "$o/stderr.txt"
+    session 900 "$CLAUDE_BIN" "${cargs[@]}" --output-format json < "$o/turn1.md" > "$o/result.json" 2> "$o/stderr.txt"
+    take "$log" "$log/guard.jsonl" "$o/guard.jsonl"
   else
-    printf '/compact\n' > "$o/compact.md"
-    if [ -f "$cd_/after.md" ]; then cp "$cd_/after.md" "$o/after.md"; else printf '%s\n' "$AFTER_DEFAULT" > "$o/after.md"; fi
-    session timeout --foreground 2700 python3 "$HERE/turns.py" --split "$o/guard.jsonl" ${journal:+--lines "$journal"} \
-        "$o/turn" "$o/turn1.md" "$o/compact.md" "$o/after.md" -- "$CLAUDE_BIN" "${cargs[@]}" > /dev/null 2> "$o/stderr.txt"
-    mv "$o/turn.1.json" "$o/result.json" 2>/dev/null; mv "$o/turn.2.json" "$o/compact.result.json" 2>/dev/null
-    mv "$o/turn.3.json" "$o/turn2.result.json" 2>/dev/null
-    mv "$o/guard.jsonl.turn1" "$o/guard.jsonl" 2>/dev/null; mv "$o/guard.jsonl.turn2" "$o/guard.compact.jsonl" 2>/dev/null
-    mv "$o/guard.jsonl.turn3" "$o/guard.turn2.jsonl" 2>/dev/null
-    if [ -n "$journal" ]; then   # rows journaled after the compaction (turn 2 only)
-      local after_compact
-      after_compact="$(python3 -c 'import json,sys;print(list(json.load(open(sys.argv[1]))["_lines"].values())[0])' "$o/compact.result.json" 2>/dev/null || echo 0)"
-      tail -n +"$(( after_compact + 1 ))" "$journal" > "$o/journal.turn2.jsonl" 2>/dev/null
-      turn1_end="$(python3 -c 'import json,sys;print(list(json.load(open(sys.argv[1]))["_lines"].values())[0])' "$o/result.json" 2>/dev/null || echo "")"
-    fi
-    python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("result",""))' "$o/turn2.result.json" > "$o/turn2.say.md" 2>/dev/null
+    printf '/compact\n' > "$log/compact.md"
+    if [ -f "$cd_/after.md" ]; then cp "$cd_/after.md" "$log/after.md"; else printf '%s\n' "$AFTER_DEFAULT" > "$log/after.md"; fi
+    cp "$log/compact.md" "$log/after.md" "$o/"
+    session 2700 python3 "$HERE/turns.py" --split "$log/guard.jsonl" ${journal:+--lines "$journal"} \
+        "$log/turn" "$log/turn1.md" "$log/compact.md" "$log/after.md" -- "$CLAUDE_BIN" "${cargs[@]}" > /dev/null 2> "$o/stderr.txt"
+    # <file the session side wrote>:<its name in the output>
+    for f in turn.1.json:result.json turn.2.json:compact.result.json turn.3.json:turn2.result.json turn.stream.jsonl:turn.stream.jsonl \
+             guard.jsonl.turn1:guard.jsonl guard.jsonl.turn2:guard.compact.jsonl guard.jsonl.turn3:guard.turn2.jsonl; do
+      take "$log" "$log/${f%%:*}" "$o/${f##*:}"
+    done
+    turn1_end="$(jget "$o/result.json" _lines)"
+    jget "$o/turn2.result.json" result > "$o/turn2.say.md"
   fi
-  # In post-compaction mode this is turn 1 only, to match guard.jsonl.
-  [ -n "$journal" ] && tail -n +"$(( base + 1 ))" "$journal" 2>/dev/null \
-    | { [ -n "$turn1_end" ] && head -n "$(( turn1_end - base ))" || cat; } > "$o/journal.jsonl"
-  cat "$home"/.claude/projects/*/*.jsonl > "$o/transcript.jsonl" 2>/dev/null
-  # Everything the session changed since the snapshot, committed or not.
-  ( cd "$repo" && { cgit diff --name-only "$(git rev-list --max-parents=0 HEAD | tail -1)" 2>/dev/null
-      cgit ls-files --others --exclude-standard 2>/dev/null; } | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1'  | sort -u ) > "$o/changed-files.txt"
+  if [ -n "$journal" ]; then
+    # In post-compaction mode journal.jsonl is turn 1 only, to match guard.jsonl,
+    # and journal.turn2.jsonl is what was added after the compaction.
+    n=$(( ${turn1_end:-0} - base )); [ "$n" -gt 0 ] || n=0
+    emit "$repo" "$journal" | tail -n +"$(( base + 1 ))" | { [ -n "$turn1_end" ] && head -n "$n" || cat; } > "$o/journal.jsonl"
+    [ -z "$PC" ] || emit "$repo" "$journal" | tail -n +"$(( $(jget "$o/compact.result.json" _lines || echo 0) + 1 ))" > "$o/journal.turn2.jsonl"
+  fi
+  for f in "$home"/.claude/projects/*/*.jsonl; do emit "$home" "$f"; done > "$o/transcript.jsonl" 2>/dev/null
+  # Everything the session changed since the snapshot, committed or not. The
+  # repo's git configuration is now the session's, so git runs inside the sandbox.
+  inbox ${box[@]+"${box[@]}"} sh -c 'git diff --name-only "$(git rev-list --max-parents=0 HEAD | tail -1)"; git ls-files --others --exclude-standard' 2>/dev/null \
+    | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | sort -u > "$o/changed-files.txt"
   for f in "$cd_"/*; do case "${f##*/}" in commit|after.md) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
-  python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("result",""))' "$o/result.json" > "$o/say.md" 2>/dev/null \
-    || echo "(no result)" > "$o/say.md"
+  jget "$o/result.json" result > "$o/say.md" || echo "(no result)" > "$o/say.md"
+  # The collect command runs as the caller, on files the session wrote: it must not follow links.
   [ -z "${REPLAY_COLLECT:-}" ] || $REPLAY_COLLECT "$repo" "$o" "$PDIR" || echo "replay: $c: collect command failed" >&2
 }
 

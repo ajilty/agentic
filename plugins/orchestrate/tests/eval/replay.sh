@@ -18,7 +18,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [ "${1:-}" = --collect ]; then   # called back by the engine: <sandbox-repo> <out> <plugin-dir>
-  cp -r "$2/.agents/runs/orchestrate/tickets" "$3/tickets" 2>/dev/null
+  # The session wrote these: copy links as links, never what they point at.
+  cp -RP "$2/.agents/runs/orchestrate/tickets" "$3/tickets" 2>/dev/null
   cp "$4/skills/orchestrate/SKILL.md" "$3/skill.md" 2>/dev/null; exit 0
 fi
 OUT="${3:?usage: replay.sh <set-dir> <source-repo> <out-dir> [case ...]}"
