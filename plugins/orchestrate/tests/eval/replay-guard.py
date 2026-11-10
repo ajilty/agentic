@@ -36,6 +36,12 @@ if tool in ("Agent", "Task") and str(inp.get("subagent_type", "")).split(":")[-1
 if tool in ("Agent", "Task"):
     deny("Replay harness: dispatches are recorded, not run. End your turn now.")
 
+# Connected services and the open web: the sandbox HOME carries the account's
+# credential, so account-level connectors (mail, chat, drive) are visible to the
+# session. Refused here by name, not left to the headless allow-list.
+if tool.startswith("mcp__") or tool in ("WebFetch", "WebSearch"):
+    deny("Replay harness: connected services and the web are off limits in this sandbox.")
+
 if tool == "Bash":
     cmd = inp.get("command", "")
     # Anything that can reach a network, a cloud, a cluster, or a credential store.

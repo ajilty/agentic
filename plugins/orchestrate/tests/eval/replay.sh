@@ -76,7 +76,7 @@ run_one(){ # <case> <k>
     [ -d "$HOME/.claude/skills/$s" ] && cp -rL "$HOME/.claude/skills/$s" "$home/.claude/skills/" 2>/dev/null
   done
   cat > "$o/settings.json" <<JSON
-{"hooks":{"PreToolUse":[{"matcher":"Agent|Task|Bash|Read|Write|Edit|Glob|Grep|NotebookEdit","hooks":[{"type":"command","command":"python3 $GUARD","timeout":10}]}]}}
+{"hooks":{"PreToolUse":[{"matcher":"Agent|Task|Bash|Read|Write|Edit|Glob|Grep|NotebookEdit|WebFetch|WebSearch|mcp__.*","hooks":[{"type":"command","command":"python3 $GUARD","timeout":10}]}]}}
 JSON
   # The snapshot may carry the source repo's own tracked board; score only what this run adds.
   { wc -l < "$repo/.agents/runs/orchestrate/board.jsonl" 2>/dev/null || echo 0; } | tr -d ' ' > "$o/board.base"
