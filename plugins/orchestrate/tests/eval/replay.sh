@@ -25,7 +25,8 @@ export REPLAY_PLUGIN_DIR="${REPLAY_PLUGIN_DIR:-$HERE/../..}" REPLAY_PREFIX='/orc
 bash "$HERE/../../../../scripts/replay/replay.sh" "$@" | grep '^(skip'; rc="${PIPESTATUS[0]}"
 [ "$rc" = 0 ] || exit "$rc"
 [ -f "$OUT/summary.txt" ] || exit 0   # the engine skipped
-for o in "$OUT"/*/; do cp "$REPLAY_PLUGIN_DIR/skills/orchestrate/SKILL.md" "$o/skill.md" 2>/dev/null; done   # the brief under test
+# The brief under test, kept beside each run it produced: a run left by an earlier call keeps its own.
+for o in "$OUT"/*/; do [ -e "$o/skill.md" ] || cp "$REPLAY_PLUGIN_DIR/skills/orchestrate/SKILL.md" "$o/skill.md" 2>/dev/null; done
 clean(){ LC_ALL=C tr -cd '[:print:]\n'; }   # scorecards carry session-written text: never raw to the terminal
 
 # Scorecard, from the rows this run journaled and the guard's log.

@@ -8,8 +8,9 @@ def jl(p):
     out = []
     try:
         for l in open(p):
-            try: out.append(json.loads(l))
-            except Exception: pass
+            try: r = json.loads(l)
+            except Exception: continue
+            if isinstance(r, dict): out.append(r)   # the session wrote these files: a row is an object or nothing
     except Exception: pass
     return out
 
@@ -18,7 +19,8 @@ ev = [r.get("event") for r in rows]
 ci = ev.index("clarify") if "clarify" in ev else None
 di = ev.index("dispatched") if "dispatched" in ev else None
 agents = [g for g in guard if g.get("tool") in ("Agent", "Task") and g.get("decision") == "deny"]
-first = agents[0].get("input", {}).get("subagent_type", "?").split(":")[-1] if agents else None
+inp = agents[0].get("input") if agents else None
+first = str(inp.get("subagent_type", "?") if isinstance(inp, dict) else "?").split(":")[-1] if agents else None
 try: edits = sum(1 for l in open(o + "/changed-files.txt") if l.strip())
 except Exception: edits = 0
 if ci is not None and (di is None or ci < di): out = "asked"
@@ -34,7 +36,7 @@ def num(k, fmt, scale=1):   # in post-compaction mode the session can write this
     return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) else "-"
 say = str(res.get("result", "") or "")
 kind = open(o + "/kind").read().strip() if os.path.exists(o + "/kind") else "-"
-model = ",".join(sorted((res.get("modelUsage") or {}).keys())) or "-"
+mu = res.get("modelUsage"); model = ",".join(sorted(map(str, mu))) if isinstance(mu, dict) and mu else "-"
 import glob, re
 read = "y" if glob.glob(o + "/tickets/*/reading.md") else "-"
 verdict = "-"

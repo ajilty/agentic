@@ -72,8 +72,15 @@ which a replay of work past its opening stage would feel. Inside the sandbox a
 session cannot write `.git/config`, `.git/hooks`, `.mcp.json` or shell startup
 files in the snapshot: the runtime protects them.
 
-The runtime is a beta. This harness is tested with 0.0.82 on Linux; macOS uses
-the runtime's Seatbelt backend and is untested here. Without a usable runtime
+On Ubuntu 24.04 and later the runtime also needs AppArmor out of its way:
+`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` and
+`sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict` (both last
+until reboot; the CI job does the same). If the runtime cannot start, the
+runner prints the runtime's own error.
+
+The runtime is a beta. This harness is tested with 0.0.82 on Linux. macOS is
+untested and the policy's readable paths are Linux's, so expect the runner to
+refuse there. Without a usable runtime
 there is no boundary: the session runs as you. The runner refuses to start
 unless `REPLAY_UNCONFINED=1`.
 

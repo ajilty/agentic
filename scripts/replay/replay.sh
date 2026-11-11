@@ -78,7 +78,8 @@
 # It blocks the tool when it errors, times out or cannot start, which needs
 # Claude Code 2.1.295 or later, checked below.
 # Tools installed under the caller's home are not on the session's PATH.
-# The runtime is a beta: tested with 0.0.82 on Linux; macOS is untested here.
+# The runtime is a beta: tested with 0.0.82 on Linux. macOS is untested, and
+# the readable list above is Linux's: expect the runner to refuse there.
 # Without a usable runtime there is no boundary, only the scrubbed environment
 # and the guard: the session runs as you. The runner refuses to start that way
 # unless REPLAY_UNCONFINED=1.
@@ -202,15 +203,18 @@ fi
 [ -n "$SRT" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
 
 run_one(){ # <case> <k>
-  local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n turn1_end=""
+  local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n t1="" t2=""
   [ -f "$cd_/ask.md" ] && [ -f "$cd_/commit" ] || { echo "replay: $c lacks ask.md or commit" >&2; return; }
   commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
     || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
   # Four directories per run. The session can write its snapshot, its HOME and
   # its log directory; it can only read cfg. The output directory is the
-  # caller's: the session never sees it, and nothing in it is written by it.
+  # caller's: the session never sees it. What lands there is the session's
+  # standard output through a size cap, and copies the runner makes.
   home="$(mk_tmp)"; repo="$(mk_tmp)"; log="$(mk_tmp)"; cfg="$(mk_tmp)"
   rm -rf "${OUT:?}/$c.$k"; mkdir -p "$o" "$home/.claude/skills" "$home/tmp"
+  # The case's extra files go in first, so no case file can stand in for an output.
+  for f in "$cd_"/*; do case "${f##*/}" in commit|after.md) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
   cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
   # Project-level harness config can start servers and hooks of its own: drop it.
   ( cd "$repo" && { [ ! -L .claude ] || rm -f .claude; } && rm -rf .mcp.json .claude/settings.json .claude/settings.local.json .envrc )
@@ -263,28 +267,30 @@ JSON
       ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 10 "$1" "${@:2}"; }
   { printf '%s' "${REPLAY_PREFIX:-}"; cat "$cd_/ask.md"; } > "$log/turn1.md"; cp "$log/turn1.md" "$o/turn1.md"
   if [ -z "$PC" ]; then
-    session "$LIMIT" "$CLAUDE_BIN" "${cargs[@]}" --output-format json < "$o/turn1.md" > "$o/result.json" 2> "$o/stderr.txt"
+    session "$LIMIT" "$CLAUDE_BIN" "${cargs[@]}" --output-format json < "$o/turn1.md" 2> "$log/stderr.txt" | head -c 268435456 > "$o/result.json"
     take "$log" "$log/guard.jsonl" "$o/guard.jsonl"
   else
     printf '/compact\n' > "$log/compact.md"
     if [ -f "$cd_/after.md" ]; then cp "$cd_/after.md" "$log/after.md"; else printf '%s\n' "$AFTER_DEFAULT" > "$log/after.md"; fi
     cp "$log/compact.md" "$log/after.md" "$o/"
     session "$LIMIT" python3 "$HERE/turns.py" --split "$log/guard.jsonl" ${journal:+--lines "$journal"} \
-        "$log/turn" "$log/turn1.md" "$log/compact.md" "$log/after.md" -- "$CLAUDE_BIN" "${cargs[@]}" > /dev/null 2> "$o/stderr.txt"
+        "$log/turn" "$log/turn1.md" "$log/compact.md" "$log/after.md" -- "$CLAUDE_BIN" "${cargs[@]}" > /dev/null 2> "$log/stderr.txt"
     # <file the session side wrote>:<its name in the output>
     for f in turn.1.json:result.json turn.2.json:compact.result.json turn.3.json:turn2.result.json turn.stream.jsonl:turn.stream.jsonl \
              guard.jsonl.turn1:guard.jsonl guard.jsonl.turn2:guard.compact.jsonl guard.jsonl.turn3:guard.turn2.jsonl; do
       take "$log" "$log/${f%%:*}" "$o/${f##*:}"
     done
-    turn1_end="$(num "$(jget "$o/result.json" _lines)")"
+    t1="$(jget "$o/result.json" _lines)"; t2="$(jget "$o/compact.result.json" _lines)"
     jget "$o/turn2.result.json" result > "$o/turn2.say.md"
   fi
   if [ -n "$journal" ]; then
     # In post-compaction mode journal.jsonl is turn 1 only, to match guard.jsonl,
     # and journal.turn2.jsonl is what was added after the compaction.
-    n=$(( $(num "$turn1_end") - $(num "$base") )); [ "$n" -gt 0 ] || n=0
-    emit "$repo" "$journal" | tail -n +"$(( base + 1 ))" | { [ -n "$PC" ] && head -n "$n" || cat; } > "$o/journal.jsonl"
-    [ -z "$PC" ] || emit "$repo" "$journal" | tail -n +"$(( $(num "$(jget "$o/compact.result.json" _lines)") + 1 ))" > "$o/journal.turn2.jsonl"
+    # A turn that never finished left no line count: its rows stay with the turn
+    # that wrote them, so a run cut short in turn 1 still shows what turn 1 did.
+    n=$(( $(num "$t1") - $(num "$base") )); [ "$n" -gt 0 ] || n=0
+    emit "$repo" "$journal" | tail -n +"$(( base + 1 ))" | { [ -n "$t1" ] && head -n "$n" || cat; } > "$o/journal.jsonl"
+    [ -z "$PC" ] || { [ -n "$t2" ] && emit "$repo" "$journal" | tail -n +"$(( $(num "$t2") + 1 ))"; } > "$o/journal.turn2.jsonl"
   fi
   for f in "$home"/.claude/projects/*/*.jsonl; do emit "$home" "$f"; done > "$o/transcript.jsonl" 2>/dev/null
   # Everything the session changed since the snapshot, committed or not. The
@@ -296,7 +302,7 @@ JSON
       [ "$f" = // ] && { n=1; continue; }
       [ -z "$n" ] || [ -e "$repo/$f" ] || [ -L "$repo/$f" ] || continue; [ -z "$f" ] || printf '%s\n' "$f"; done; } \
     | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | sort -u > "$o/changed-files.txt"
-  for f in "$cd_"/*; do case "${f##*/}" in commit|after.md) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
+  take "$log" "$log/stderr.txt" "$o/stderr.txt"
   jget "$o/result.json" result > "$o/say.md" || echo "(no result)" > "$o/say.md"
   # Copied by the runner as the caller, from files the session wrote: regular
   # files only, no link followed anywhere on the way, nothing large.

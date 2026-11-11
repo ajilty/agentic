@@ -40,8 +40,9 @@ def jl(p):
     out = []
     try:
         for l in open(p, errors="replace"):
-            try: out.append(json.loads(l))
-            except Exception: pass
+            try: r = json.loads(l)
+            except Exception: continue
+            if isinstance(r, dict): out.append(r)
     except Exception: pass
     return out
 
