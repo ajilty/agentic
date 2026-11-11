@@ -31,6 +31,10 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          # Ubuntu's own profile for bubblewrap strips capabilities from the namespaces
+          # under it, whatever the sysctl says; the runtime's second layer needs them.
+          ls /etc/apparmor.d | grep -i bwrap || true
+          [ ! -f /etc/apparmor.d/bwrap-userns-restrict ] || sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict || true
           npm install -g @anthropic-ai/sandbox-runtime@0.0.82
       - name: Run every scripts/*/test.sh (the replay harness and its sandbox)
         run: bash scripts/check.sh script-tests
