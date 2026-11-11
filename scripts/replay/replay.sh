@@ -26,7 +26,7 @@
 # append-only log the plugin writes; its new rows are kept per turn),
 # REPLAY_KEEP (space-separated repo-relative paths to copy out after each
 # session, each to <out>/<its last name>; regular files only, links never
-# followed).
+# followed), REPLAY_SRT (the sandbox runtime to use; default `srt` on PATH).
 #
 # An existing <out-dir>/<case>.<k> is replaced, never added to.
 #
@@ -45,42 +45,43 @@
 #   settings.json stderr.txt      the hook wiring used, and the CLI's stderr
 # and <out-dir>/summary.txt, one line per run.
 #
-# Safety. On Linux each session runs inside an OS sandbox (bubblewrap):
-#   - the filesystem is read-only, and these are replaced by empty directories:
-#     the caller's home, /tmp, /var/tmp, TMPDIR, /run (sockets of the caller's
-#     other programs live there), the source repo, the set and the out dir;
+# Safety. Each session runs inside Anthropic's sandbox runtime (`srt`, the
+# boundary Claude Code's own sandbox is built on: bubblewrap on Linux, Seatbelt
+# on macOS), with a policy this runner writes per session:
+#   - it can read the system's programs (/usr, /etc, a Homebrew or Nix prefix),
+#     the CLI, the plugin under test, this harness, and its own snapshot,
+#     throwaway HOME and log directory. Nothing else: not the caller's home,
+#     /tmp, /run, the source repo, the set or the out dir;
+#   - it can write only the snapshot, the throwaway HOME and the log directory;
+#   - it has no network of its own. Every connection goes through the runtime's
+#     proxy, which passes only the model's hosts (api.anthropic.com, claude.ai,
+#     platform.claude.com). This machine's services and sockets are out of reach;
 #   - it has its own process table, so no other process's environment is
 #     readable, and an environment built from nothing: HOME, PATH, TERM, LANG,
-#     TMPDIR and the model login;
-#   - it can write only its snapshot, its throwaway HOME and a log directory.
-#     It never sees the out dir. The runner copies results there itself, never
-#     following a link the session left, and runs git on the snapshot only
-#     inside the sandbox, because the snapshot's git configuration is the
-#     session's to edit;
-#   - with pasta present it has a network of its own, so services bound to
-#     this machine's loopback address are out of reach. Without pasta the
-#     runner says so and the session shares the machine's network. Either way,
-#     services bound to another address of this machine (a container bridge, a
-#     VPN address) and the name resolver's socket stay reachable;
+#     TMPDIR, the model login and the proxy settings the runtime adds;
 #   - the time limit runs inside the sandbox, so nothing a session started
 #     outlives it, and an interrupted runner kills its sandboxes by name.
+# The runner copies results out itself, never following a link the session
+# left, and runs git on the snapshot only inside the sandbox, because the
+# snapshot's git configuration is the session's to edit.
 # Not limited: the memory and disk a session can fill inside its sandbox.
 # The snapshot is a `git archive` (tracked files only, no remote), taken with
 # the caller's git configuration switched off so no filter, hook or signer of
 # theirs runs.
-# What the sandbox does not cover: the internet stays reachable, because the
-# model is reached over it, and the session holds the model login. guard.py is
-# what refuses the web and the connected services that come with that login
-# (they are also switched off by ENABLE_CLAUDEAI_MCP_SERVERS=false); it refuses
-# dispatches and any tool it does not know as well. The guard is best effort (it
-# pattern-matches commands), never the boundary. It blocks the tool when it
-# errors, times out or cannot start, which needs Claude Code 2.1.295 or later,
-# checked below. A session that got past the guard could send what it can read
-# (the snapshot, the plugin, the operator's CLAUDE.md) anywhere on the internet.
+# What the sandbox does not cover: the session holds the model login and talks
+# to the model, so what it can read (the snapshot, the plugin, the operator's
+# CLAUDE.md) goes to the model provider, as in any session, and tools the
+# provider runs on its side (web search) are a way out. guard.py refuses those,
+# the connected services that come with the login (also switched off by
+# ENABLE_CLAUDEAI_MCP_SERVERS=false), dispatches and any tool it does not know.
+# The guard is best effort (it pattern-matches commands), never the boundary.
+# It blocks the tool when it errors, times out or cannot start, which needs
+# Claude Code 2.1.295 or later, checked below.
 # Tools installed under the caller's home are not on the session's PATH.
-# Without a usable bubblewrap (macOS, some containers) there is no boundary,
-# only the scrubbed environment and the guard: the session runs as you. The
-# runner refuses to start that way unless REPLAY_UNCONFINED=1.
+# The runtime is a beta: tested with 0.0.82 on Linux; macOS is untested here.
+# Without a usable runtime there is no boundary, only the scrubbed environment
+# and the guard: the session runs as you. The runner refuses to start that way
+# unless REPLAY_UNCONFINED=1.
 #
 # Claude Code only: Codex and OpenCode would each need their own driver.
 # Reporting only; never a CI gate. Self-skips without claude/auth/python3.
@@ -115,22 +116,9 @@ for d in "$(git -C "$SRC" rev-parse --show-toplevel 2>/dev/null)" "$(git -C "$SR
   d="$(cd "$SRC" && cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && [ "$d" != / ] && SRC_HIDE+=("$d")
 done
 
-# The sandbox, probed with the flags the sessions use: a tool that is present
-# but not permitted here (a container, a restricted runner) counts as absent.
-BOX_BASE=(--ro-bind / / --dev /dev --proc /proc --unshare-pid --unshare-ipc --new-session --die-with-parent --tmpfs /tmp)
-BWRAP="$(command -v bwrap 2>/dev/null || true)"
-[ -z "$BWRAP" ] || "$BWRAP" "${BOX_BASE[@]}" true 2>/dev/null || BWRAP=""
-[ -n "$BWRAP" ] || [ "${REPLAY_UNCONFINED:-}" = 1 ] || {
-  echo "replay: no usable bubblewrap, so no sandbox boundary; set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }
-[ -n "$BWRAP" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
-# A network of its own (user-mode, via pasta) keeps this machine's local
-# services and abstract sockets out of reach while the model stays reachable.
-NET=(); PASTA="$(command -v pasta 2>/dev/null || true)"
-if [ -n "$BWRAP" ] && [ -n "$PASTA" ] && "$PASTA" --config-net --no-map-gw -t none -u none -T none -U none -- true >/dev/null 2>&1; then
-  NET=("$PASTA" --config-net --no-map-gw -t none -u none -T none -U none --)
-elif [ -n "$BWRAP" ]; then
-  echo "replay: no usable pasta: sessions share this machine's network, so its local services stay reachable" >&2
-fi
+# The sandbox runtime (REPLAY_SRT, or `srt` on PATH) is probed after the run
+# directory exists, by running it: present but not permitted here counts as absent.
+SRT="${REPLAY_SRT:-$(command -v srt 2>/dev/null || true)}"
 
 MODEL="${REPLAY_MODEL:-opus}"; EFFORT="${REPLAY_EFFORT:-low}"; K="${REPLAY_K:-1}"
 PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd -P)"; JOBS="${REPLAY_JOBS:-4}"
@@ -143,10 +131,10 @@ IGNORE="${REPLAY_IGNORE-.agents/}"; JOURNAL="${REPLAY_JOURNAL:-}"
 # put back for the session too, read-only.
 PLUG_LINKS=()
 while IFS= read -r d; do
-  d="$(readlink -f "$d" 2>/dev/null)"; case "$d/" in "$PDIR"/*|/) ;; *) [ -e "$d" ] && PLUG_LINKS+=(--ro-bind "$d" "$d") ;; esac
+  d="$(readlink -f "$d" 2>/dev/null)"; case "$d/" in "$PDIR"/*|/) ;; *) [ -e "$d" ] && PLUG_LINKS+=("$d") ;; esac
 done < <(find "$PDIR" -maxdepth 3 -type l 2>/dev/null)
-# The set and the out dir are hidden from the session last, on top of everything
-# else, so nothing the session needs may sit inside them.
+# The set and the out dir are hidden from the session whatever else is
+# readable, so nothing the session needs may sit inside them.
 case "$OUT:$SET" in /:*|*:/) echo "replay: the set and the out dir cannot be /" >&2; exit 2 ;; esac
 for d in "$PDIR" "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
   echo "replay: the set and the out dir must not contain the plugin, the harness, the CLI or TMPDIR ($d)" >&2; exit 2 ;; esac; done
@@ -157,7 +145,7 @@ for d in "$PDIR" "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do c
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/replay.XXXXXXXX")" || exit 2
 RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
 # Every sandbox carries this run's directory in its arguments. Killing by that
-# name is what stops them: behind pasta a sandbox does not die with the runner.
+# name is what stops them, whether or not a sandbox dies with the runner.
 reap(){ [ -n "$RUN_DIR" ] && pkill -KILL -f -- "$RUN_DIR/t\." 2>/dev/null; return 0; }
 trap 'reap; cd /; [ -n "$RUN_DIR" ] && rm -rf "$RUN_DIR"' EXIT
 # An interrupt must stop the paid sessions too (reap, then the EXIT trap). The
@@ -184,6 +172,33 @@ jget(){ python3 -c 'import json,sys;v=json.load(open(sys.argv[1]));print(list(v[
 # The caller may itself be an agent session whose PATH carries an INSTALLED copy of
 # the plugin's helpers; the replay must run the helpers of the plugin under test.
 CLEAN_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v -e '/\.claude/plugins/' -e '/plugins/[^/]*/bin$' | paste -sd: -)"
+
+# Write a session's sandbox policy: <file> <read-only paths...> -- <writable
+# paths...> -- <hidden paths...> -- <paths never writable...>. Every path is taken literally, never as a pattern.
+SYS_READ=(); for d in /usr /etc /nix /opt/homebrew /home/linuxbrew; do d="$(readlink -f "$d" 2>/dev/null)" && [ -d "$d" ] && SYS_READ+=("$d"); done
+RG=(); command -v rg >/dev/null 2>&1 || RG=("$CLAUDE_BIN")      # the CLI carries a ripgrep of its own
+policy(){ python3 - "${RG[0]:-}" "$@" <<'POLICY'
+import json, sys
+rg, out, groups = sys.argv[1], sys.argv[2], [[]]
+for a in sys.argv[3:]:
+    groups.append([]) if a == "--" else groups[-1].append({"path": a, "literal": True})
+read, write, hide, lock = (groups + [[], [], []])[:4]
+cfg = {"network": {"allowedDomains": ["api.anthropic.com", "claude.ai", "platform.claude.com"], "deniedDomains": []},
+       "filesystem": {"denyRead": ["/"] + hide, "allowRead": read + write, "allowWrite": write, "denyWrite": lock}}
+if rg: cfg["ripgrep"] = {"command": rg, "argv0": "rg"}
+json.dump(cfg, open(out, "w"))
+POLICY
+}
+if [ -n "$SRT" ]; then
+  # The runtime's proxy listens on sockets under TMPDIR, whose path has a short limit.
+  [ "${#RUN_DIR}" -le 60 ] || { echo "replay: TMPDIR is too long a path for the sandbox's sockets ($RUN_DIR)" >&2; exit 2; }
+  SRT="$(readlink -f "$SRT")"; SRT_PKG="$(dirname "$(dirname "$SRT")")"; mkdir -p "$RUN_DIR/probe"
+  policy "$RUN_DIR/probe/srt.json" "${SYS_READ[@]}" "$SRT_PKG" "$RUN_DIR/probe"
+  ( cd "$RUN_DIR/probe" && TMPDIR="$RUN_DIR/probe" "$SRT" --settings srt.json -- true ) >/dev/null 2>&1 || SRT=""
+fi
+[ -n "$SRT" ] || [ "${REPLAY_UNCONFINED:-}" = 1 ] || {
+  echo "replay: no usable sandbox runtime, so no sandbox boundary (npm install -g @anthropic-ai/sandbox-runtime; Linux also needs bubblewrap, socat and ripgrep); set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }
+[ -n "$SRT" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
 
 run_one(){ # <case> <k>
   local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n turn1_end=""
@@ -222,32 +237,29 @@ JSON
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
   local cargs=(-p --model "$MODEL" --effort "$EFFORT" --plugin-dir "$PDIR" --settings "$cfg/settings.json"
                --max-budget-usd "$BUDGET" --allowedTools "Read,Grep,Glob,Write,Edit,Bash,Agent,Task,Skill")
-  # Mount order matters: the empty directories first, then what is put back on top.
-  local box=()
-  if [ -n "$BWRAP" ]; then
-    box=(${NET[@]+"${NET[@]}"} "$BWRAP" "${BOX_BASE[@]}")
-    for d in /var/tmp /run "$REAL_HOME" "$(cd "${TMPDIR:-/tmp}" && pwd -P)" "${SRC_HIDE[@]}"; do
-      [ -d "$d" ] && box+=(--tmpfs "$d")
-    done
-    d="$(dirname "$(readlink -f /etc/resolv.conf 2>/dev/null)")"          # name resolution may live under /run
-    case "$d" in /run/*) box+=(--ro-bind "$d" "$d") ;; esac
-    box+=(--bind "$repo" "$repo" --bind "$home" "$home" --bind "$log" "$log" --ro-bind "$cfg" "$cfg"
-          --ro-bind "$home/.claude/settings.json" "$home/.claude/settings.json"
-          --ro-bind "$PDIR" "$PDIR" ${PLUG_LINKS[@]+"${PLUG_LINKS[@]}"} --ro-bind "$HERE" "$HERE"
-          --ro-bind "$CLAUDE_BIN" "$CLAUDE_BIN" --tmpfs "$SET" --tmpfs "$OUT" --chdir "$repo")
+  # The policy: what the session may read, then write, then what stays hidden
+  # even if it sits inside something readable.
+  local box=() sk=""
+  if [ -n "$SRT" ]; then
+    sk="$(mk_tmp)"
+    policy "$cfg/srt.json" "${SYS_READ[@]}" "$CLAUDE_BIN" "$SRT_PKG" "$PDIR" ${PLUG_LINKS[@]+"${PLUG_LINKS[@]}"} "$HERE" "$cfg" "$sk" \
+           -- "$repo" "$home" "$log" -- "$SET" "$OUT" "${SRC_HIDE[@]}" -- "$home/.claude/settings.json"
+    box=("$SRT" --settings "$cfg/srt.json" --)
   fi
   # The environment is built from nothing BEFORE the sandbox starts, so the
   # sandbox's own first process carries none of the caller's variables either.
+  # TMPDIR outside is where the runtime puts its proxy sockets; inside it is reset.
   # /usr/bin/env, not `env`: an interactive caller's shell may define an `env` function.
   inbox(){ ( exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-    # nothing the caller left open is handed on
       cd "$repo" && /usr/bin/env -i HOME="$home" PATH="$CLEAN_PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" \
-      TMPDIR="$home/tmp" "$@" ); }
+      TMPDIR="${sk:-$home/tmp}" "$@" ); }
+  local tmp=(/usr/bin/env TMPDIR="$home/tmp" CLAUDE_CODE_TMPDIR="$home/tmp")
   session(){ inbox ENABLE_CLAUDEAI_MCP_SERVERS=false \
       ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
       ${CLAUDE_CODE_OAUTH_TOKEN:+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"} \
       ${ANTHROPIC_DEFAULT_OPUS_MODEL:+ANTHROPIC_DEFAULT_OPUS_MODEL="$ANTHROPIC_DEFAULT_OPUS_MODEL"} \
       REPLAY_ALLOW_AGENTS="${REPLAY_ALLOW_AGENTS:-}" REPLAY_LOG="$log/guard.jsonl" REPLAY_ROOTS="$repo:$home:$PDIR" \
-      ${box[@]+"${box[@]}"} "$TIMEOUT" -k 10 "$1" "${@:2}"; }
+      ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 10 "$1" "${@:2}"; }
   { printf '%s' "${REPLAY_PREFIX:-}"; cat "$cd_/ask.md"; } > "$log/turn1.md"; cp "$log/turn1.md" "$o/turn1.md"
   if [ -z "$PC" ]; then
     session "$LIMIT" "$CLAUDE_BIN" "${cargs[@]}" --output-format json < "$o/turn1.md" > "$o/result.json" 2> "$o/stderr.txt"
@@ -276,7 +288,12 @@ JSON
   for f in "$home"/.claude/projects/*/*.jsonl; do emit "$home" "$f"; done > "$o/transcript.jsonl" 2>/dev/null
   # Everything the session changed since the snapshot, committed or not. The
   # repo's git configuration is now the session's, so git runs inside the sandbox.
-  inbox ${box[@]+"${box[@]}"} "$TIMEOUT" -k 5 60 sh -c 'git diff --name-only "$(git rev-list --max-parents=0 HEAD | tail -1)"; git ls-files --others --exclude-standard' 2>/dev/null \
+  # While the sandbox is up it shows placeholders over paths it protects
+  # (.bashrc, .mcp.json), so a new file counts only if it is still there after.
+  s="$(inbox ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 5 60 sh -c 'git diff --name-only "$(git rev-list --max-parents=0 HEAD | tail -1)"; echo //; git ls-files --others --exclude-standard' 2>/dev/null)"
+  printf '%s\n' "$s" | { n=""; while IFS= read -r f; do
+      [ "$f" = // ] && { n=1; continue; }
+      [ -z "$n" ] || [ -e "$repo/$f" ] || [ -L "$repo/$f" ] || continue; [ -z "$f" ] || printf '%s\n' "$f"; done; } \
     | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | sort -u > "$o/changed-files.txt"
   for f in "$cd_"/*; do case "${f##*/}" in commit|after.md) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
   jget "$o/result.json" result > "$o/say.md" || echo "(no result)" > "$o/say.md"

@@ -37,19 +37,24 @@ is the worked example: a wrapper of settings plus two scorecards.
 
 ## What keeps a replay safe
 
-On Linux each session runs inside a bubblewrap sandbox:
+Each session runs inside Anthropic's
+[sandbox runtime](https://github.com/anthropics/sandbox-runtime) (`srt`), the
+boundary Claude Code's own sandbox is built on, with a policy the runner writes
+per session. Install it once:
 
-- **Files:** read-only everywhere. Your home directory, the temporary
-  directories, `/run`, the source repo, the set and the output directory are
-  replaced by empty ones. It can write only its snapshot, a throwaway home and
-  a log directory.
+```bash
+npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, socat and ripgrep
+```
+
+- **Files:** it can read the system's programs, the CLI, the plugin, this
+  harness, and its own snapshot, throwaway home and log directory, and write
+  only those last three. Your home directory, the temporary directories,
+  `/run`, the source repo, the set and the output directory are not there.
+- **Network:** none of its own. Every connection goes through the runtime's
+  proxy, which passes only the model's hosts. This machine's services are out
+  of reach.
 - **Processes and environment:** its own process table, and an environment
   built from nothing.
-- **Network:** with `pasta` installed, a network of its own, so services bound
-  to this machine's loopback address are out of reach. Without it the runner
-  warns and the session shares the machine's network. Either way, services
-  bound to another address of this machine (a container bridge, a VPN address)
-  and the name resolver's socket stay reachable.
 - **Time:** the time limit runs inside the sandbox, so nothing a session
   started outlives it, and an interrupted runner kills its sandboxes.
 - **Not limited:** the memory and disk a session can fill inside its sandbox.
@@ -57,16 +62,20 @@ On Linux each session runs inside a bubblewrap sandbox:
   following a link the session left behind. Your scorer reads those copies,
   not the sandbox.
 
-What the sandbox does not cover: the internet stays reachable, because the
-model is reached over it, and the session holds the model login. `guard.py`
-refuses the web, connected services, dispatches and any tool it does not know.
-It is best effort, not the boundary: a session that got past it could send what
-it can read (the snapshot, the plugin, your `CLAUDE.md`) out. It also refuses
+What the sandbox does not cover: the session talks to the model, so what it
+reads (the snapshot, the plugin, your `CLAUDE.md`) goes to the model provider
+as in any session, and tools the provider runs on its side, such as web search,
+are a way out. `guard.py` refuses those, connected services, dispatches and any
+tool it does not know. It is best effort, not the boundary. It also refuses
 some harmless commands (any `terraform` or `kubectl`, reads under `/etc`),
-which a replay of work past its opening stage would feel.
+which a replay of work past its opening stage would feel. Inside the sandbox a
+session cannot write `.git/config`, `.git/hooks`, `.mcp.json` or shell startup
+files in the snapshot: the runtime protects them.
 
-Without a usable bubblewrap (macOS, some containers) there is no boundary: the
-session runs as you. The runner refuses to start unless `REPLAY_UNCONFINED=1`.
+The runtime is a beta. This harness is tested with 0.0.82 on Linux; macOS uses
+the runtime's Seatbelt backend and is untested here. Without a usable runtime
+there is no boundary: the session runs as you. The runner refuses to start
+unless `REPLAY_UNCONFINED=1`.
 
 `test.sh` pins what the guard promises and, with a stand-in for the CLI that
 tries to get out, that the sandbox holds.

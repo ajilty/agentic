@@ -24,11 +24,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install the sandbox tools the replay harness is tested with
-        # Ubuntu runners restrict unprivileged user namespaces through AppArmor;
-        # bubblewrap needs them, and the test fails under CI if the sandbox is unusable.
+        # The sandbox runtime, pinned to the version the harness is tested with,
+        # and what it needs on Linux. Ubuntu runners restrict unprivileged user
+        # namespaces through AppArmor; bubblewrap needs them, and the test fails
+        # under CI if the sandbox is unusable.
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap passt
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          npm install -g @anthropic-ai/sandbox-runtime@0.0.82
       - name: Run every scripts/*/test.sh (the replay harness and its sandbox)
         run: bash scripts/check.sh script-tests
   validate-plugins:

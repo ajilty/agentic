@@ -55,6 +55,16 @@ fh="$(mktemp -d "${HOME}/.replay-test.XXXXXX" 2>/dev/null)" || fh=""    # a stan
 [ -n "$fh" ] || { echo "(skip runner tests: cannot make a stand-in home)"; echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]; exit; }
 fh="$(cd "$fh" && pwd -P)"; echo TOPSECRET > "$fh/secret"; echo TOPSECRET > "$d/victim"
 mkdir -p "$d/bin" "$d/src" "$d/set/one" "$d/plug"
+# The sandbox runtime needs a ripgrep. The real CLI carries one; the stand-in below does not.
+real="$(command -v claude 2>/dev/null || true)"
+command -v rg >/dev/null 2>&1 || [ -z "$real" ] || { printf '#!/usr/bin/env bash\nexec -a rg %q "$@"\n' "$real" > "$d/bin/rg"; chmod +x "$d/bin/rg"; }
+# A service of this machine, listening on its loopback address: the session must not reach it.
+python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(8); open(sys.argv[1],"w").write(str(s.getsockname()[1])); time.sleep(300)' "$d/port" & lp=$!
+i=0; until [ -s "$d/port" ] || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done; port="$(cat "$d/port")"
+knock(){ python3 -c 'import socket,sys
+try: socket.create_connection(("127.0.0.1", int(sys.argv[1])), 2); print("open")
+except OSError: print("closed")' "$1"; }
+[ "$(knock "$port")" = open ] && pass || fail "the control: the listener answers on this machine"
 cat > "$d/bin/claude" <<FAKE
 #!/usr/bin/env bash
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
@@ -73,9 +83,12 @@ own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' &&
 home=\$([ -e "$fh/secret" ] && echo seen || echo hidden)
 canary=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -c '^REPLAY_CANARY=')
 touch "$d/escaped-write" 2>/dev/null
+net=\$(python3 -c 'import socket
+try: socket.create_connection(("127.0.0.1", $port), 2); print("open")
+except OSError: print("closed")')
 git config core.fsmonitor "sh -c 'touch $d/escaped-git' --"
 ln -sf "$d/victim" "\$REPLAY_LOG" 2>/dev/null
-printf '{"result":"home=%s canary=%s own=%s","num_turns":1,"duration_ms":1000,"total_cost_usd":0}\n' "\$home" "\$canary" "\$own"
+printf '{"result":"home=%s canary=%s own=%s net=%s","num_turns":1,"duration_ms":1000,"total_cost_usd":0}\n' "\$home" "\$canary" "\$own" "\$net"
 FAKE
 chmod +x "$d/bin/claude"
 ( cd "$d/src" && git init -q && git config user.email t@t && git config user.name t && mkdir log \
@@ -84,14 +97,14 @@ git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"; echo "an ask" > "$d/set/on
 rp(){ HOME="$fh" REPLAY_CANARY=leak ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" REPLAY_PREFIX='/go ' \
         REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ REPLAY_KEEP="keep keeplink ../../etc" "$@" bash "$HERE/replay.sh" "$d/set" "$d/src" "$d/out" 2>&1; }
 o="$d/out/one.1"
-if rp env | grep -q 'no usable bubblewrap'; then
+case "$(rp env)" in *'no usable sandbox runtime'*)
   pass   # without a sandbox the runner refuses unless told otherwise
-  echo "(skip sandbox assertions: no usable bubblewrap here)"
-  [ "${CI:-}" != true ] || fail "CI must exercise the sandbox: bubblewrap is not usable on this runner"
-  rp env REPLAY_UNCONFINED=1 >/dev/null
-else
-  [ "$(cat "$o/say.md" 2>/dev/null)" = "home=hidden canary=0 own=seen" ] && pass \
-    || fail "the sandbox hides the caller's home directory and environment (got: $(cat "$o/say.md" 2>/dev/null))"
+  echo "(skip sandbox assertions: no usable sandbox runtime here)"
+  [ "${CI:-}" != true ] || fail "CI must exercise the sandbox: the sandbox runtime is not usable on this runner"
+  rp env REPLAY_UNCONFINED=1 >/dev/null ;;
+*)
+  [ "$(cat "$o/say.md" 2>/dev/null)" = "home=hidden canary=0 own=seen net=closed" ] && pass \
+    || fail "the sandbox hides the caller's home directory, environment and local services (got: $(cat "$o/say.md" 2>/dev/null))"
   [ ! -e "$d/escaped-write" ] && pass || fail "a write outside the sandbox does not reach the machine"
   [ ! -e "$d/escaped-git" ] && pass || fail "a command planted in the snapshot's git configuration does not run on the machine"
   # A session that hangs is ended by the time limit, and nothing it started survives.
@@ -111,8 +124,8 @@ else
   [ -f "$o/compact.result.json" ] && pass || fail "the post-compaction run produced its turns"
   [ ! -e "$d/escaped-arith" ] && [ ! -e /tmp/escaped-arith ] && pass || fail "a number field the session rewrote is not evaluated by the runner"
   ( cd "$d/src" && git rm -q hang && git commit -qm unhang ) >/dev/null 2>&1
-  git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"; rp env >/dev/null
-fi
+  git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"; rp env >/dev/null ;;
+esac
 grep -rq TOPSECRET "$d/out" && fail "a link left by the session is not followed into the output" || pass
 [ "$(cat "$o/keep/sub/a.txt" 2>/dev/null)" = kept ] && [ ! -e "$o/keep/link" ] && [ ! -e "$o/keep/dirlink" ] && [ ! -e "$o/keeplink" ] && [ ! -e "$o/etc" ] \
   && pass || fail "kept paths are copied as regular files only, from inside the snapshot only"
@@ -122,4 +135,5 @@ grep -rq TOPSECRET "$d/out" && fail "a link left by the session is not followed 
 [ -f "$o/kind" ] && [ ! -f "$o/commit" ] && pass || fail "extra case files are copied out"
 [ ! -e "$d/src/new.txt" ] && [ -z "$(git -C "$d/src" status --porcelain)" ] && pass || fail "the source repo is untouched"
 echo stale > "$o/stale"; rp env REPLAY_UNCONFINED=1 >/dev/null; [ ! -e "$o/stale" ] && pass || fail "a rerun replaces the output directory"
+kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]
