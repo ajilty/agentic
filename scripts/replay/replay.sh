@@ -53,7 +53,9 @@
 #     the CLI, the plugin under test, this harness, and its own snapshot,
 #     throwaway HOME and log directory. Nothing else: not the caller's home,
 #     /tmp, /run, the source repo, the set or the out dir;
-#   - it can write only the snapshot, the throwaway HOME and the log directory;
+#   - it can write only the snapshot, the throwaway HOME and the log directory.
+#     The runtime always shares one more path with the machine, /tmp/claude,
+#     when it exists: the runner refuses to start if it does;
 #   - it has no network of its own. Every connection goes through the runtime's
 #     proxy, which passes only the model's hosts (api.anthropic.com, claude.ai,
 #     platform.claude.com). This machine's services and sockets are out of reach;
@@ -63,7 +65,7 @@
 #   - the time limit runs inside the sandbox, so nothing a session started
 #     outlives it, and an interrupted runner kills its sandboxes by name.
 # The runner copies results out itself, never following a link the session
-# left, and runs git on the snapshot only inside the sandbox, because the
+# left, and once a session has run, runs git on the snapshot only inside the sandbox, because the
 # snapshot's git configuration is the session's to edit.
 # Not limited: the memory and disk a session can fill inside its sandbox.
 # The snapshot is a `git archive` (tracked files only, no remote), taken with
@@ -192,6 +194,9 @@ json.dump(cfg, open(out, "w"))
 POLICY
 }
 if [ -n "$SRT" ]; then
+  # The runtime keeps this path readable and writable from inside every sandbox when it exists on the machine.
+  for d in /tmp/claude /private/tmp/claude; do [ ! -e "$d" ] && [ ! -L "$d" ] || {
+    echo "replay: $d exists, and the sandbox runtime shares that path with every session: remove it first" >&2; exit 2; }; done
   # The runtime's proxy listens on sockets under TMPDIR, whose path has a short limit.
   [ "${#RUN_DIR}" -le 60 ] || { echo "replay: TMPDIR is too long a path for the sandbox's sockets ($RUN_DIR)" >&2; exit 2; }
   SRT="$(readlink -f "$SRT")"; SRT_PKG="$(dirname "$(dirname "$SRT")")"; mkdir -p "$RUN_DIR/probe"

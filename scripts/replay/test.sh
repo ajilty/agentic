@@ -134,6 +134,11 @@ case "$first" in *'no usable sandbox runtime'*)
   rp env REPLAY_POSTCOMPACT=1 >/dev/null
   [ -f "$o/compact.result.json" ] && pass || fail "the post-compaction run produced its turns"
   [ ! -e "$d/escaped-arith" ] && [ ! -e /tmp/escaped-arith ] && pass || fail "a number field the session rewrote is not evaluated by the runner"
+  # The one path the runtime shares with the machine must not exist when a replay starts.
+  if [ ! -e /tmp/claude ] && mkdir /tmp/claude 2>/dev/null; then
+    case "$(rp env)" in *'/tmp/claude exists'*) pass ;; *) fail "the runner refuses to start while /tmp/claude exists" ;; esac
+    rmdir /tmp/claude
+  fi
   rp env >/dev/null ;;
 esac
 grep -rq TOPSECRET "$d/plug/out" && fail "a link left by the session is not followed into the output" || pass

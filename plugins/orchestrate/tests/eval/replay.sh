@@ -29,7 +29,7 @@ bash "$HERE/../../../../scripts/replay/replay.sh" "$@" | grep '^(skip'; rc="${PI
 # The brief under test, kept beside each run this call produced; a run left by an earlier call keeps its own.
 for o in "$OUT"/*/; do [ "$o" -nt "$OUT/.started" ] && cp "$REPLAY_PLUGIN_DIR/skills/orchestrate/SKILL.md" "$o/skill.md" 2>/dev/null; done
 # The scorers read files the session wrote: one in an unexpected shape costs that run its line, not the scorecard.
-score(){ python3 "$@" 2>/dev/null || printf '%-24s (not scored: a file this run wrote is not in the expected shape)\n' "$(basename "${@: -1}")"; }
+score(){ python3 "$@" 2>/dev/null || printf '%-24s (not scored: the scorer failed on this run's files; run it on the directory to see why)\n' "$(basename "${@: -1}")"; }
 clean(){ LC_ALL=C tr -cd '[:print:]\n'; }   # scorecards carry session-written text: never raw to the terminal
 
 # Scorecard, from the rows this run journaled and the guard's log.

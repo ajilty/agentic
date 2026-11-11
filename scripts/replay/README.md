@@ -50,6 +50,8 @@ npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, so
   harness, and its own snapshot, throwaway home and log directory, and write
   only those last three. Your home directory, the temporary directories,
   `/run`, the source repo, the set and the output directory are not there.
+  One exception is the runtime's own: it shares `/tmp/claude` with the machine
+  when that path exists, so the runner refuses to start if it does.
 - **Network:** none of its own. Every connection goes through the runtime's
   proxy, which passes only the model's hosts. This machine's services are out
   of reach.
@@ -69,10 +71,10 @@ are a way out. `guard.py` refuses those, connected services, dispatches and any
 tool it does not know. It is best effort, not the boundary. It also refuses
 some harmless commands (any `terraform` or `kubectl`, reads under `/etc`),
 which a replay of work past its opening stage would feel. So would this: the
-runtime refuses writes to `.git/config`, `.git/hooks`, `.mcp.json` and shell
-startup files in the snapshot. That refusal is a side effect, not what keeps
-git safe: the runner treats the snapshot's git setup as the session's and runs
-git on it only inside the sandbox.
+runtime refuses writes to `.git/config`, `.git/hooks`, `.mcp.json`, shell
+startup files and a few more paths in the snapshot (its "mandatory deny paths"). That refusal is a side effect, not what keeps
+git safe: once a session has run, the runner treats the snapshot's git setup as
+the session's and runs git on it only inside the sandbox.
 
 On Ubuntu 24.04 and later the runtime also needs AppArmor out of its way:
 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` and
