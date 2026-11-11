@@ -194,7 +194,8 @@ if [ -n "$SRT" ]; then
   [ "${#RUN_DIR}" -le 60 ] || { echo "replay: TMPDIR is too long a path for the sandbox's sockets ($RUN_DIR)" >&2; exit 2; }
   SRT="$(readlink -f "$SRT")"; SRT_PKG="$(dirname "$(dirname "$SRT")")"; mkdir -p "$RUN_DIR/probe"
   policy "$RUN_DIR/probe/srt.json" "${SYS_READ[@]}" "$SRT_PKG" "$RUN_DIR/probe"
-  ( cd "$RUN_DIR/probe" && TMPDIR="$RUN_DIR/probe" "$SRT" --settings srt.json -- true ) >/dev/null 2>&1 || SRT=""
+  why="$( { cd "$RUN_DIR/probe" && TMPDIR="$RUN_DIR/probe" "$SRT" --settings srt.json -- true; } 2>&1 >/dev/null )" \
+    || { echo "replay: the sandbox runtime did not start: $(printf '%s' "$why" | tail -n 3 | tr '\n' ' ' | cut -c1-400)" >&2; SRT=""; }
 fi
 [ -n "$SRT" ] || [ "${REPLAY_UNCONFINED:-}" = 1 ] || {
   echo "replay: no usable sandbox runtime, so no sandbox boundary (npm install -g @anthropic-ai/sandbox-runtime; Linux also needs bubblewrap, socat and ripgrep); set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }

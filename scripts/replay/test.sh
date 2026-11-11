@@ -97,10 +97,11 @@ git -C "$d/src" rev-parse HEAD > "$d/set/one/commit"; echo "an ask" > "$d/set/on
 rp(){ HOME="$fh" REPLAY_CANARY=leak ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" REPLAY_PREFIX='/go ' \
         REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ REPLAY_KEEP="keep keeplink ../../etc" "$@" bash "$HERE/replay.sh" "$d/set" "$d/src" "$d/out" 2>&1; }
 o="$d/out/one.1"
-case "$(rp env)" in *'no usable sandbox runtime'*)
+first="$(rp env)"
+case "$first" in *'no usable sandbox runtime'*)
   pass   # without a sandbox the runner refuses unless told otherwise
   echo "(skip sandbox assertions: no usable sandbox runtime here)"
-  [ "${CI:-}" != true ] || fail "CI must exercise the sandbox: the sandbox runtime is not usable on this runner"
+  [ "${CI:-}" != true ] || fail "CI must exercise the sandbox: the sandbox runtime is not usable on this runner ($(printf '%s' "$first" | head -n 2 | tr '\n' ' '))"
   rp env REPLAY_UNCONFINED=1 >/dev/null ;;
 *)
   [ "$(cat "$o/say.md" 2>/dev/null)" = "home=hidden canary=0 own=seen net=closed" ] && pass \
