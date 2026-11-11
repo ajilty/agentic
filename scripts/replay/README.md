@@ -68,9 +68,11 @@ as in any session, and tools the provider runs on its side, such as web search,
 are a way out. `guard.py` refuses those, connected services, dispatches and any
 tool it does not know. It is best effort, not the boundary. It also refuses
 some harmless commands (any `terraform` or `kubectl`, reads under `/etc`),
-which a replay of work past its opening stage would feel. Inside the sandbox a
-session cannot write `.git/config`, `.git/hooks`, `.mcp.json` or shell startup
-files in the snapshot: the runtime protects them.
+which a replay of work past its opening stage would feel. So would this: the
+runtime refuses writes to `.git/config`, `.git/hooks`, `.mcp.json` and shell
+startup files in the snapshot. That refusal is a side effect, not what keeps
+git safe: the runner treats the snapshot's git setup as the session's and runs
+git on it only inside the sandbox.
 
 On Ubuntu 24.04 and later the runtime also needs AppArmor out of its way:
 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` and
@@ -79,8 +81,7 @@ until reboot; the CI job does the same). If the runtime cannot start, the
 runner prints the runtime's own error.
 
 The runtime is a beta. This harness is tested with 0.0.82 on Linux. macOS is
-untested and the policy's readable paths are Linux's, so expect the runner to
-refuse there. Without a usable runtime
+untested and may not work: the policy's readable paths are Linux's. Without a usable runtime
 there is no boundary: the session runs as you. The runner refuses to start
 unless `REPLAY_UNCONFINED=1`.
 

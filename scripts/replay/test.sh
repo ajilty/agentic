@@ -54,7 +54,7 @@ command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 || { e
 fh="$(mktemp -d "${HOME}/.replay-test.XXXXXX" 2>/dev/null)" || fh=""    # a stand-in home OUTSIDE /tmp, with a secret in it
 [ -n "$fh" ] || { echo "(skip runner tests: cannot make a stand-in home)"; echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]; exit; }
 fh="$(cd "$fh" && pwd -P)"; echo TOPSECRET > "$fh/secret"; echo TOPSECRET > "$d/victim"
-mkdir -p "$d/bin" "$d/src" "$d/plug/set/one" "$d/plug"
+mkdir -p "$d/bin" "$d/plug/src" "$d/plug/set/one" "$d/plug"
 # The sandbox runtime needs a ripgrep. The real CLI carries one; the stand-in below does not.
 real="$(command -v claude 2>/dev/null || true)"
 command -v rg >/dev/null 2>&1 || [ -z "$real" ] || { printf '#!/usr/bin/env bash\nexec -a rg %q "$@"\n' "$real" > "$d/bin/rg"; chmod +x "$d/bin/rg"; }
@@ -81,7 +81,8 @@ echo change > new.txt; mkdir -p log; echo '{"event":"x"}' >> log/journal.jsonl
 mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -s "$d" keep/dirlink; ln -s "$d/victim" keeplink
 [ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
-home=\$([ -e "$fh/secret" ] || [ -e "$d/plug/set/one/ask.md" ] && echo seen || echo hidden)   # the set sits inside the readable plugin
+# The set, the source repo and the out dir all sit inside the plugin directory, which the session may read.
+home=\$([ -e "$fh/secret" ] || [ -e "$d/plug/set/one/ask.md" ] || [ -e "$d/plug/src/a.txt" ] || [ -e "$d/plug/out/one.1/turn1.md" ] && echo seen || echo hidden)
 canary=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -c '^REPLAY_CANARY=')
 touch "$d/escaped-write" 2>/dev/null
 net=\$(python3 -c 'import socket
@@ -94,12 +95,12 @@ ln -sf "$d/victim" "\$REPLAY_LOG" 2>/dev/null
 printf '{"result":"home=%s canary=%s own=%s net=%s","num_turns":1,"duration_ms":1000,"total_cost_usd":0}\n' "\$home" "\$canary" "\$own" "\$net"
 FAKE
 chmod +x "$d/bin/claude"
-( cd "$d/src" && git init -q && git config user.email t@t && git config user.name t && mkdir log \
+( cd "$d/plug/src" && git init -q && git config user.email t@t && git config user.name t && mkdir log \
   && echo '{"event":"old"}' > log/journal.jsonl && echo a > a.txt && git add a.txt log/journal.jsonl && git commit -qm init ) >/dev/null 2>&1
-git -C "$d/src" rev-parse HEAD > "$d/plug/set/one/commit"; echo "an ask" > "$d/plug/set/one/ask.md"; echo note > "$d/plug/set/one/kind"
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"; echo "an ask" > "$d/plug/set/one/ask.md"; echo note > "$d/plug/set/one/kind"; echo '{"result":"planted"}' > "$d/plug/set/one/compact.result.json"
 rp(){ HOME="$fh" REPLAY_CANARY=leak ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" REPLAY_PREFIX='/go ' \
-        REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ REPLAY_KEEP="keep keeplink ../../etc" "$@" bash "$HERE/replay.sh" "$d/plug/set" "$d/src" "$d/out" 2>&1; }
-o="$d/out/one.1"
+        REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ REPLAY_KEEP="keep keeplink ../../etc" "$@" bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" 2>&1; }
+o="$d/plug/out/one.1"
 first="$(rp env)"
 case "$first" in *'no usable sandbox runtime'*)
   pass   # without a sandbox the runner refuses unless told otherwise
@@ -112,8 +113,8 @@ case "$first" in *'no usable sandbox runtime'*)
   [ ! -e "$d/escaped-write" ] && pass || fail "a write outside the sandbox does not reach the machine"
   [ ! -e "$d/escaped-git" ] && pass || fail "a command planted in the snapshot's git configuration does not run on the machine"
   # A session that hangs is ended by the time limit, and nothing it started survives.
-  ( cd "$d/src" && touch hang && git add hang && git commit -qm hang ) >/dev/null 2>&1
-  git -C "$d/src" rev-parse HEAD > "$d/plug/set/one/commit"
+  ( cd "$d/plug/src" && touch hang && git add hang && git commit -qm hang ) >/dev/null 2>&1
+  git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
   rp env REPLAY_TIMEOUT=2 >/dev/null; sleep 1
   [ "$(cat "$o/say.md" 2>/dev/null)" = "(no result)" ] && pass || fail "the hung session was ended by the time limit (got: $(cat "$o/say.md" 2>/dev/null))"
   pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
@@ -127,22 +128,23 @@ case "$first" in *'no usable sandbox runtime'*)
   rp env REPLAY_POSTCOMPACT=1 REPLAY_TIMEOUT=2 >/dev/null
   [ "$(cat "$o/journal.jsonl" 2>/dev/null)" = '{"event":"pc"}' ] && [ ! -s "$o/journal.turn2.jsonl" ] && pass \
     || fail "a run cut short in turn 1 keeps turn 1's journal rows (got: $(cat "$o/journal.jsonl" 2>/dev/null))"
-  ( cd "$d/src" && git rm -q hang && git commit -qm unhang ) >/dev/null 2>&1
-  git -C "$d/src" rev-parse HEAD > "$d/plug/set/one/commit"
+  ( cd "$d/plug/src" && git rm -q hang && git commit -qm unhang ) >/dev/null 2>&1
+  git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
   # Text the session wrote where the runner reads a number is never evaluated.
   rp env REPLAY_POSTCOMPACT=1 >/dev/null
   [ -f "$o/compact.result.json" ] && pass || fail "the post-compaction run produced its turns"
   [ ! -e "$d/escaped-arith" ] && [ ! -e /tmp/escaped-arith ] && pass || fail "a number field the session rewrote is not evaluated by the runner"
   rp env >/dev/null ;;
 esac
-grep -rq TOPSECRET "$d/out" && fail "a link left by the session is not followed into the output" || pass
+grep -rq TOPSECRET "$d/plug/out" && fail "a link left by the session is not followed into the output" || pass
 [ "$(cat "$o/keep/sub/a.txt" 2>/dev/null)" = kept ] && [ ! -e "$o/keep/link" ] && [ ! -e "$o/keep/dirlink" ] && [ ! -e "$o/keeplink" ] && [ ! -e "$o/etc" ] \
   && pass || fail "kept paths are copied as regular files only, from inside the snapshot only"
 [ "$(cat "$o/turn1.md" 2>/dev/null)" = "/go an ask" ] && pass || fail "the prefix and the ask are sent verbatim"
 [ "$(grep -v '^keep' "$o/changed-files.txt" 2>/dev/null)" = new.txt ] && pass || fail "changed files exclude run state (got: $(cat "$o/changed-files.txt" 2>/dev/null | tr '\n' ' '))"
 [ "$(cat "$o/journal.jsonl" 2>/dev/null)" = '{"event":"x"}' ] && pass || fail "the journal keeps only this run's rows"
 [ -f "$o/kind" ] && [ ! -f "$o/commit" ] && pass || fail "extra case files are copied out"
-[ ! -e "$d/src/new.txt" ] && [ -z "$(git -C "$d/src" status --porcelain)" ] && pass || fail "the source repo is untouched"
+[ ! -e "$o/compact.result.json" ] && pass || fail "a case file named like an output does not stand in for it"
+[ ! -e "$d/plug/src/new.txt" ] && [ -z "$(git -C "$d/plug/src" status --porcelain)" ] && pass || fail "the source repo is untouched"
 echo stale > "$o/stale"; rp env REPLAY_UNCONFINED=1 >/dev/null; [ ! -e "$o/stale" ] && pass || fail "a rerun replaces the output directory"
 kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]

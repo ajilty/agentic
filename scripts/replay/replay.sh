@@ -11,7 +11,8 @@
 #   <case>/ask.md    the ask, verbatim
 #   <case>/commit    the source-repo commit the ask was made against
 #   <case>/after.md  optional: the follow-up turn in post-compaction mode
-#   anything else    copied to the output as is (a kind, an answer key)
+#   anything else    copied to the output as is (a kind, an answer key), unless
+#                    it carries the name of an output file below
 #
 # Env, required: REPLAY_PLUGIN_DIR (the plugin under test, a working tree).
 # Env, optional: REPLAY_PREFIX (text sent before the ask, such as a slash
@@ -78,8 +79,8 @@
 # It blocks the tool when it errors, times out or cannot start, which needs
 # Claude Code 2.1.295 or later, checked below.
 # Tools installed under the caller's home are not on the session's PATH.
-# The runtime is a beta: tested with 0.0.82 on Linux. macOS is untested, and
-# the readable list above is Linux's: expect the runner to refuse there.
+# The runtime is a beta: tested with 0.0.82 on Linux. macOS is untested and
+# may not work: the readable list above is Linux's.
 # Without a usable runtime there is no boundary, only the scrubbed environment
 # and the guard: the session runs as you. The runner refuses to start that way
 # unless REPLAY_UNCONFINED=1.
@@ -202,6 +203,9 @@ fi
   echo "replay: no usable sandbox runtime, so no sandbox boundary (npm install -g @anthropic-ai/sandbox-runtime; Linux also needs bubblewrap, socat and ripgrep); set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }
 [ -n "$SRT" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
 
+RESERVED=" commit after.md turn1.md result.json say.md guard.jsonl transcript.jsonl changed-files.txt journal.jsonl settings.json stderr.txt compact.result.json guard.compact.jsonl turn2.result.json turn2.say.md guard.turn2.jsonl journal.turn2.jsonl turn.stream.jsonl compact.md "
+for d in ${REPLAY_KEEP:-}; do d="${d%/}"; RESERVED+="${d##*/} "; done
+
 run_one(){ # <case> <k>
   local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n t1="" t2=""
   [ -f "$cd_/ask.md" ] && [ -f "$cd_/commit" ] || { echo "replay: $c lacks ask.md or commit" >&2; return; }
@@ -213,8 +217,8 @@ run_one(){ # <case> <k>
   # standard output through a size cap, and copies the runner makes.
   home="$(mk_tmp)"; repo="$(mk_tmp)"; log="$(mk_tmp)"; cfg="$(mk_tmp)"
   rm -rf "${OUT:?}/$c.$k"; mkdir -p "$o" "$home/.claude/skills" "$home/tmp"
-  # The case's extra files go in first, so no case file can stand in for an output.
-  for f in "$cd_"/*; do case "${f##*/}" in commit|after.md) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
+  # The case's extra files, except any named like an output: it could stand in for one the session never left.
+  for f in "$cd_"/*; do case "$RESERVED" in *" ${f##*/} "*) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
   cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
   # Project-level harness config can start servers and hooks of its own: drop it.
   ( cd "$repo" && { [ ! -L .claude ] || rm -f .claude; } && rm -rf .mcp.json .claude/settings.json .claude/settings.local.json .envrc )

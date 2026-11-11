@@ -22,11 +22,14 @@ export REPLAY_PLUGIN_DIR="${REPLAY_PLUGIN_DIR:-$HERE/../..}" REPLAY_PREFIX='/orc
   REPLAY_JOURNAL=.agents/runs/orchestrate/board.jsonl REPLAY_CARRY_SKILLS="grill-with-docs grill-me brainstorming" \
   REPLAY_KEEP=.agents/runs/orchestrate/tickets
 # The engine's own one-line-per-run summary is kept in <out-dir>/summary.txt; show only a skip.
+mkdir -p "$OUT" && : > "$OUT/.started"
 bash "$HERE/../../../../scripts/replay/replay.sh" "$@" | grep '^(skip'; rc="${PIPESTATUS[0]}"
 [ "$rc" = 0 ] || exit "$rc"
 [ -f "$OUT/summary.txt" ] || exit 0   # the engine skipped
-# The brief under test, kept beside each run it produced: a run left by an earlier call keeps its own.
-for o in "$OUT"/*/; do [ -e "$o/skill.md" ] || cp "$REPLAY_PLUGIN_DIR/skills/orchestrate/SKILL.md" "$o/skill.md" 2>/dev/null; done
+# The brief under test, kept beside each run this call produced; a run left by an earlier call keeps its own.
+for o in "$OUT"/*/; do [ "$o" -nt "$OUT/.started" ] && cp "$REPLAY_PLUGIN_DIR/skills/orchestrate/SKILL.md" "$o/skill.md" 2>/dev/null; done
+# The scorers read files the session wrote: one in an unexpected shape costs that run its line, not the scorecard.
+score(){ python3 "$@" 2>/dev/null || printf '%-24s (not scored: a file this run wrote is not in the expected shape)\n' "$(basename "${@: -1}")"; }
 clean(){ LC_ALL=C tr -cd '[:print:]\n'; }   # scorecards carry session-written text: never raw to the terminal
 
 # Scorecard, from the rows this run journaled and the guard's log.
@@ -38,8 +41,8 @@ clean(){ LC_ALL=C tr -cd '[:print:]\n'; }   # scorecards carry session-written t
 # rows = board rows journaled; edits = project files changed; asks = question
 # marks in the closing message; then the cost of getting this far.
 printf '%-24s %-7s %-15s %-4s %-4s %-9s %-4s %-5s %-4s %-5s %-5s %s\n' case kind outcome tier read verdict rows edits asks turns secs cost
-for o in "$OUT"/*/; do python3 "$HERE/replay-score.py" "$o"; done | clean | tee "$OUT/scorecard.txt"
+for o in "$OUT"/*/; do score "$HERE/replay-score.py" "$o"; done | clean | tee "$OUT/scorecard.txt"
 case "${REPLAY_POSTCOMPACT:-0}" in 0|"") ;; *) { echo; python3 "$HERE/replay-postcompact-score.py" --header
-  for o in "$OUT"/*/; do [ -f "$o/compact.result.json" ] && python3 "$HERE/replay-postcompact-score.py" "$o"; done; } \
+  for o in "$OUT"/*/; do [ -f "$o/compact.result.json" ] && score "$HERE/replay-postcompact-score.py" "$o"; done; } \
   | clean | tee "$OUT/scorecard-postcompact.txt" ;; esac
 exit 0
