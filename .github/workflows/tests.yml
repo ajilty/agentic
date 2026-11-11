@@ -19,6 +19,25 @@ jobs:
       - run: uv tool install rumdl && rumdl --version
       - name: Run every plugin suite (plugins/*/tests/run.sh)
         run: bash scripts/check.sh plugin-tests
+  script-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the sandbox tools the replay harness is tested with
+        # The sandbox runtime, pinned to the version the harness is tested with,
+        # and what it needs on Linux. Ubuntu runners restrict unprivileged user
+        # namespaces through AppArmor; bubblewrap needs them, and the test fails
+        # under CI if the sandbox is unusable.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          # Ubuntu's own profile for bubblewrap strips capabilities from the namespaces
+          # under it, whatever the sysctl says; the runtime's second layer needs them.
+          ls /etc/apparmor.d | grep -i bwrap || true
+          [ ! -f /etc/apparmor.d/bwrap-userns-restrict ] || sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict || true
+          npm install -g @anthropic-ai/sandbox-runtime@0.0.82
+      - name: Run every scripts/*/test.sh (the replay harness and its sandbox)
+        run: bash scripts/check.sh script-tests
   validate-plugins:
     runs-on: ubuntu-latest
     steps:
