@@ -68,8 +68,14 @@ except OSError: print("closed")' "$1"; }
 cat > "$d/bin/claude" <<FAKE
 #!/usr/bin/env bash
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
-# What the real CLI's load hook records, unless the snapshot says to lose it.
-[ -e noload ] || echo "{\"file_path\": \"\$HOME/.claude/CLAUDE.md\"}" >> "\$(dirname "\$REPLAY_LOG")/loaded.jsonl"
+# What the real CLI does with the load hook: run the command wired in --settings, once per
+# instruction file. The snapshot can say to lose the rows, or to leave only the transcript's mark.
+hookcmd=\$(python3 -c 'import json,sys
+a=sys.argv[1:]; print(json.load(open(a[a.index("--settings")+1]))["hooks"]["InstructionsLoaded"][0]["hooks"][0]["command"])' "\$@" 2>/dev/null)
+loaded(){ printf '{"hook_event_name": "InstructionsLoaded",\n "file_path": "%s"}\n' "\$1" | sh -c "\$hookcmd"; }
+if [ -e viatranscript ]; then mkdir -p "\$HOME/.claude/projects/p"
+  printf '{"a":"Contents of %s"}\n{"a":"Contents of %s"}\n' "\$HOME/.claude/CLAUDE.md" "\$PWD/CLAUDE.md" > "\$HOME/.claude/projects/p/t.jsonl"
+elif [ ! -e noload ]; then loaded "\$HOME/.claude/CLAUDE.md"; loaded "\$(readlink -f CLAUDE.md)"; fi
 # Post-compaction mode: answer each turn, and after the first, rewrite the turn
 # record the runner reads a line count from, with text a shell would evaluate.
 case " \$* " in *" --input-format "*) n=0
@@ -98,14 +104,15 @@ printf '{"result":"home=%s canary=%s own=%s net=%s","num_turns":1,"duration_ms":
 FAKE
 chmod +x "$d/bin/claude"
 ( cd "$d/plug/src" && git init -q && git config user.email t@t && git config user.name t && mkdir log \
-  && echo '{"event":"old"}' > log/journal.jsonl && echo a > a.txt && git add a.txt log/journal.jsonl && git commit -qm init ) >/dev/null 2>&1
+  && echo '{"event":"old"}' > log/journal.jsonl && echo a > a.txt && echo rules > AGENTS.md && ln -s AGENTS.md CLAUDE.md \
+  && git add a.txt log/journal.jsonl AGENTS.md CLAUDE.md && git commit -qm init ) >/dev/null 2>&1
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"; echo "an ask" > "$d/plug/set/one/ask.md"; echo note > "$d/plug/set/one/kind"; echo '{"result":"planted"}' > "$d/plug/set/one/compact.result.json"
 rp(){ HOME="$fh" REPLAY_CANARY=leak ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" REPLAY_PREFIX='/go ' \
         REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ REPLAY_KEEP="keep keeplink ../../etc" "$@" bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" 2>&1; }
 o="$d/plug/out/one.1"
 [ ! -e /tmp/claude ] && [ ! -L /tmp/claude ] && pass || fail "/tmp/claude exists on this machine: remove it, the sandbox assertions below cannot run while it does"
-first="$(rp env)"
-case "$first" in *'no usable sandbox runtime'*)
+first="$(rp env)"; conf=()
+case "$first" in *'no usable sandbox runtime'*) conf=(REPLAY_UNCONFINED=1)
   pass   # without a sandbox the runner refuses unless told otherwise
   echo "(skip sandbox assertions: no usable sandbox runtime here)"
   [ "${CI:-}" != true ] || fail "CI must exercise the sandbox: the sandbox runtime is not usable on this runner ($(printf '%s' "$first" | head -n 2 | tr '\n' ' '))"
@@ -144,6 +151,13 @@ case "$first" in *'no usable sandbox runtime'*)
       *) fail "the runner refuses to start while /tmp/claude exists (exit $rc)" ;; esac
     rmdir /tmp/claude; made_shared=""
   fi
+  # Nor when a further session starts: appearing mid-run, it stops the next session and fails the call.
+  if [ ! -e /tmp/claude ]; then : > "$o/result.json"; made_shared=1
+    ( i=0; until [ -s "$o/result.json" ] || [ $i -ge 300 ]; do sleep 0.1; i=$((i+1)); done; mkdir /tmp/claude 2>/dev/null ) & wp=$!
+    out="$(rp env REPLAY_K=2 REPLAY_JOBS=1)"; rc=$?; wait "$wp"; rmdir /tmp/claude 2>/dev/null; made_shared=""
+    case "$rc:$out" in 3:*'one.2 not run'*) [ ! -s "$d/plug/out/one.2/result.json" ] && pass || fail "a refused session leaves no result" ;;
+      *) fail "a session is refused when /tmp/claude appears mid-run (exit $rc)" ;; esac
+  fi
   rp env >/dev/null ;;
 esac
 grep -rq TOPSECRET "$d/plug/out" && fail "a link left by the session is not followed into the output" || pass
@@ -159,13 +173,33 @@ echo stale > "$o/stale"; rp env REPLAY_UNCONFINED=1 >/dev/null; [ ! -e "$o/stale
 # The runner, and every script in the repo that calls it, at least parses.
 for f in "$HERE/replay.sh" $(grep -rl --include='*.sh' 'scripts/replay/replay\.sh' "$HERE/../../plugins" 2>/dev/null); do
   bash -n "$f" 2>/dev/null && pass || fail "$f does not parse"; done
-# A run records the instruction files it loaded; one that should have loaded and did not fails the run.
-out="$(rp env REPLAY_UNCONFINED=1)"; rc=$?
-[ "$rc" = 0 ] && grep -q '/.claude/CLAUDE.md' "$o/loaded.jsonl" 2>/dev/null && [ ! -e "$o/noload.txt" ] && pass || fail "a run that loaded its instructions records them and passes (exit $rc)"
-( cd "$d/plug/src" && touch noload && git add noload && git commit -qm noload ) >/dev/null 2>&1
+# A run records the instruction files it loaded, through the hook the runner wired: the operator's
+# file and the repo's, which here is a link, recorded under the name it points at.
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ "$(grep -c '"file_path": ".*/\(\.claude/CLAUDE\|AGENTS\)\.md"' "$o/loaded.jsonl" 2>/dev/null)" = 2 ] && [ ! -e "$o/noload.txt" ] && pass \
+  || fail "a run that loaded its instructions records both files through the wired hook and passes (exit $rc)"
+# With no row from the hook, the transcript's mark of a loaded file counts.
+( cd "$d/plug/src" && touch viatranscript && git add viatranscript && git commit -qm viatranscript ) >/dev/null 2>&1
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
-out="$(rp env REPLAY_UNCONFINED=1)"; rc=$?
-[ "$rc" = 3 ] && [ "$(cat "$o/noload.txt" 2>/dev/null)" = home/.claude/CLAUDE.md ] && grep -q 'noload$' "$d/plug/out/summary.txt" && pass \
-  || fail "a run that did not load its instructions is marked noload and the runner exits 3 (exit $rc)"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ ! -s "$o/loaded.jsonl" ] && [ ! -e "$o/noload.txt" ] && pass || fail "a file the transcript shows as loaded counts when the hook left no row (exit $rc)"
+# In neither: the run is marked, each missing file is named, and the call fails.
+( cd "$d/plug/src" && git mv viatranscript noload && git commit -qm noload ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 3 ] && [ "$(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null)" = "home/.claude/CLAUDE.md repo/CLAUDE.md " ] && grep -q 'noload$' "$d/plug/out/summary.txt" && pass \
+  || fail "a run that did not load its instructions is marked noload and the runner exits 3 (exit $rc; $(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null))"
+# An older run's mark in the out dir does not fail a later call that loaded.
+cp -R "$o" "$d/plug/out/old.1"; ( cd "$d/plug/src" && git rm -q noload && git commit -qm load ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ -e "$d/plug/out/old.1/noload.txt" ] && pass || fail "only this call's runs decide the exit code (exit $rc)"
+# A caller that scores: orchestrate's wrapper still prints its scorecard for a run that did not load, then fails.
+w="$HERE/../../plugins/orchestrate/tests/eval/replay.sh"
+if [ -f "$w" ]; then ( cd "$d/plug/src" && touch noload && git add noload && git commit -qm noload ) >/dev/null 2>&1
+  git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+  HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_UNCONFINED=1 bash "$w" "$d/plug/set" "$d/plug/src" "$d/plug/out2" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 3 ] && [ -s "$d/plug/out2/scorecard.txt" ] && pass || fail "the orchestrate wrapper scores a run that did not load, then exits 3 (exit $rc)"
+fi
 kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]

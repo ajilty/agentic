@@ -47,7 +47,12 @@
 #   loaded.jsonl                  one row per instruction file the session loaded
 #   noload.txt                    only when an instruction file that should have
 #                                 loaded did not: its name. The run is marked
-#                                 "noload" in the summary and the runner exits 3
+#                                 "noload" in the summary and the runner exits 3.
+#                                 Checked: a CLAUDE.md in the throwaway HOME, at
+#                                 the snapshot's root or in its .claude/. Not
+#                                 checked: a repo with only AGENTS.md (the load
+#                                 hook does not fire for it), rules files, and
+#                                 whether a file loaded again after a compaction
 # and <out-dir>/summary.txt, one line per run.
 #
 # The snapshot and the throwaway HOME go under TMPDIR (default /tmp): where is
@@ -93,7 +98,7 @@
 # Tools installed under the caller's home are not on the session's PATH.
 # The runtime is a beta: tested with 0.0.82 on Linux. macOS is untested and
 # may not work: the readable list above is Linux's, and there the runtime
-# shares /private/tmp/claude and the terminal device whether or not they exist.
+# shares /private/tmp/claude whether or not it exists.
 # Without a usable runtime there is no boundary, only the scrubbed environment
 # and the guard: the session runs as you. The runner refuses to start that way
 # unless REPLAY_UNCONFINED=1.
@@ -170,6 +175,8 @@ trap 'reap; exit 130' INT
 trap 'reap; exit 143' TERM
 # The caller's git configuration (filters, hooks, signing) must not run on the snapshot.
 cgit(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"; }
+# The run directory's path is written into each session's settings and matched in its records.
+case "$RUN_DIR" in *\'*|*\"*|*\\*) echo "replay: a quote or backslash in TMPDIR is not supported" >&2; exit 2 ;; esac
 mk_tmp(){ mktemp -d "$RUN_DIR/t.XXXXXXXX"; }
 # Read a file the session could have written, only if it is a regular file that
 # really lives under <root>: the session may have left a link pointing elsewhere.
@@ -228,7 +235,6 @@ for d in ${REPLAY_KEEP:-}; do d="${d%/}"; RESERVED+="${d##*/} "; done
 run_one(){ # <case> <k>
   local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n t1="" t2=""
   [ -f "$cd_/ask.md" ] && [ -f "$cd_/commit" ] || { echo "replay: $c lacks ask.md or commit" >&2; return; }
-  [ -z "$SRT" ] || shared || { echo "replay: $c.$k not run" >&2; return; }
   commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
     || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
   # Four directories per run. The session can write its snapshot, its HOME and
@@ -237,6 +243,7 @@ run_one(){ # <case> <k>
   # standard output through a size cap, and copies the runner makes.
   home="$(mk_tmp)"; repo="$(mk_tmp)"; log="$(mk_tmp)"; cfg="$(mk_tmp)"
   rm -rf "${OUT:?}/$c.$k"; mkdir -p "$o" "$home/.claude/skills" "$home/tmp"
+  [ -z "$SRT" ] || shared || { echo "replay: $c.$k not run" >&2; echo "$c.$k" >> "$RUN_DIR/failed"; return; }
   # The case's extra files, except any named like an output: it could stand in for one the session never left.
   for f in "$cd_"/*; do case "$RESERVED" in *" ${f##*/} "*) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
   cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
@@ -261,8 +268,10 @@ run_one(){ # <case> <k>
 {"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"python3 '$GUARD'","timeout":10,"onFailure":"block"}]}],"InstructionsLoaded":[{"hooks":[{"type":"command","command":"paste -s -d ' ' - >> '$log/loaded.jsonl'","timeout":10}]}]}}
 JSON
   cp "$cfg/settings.json" "$o/settings.json"
-  # The instruction files this session should load, as they stand before it starts.
-  local expect=(); for f in "$home/.claude/CLAUDE.md" "$repo/CLAUDE.md" "$repo/.claude/CLAUDE.md"; do [ -f "$f" ] && expect+=("$f"); done
+  # The instruction files this session should load, each with what it resolves
+  # to, both as they stand before the session can change them.
+  local expect=(); for f in "$home/.claude/CLAUDE.md" "$repo/CLAUDE.md" "$repo/.claude/CLAUDE.md"; do
+    [ -s "$f" ] && expect+=("$f" "$(readlink -f "$f")"); done
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
@@ -331,12 +340,26 @@ JSON
   take "$log" "$log/stderr.txt" "$o/stderr.txt"
   # The load hook runs on its own time and may lose a row at session end, so the
   # transcript counts as well. In neither: the run did not have its instructions.
+  # Loaded once is what is checked; a reload after a compaction is recorded
+  # (load_reason "compact"), not required. Both records are the session's to
+  # write: this catches a run that lost its instructions, not one that lies.
   take "$log" "$log/loaded.jsonl" "$o/loaded.jsonl"
-  for f in ${expect[@]+"${expect[@]}"}; do
-    grep -qF -- "\"$f\"" "$o/loaded.jsonl" 2>/dev/null || grep -qF -- "\"$(readlink -f "$f")\"" "$o/loaded.jsonl" 2>/dev/null \
-      || grep -qF -- "Contents of $f" "$o/transcript.jsonl" 2>/dev/null \
-      || case "$f" in "$home"/*) echo "home/${f#"$home"/}" ;; *) echo "repo/${f#"$repo"/}" ;; esac
-  done > "$o/noload.txt"; [ -s "$o/noload.txt" ] || rm -f "$o/noload.txt"
+  python3 - "$o" "$home" "$repo" ${expect[@]+"${expect[@]}"} > "$o/noload.txt" <<'LOADED'
+import json, sys
+o, home, repo, want = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+seen = set()
+try:
+    for l in open(o + "/loaded.jsonl", errors="replace"):
+        try: seen.add(json.loads(l)["file_path"])
+        except Exception: pass
+except OSError: pass
+try: said = open(o + "/transcript.jsonl", errors="replace").read()
+except OSError: said = ""
+for f, real in zip(want[0::2], want[1::2]):
+    if f in seen or real in seen or ("Contents of " + f) in said: continue
+    print("home/" + f[len(home) + 1:] if f.startswith(home + "/") else "repo/" + f[len(repo) + 1:])
+LOADED
+  if [ -s "$o/noload.txt" ]; then echo "$c.$k" >> "$RUN_DIR/failed"; else rm -f "$o/noload.txt"; fi
   jget "$o/result.json" result > "$o/say.md" || echo "(no result)" > "$o/say.md"
   # Copied by the runner as the caller, from files the session wrote: regular
   # files only, no link followed anywhere on the way, nothing large.
@@ -388,8 +411,9 @@ print("%-28s %-7d %-5d %-5s %-5s %s%s" % (os.path.basename(o), n(o + "/guard.jso
       "  noload" if os.path.exists(o + "/noload.txt") else ""))
 PY
 done | LC_ALL=C tr -cd '[:print:]\n' | tee -a "$OUT/summary.txt"   # session-written text never reaches the terminal raw
-# A run without its instructions is not a measurement: say so and fail.
-if grep -q '  noload$' "$OUT/summary.txt"; then
-  echo "replay: a run did not load an instruction file it should have (noload above; see its noload.txt)" >&2; exit 3
+# A run without its instructions, or one that was refused, is not a
+# measurement: say so and fail. Only this call's runs count, not older ones in the out dir.
+if [ -s "$RUN_DIR/failed" ]; then
+  echo "replay: not measured (an instruction file did not load: see noload.txt; or the session was refused): $(sort -u "$RUN_DIR/failed" | tr '\n' ' ')" >&2; exit 3
 fi
 exit 0

@@ -22,7 +22,11 @@ The frozen copy and the throwaway home go under `TMPDIR` (default `/tmp`); where
 is your choice. Each run records which instruction files the session loaded
 (`loaded.jsonl`). If the replayed repo's `CLAUDE.md` or yours did not load, the
 run is marked `noload` in the summary and the runner exits 3: a session without
-its instructions is not the run you asked for.
+its instructions is not the run you asked for. The check covers `CLAUDE.md` in
+the throwaway home, at the repo's root and in its `.claude/`. It does not cover
+a repo that has only `AGENTS.md` (the load hook does not fire for it), rules
+files, or whether a file loaded again after a compaction; `loaded.jsonl` records
+that reload when it happens.
 Cases are real asks and name real systems: keep the set outside this repo.
 
 ## Plug a plugin in
