@@ -18,6 +18,11 @@ REPLAY_PLUGIN_DIR=plugins/<name> REPLAY_PREFIX='/<name>:<command> ' \
 ```
 
 `replay.sh`'s header lists the case format, every setting and every output file.
+The frozen copy and the throwaway home go under `TMPDIR` (default `/tmp`); where
+is your choice. Each run records which instruction files the session loaded
+(`loaded.jsonl`). If the replayed repo's `CLAUDE.md` or yours did not load, the
+run is marked `noload` in the summary and the runner exits 3: a session without
+its instructions is not the run you asked for.
 Cases are real asks and name real systems: keep the set outside this repo.
 
 ## Plug a plugin in
@@ -50,8 +55,9 @@ npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, so
   harness, and its own snapshot, throwaway home and log directory, and write
   only those last three. Your home directory, the temporary directories,
   `/run`, the source repo, the set and the output directory are not there.
-  One exception is the runtime's own: it shares `/tmp/claude` with the machine
-  when that path exists, so the runner refuses to start if it does.
+  One exception is the runtime's own: on Linux it shares `/tmp/claude` with
+  the machine while that path exists, so the runner refuses to start, or to
+  start a further session, if it does.
 - **Network:** none of its own. Every connection goes through the runtime's
   proxy, which passes only the model's hosts. This machine's services are out
   of reach.
@@ -83,7 +89,8 @@ until reboot; the CI job does the same). If the runtime cannot start, the
 runner prints the runtime's own error.
 
 The runtime is a beta. This harness is tested with 0.0.82 on Linux. macOS is
-untested and may not work: the policy's readable paths are Linux's. Without a usable runtime
+untested and may not work: the policy's readable paths are Linux's, and there
+the runtime shares `/private/tmp/claude` whether or not it exists. Without a usable runtime
 there is no boundary: the session runs as you. The runner refuses to start
 unless `REPLAY_UNCONFINED=1`.
 

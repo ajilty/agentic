@@ -8,7 +8,7 @@ command -v python3 >/dev/null 2>&1 || { echo "(skip replay tests: no python3)"; 
 PASS=0; FAIL=0
 pass(){ PASS=$((PASS+1)); }; fail(){ FAIL=$((FAIL+1)); printf 'FAIL: %s\n' "$1" >&2; }
 g="$HERE/guard.py"; d="$(mktemp -d)"; d="$(cd "$d" && pwd -P)"; fh=""
-trap '[ -n "$d" ] && rm -rf "$d"; [ -n "$fh" ] && rm -rf "$fh"' EXIT
+trap '[ -n "$d" ] && rm -rf "$d"; [ -n "$fh" ] && rm -rf "$fh"; [ -z "${made_shared:-}" ] || rmdir /tmp/claude 2>/dev/null' EXIT
 mkdir -p "$d/sb"
 
 # --- The guard. Best effort by design: these pin what it does promise.
@@ -53,7 +53,7 @@ bash -n "$HERE/replay.sh" && pass || fail "replay.sh parses"
 command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 || { echo "(skip runner tests: no timeout)"; echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]; exit; }
 fh="$(mktemp -d "${HOME}/.replay-test.XXXXXX" 2>/dev/null)" || fh=""    # a stand-in home OUTSIDE /tmp, with a secret in it
 [ -n "$fh" ] || { echo "(skip runner tests: cannot make a stand-in home)"; echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]; exit; }
-fh="$(cd "$fh" && pwd -P)"; echo TOPSECRET > "$fh/secret"; echo TOPSECRET > "$d/victim"
+fh="$(cd "$fh" && pwd -P)"; echo TOPSECRET > "$fh/secret"; echo TOPSECRET > "$d/victim"; mkdir -p "$fh/.claude"; echo prefs > "$fh/.claude/CLAUDE.md"
 mkdir -p "$d/bin" "$d/plug/src" "$d/plug/set/one" "$d/plug"
 # The sandbox runtime needs a ripgrep. The real CLI carries one; the stand-in below does not.
 real="$(command -v claude 2>/dev/null || true)"
@@ -68,6 +68,8 @@ except OSError: print("closed")' "$1"; }
 cat > "$d/bin/claude" <<FAKE
 #!/usr/bin/env bash
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
+# What the real CLI's load hook records, unless the snapshot says to lose it.
+[ -e noload ] || echo "{\"file_path\": \"\$HOME/.claude/CLAUDE.md\"}" >> "\$(dirname "\$REPLAY_LOG")/loaded.jsonl"
 # Post-compaction mode: answer each turn, and after the first, rewrite the turn
 # record the runner reads a line count from, with text a shell would evaluate.
 case " \$* " in *" --input-format "*) n=0
@@ -101,6 +103,7 @@ git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"; echo "an ask" > 
 rp(){ HOME="$fh" REPLAY_CANARY=leak ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" REPLAY_PREFIX='/go ' \
         REPLAY_JOURNAL=log/journal.jsonl REPLAY_IGNORE=log/ REPLAY_KEEP="keep keeplink ../../etc" "$@" bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" 2>&1; }
 o="$d/plug/out/one.1"
+[ ! -e /tmp/claude ] && [ ! -L /tmp/claude ] && pass || fail "/tmp/claude exists on this machine: remove it, the sandbox assertions below cannot run while it does"
 first="$(rp env)"
 case "$first" in *'no usable sandbox runtime'*)
   pass   # without a sandbox the runner refuses unless told otherwise
@@ -135,9 +138,11 @@ case "$first" in *'no usable sandbox runtime'*)
   [ -f "$o/compact.result.json" ] && pass || fail "the post-compaction run produced its turns"
   [ ! -e "$d/escaped-arith" ] && [ ! -e /tmp/escaped-arith ] && pass || fail "a number field the session rewrote is not evaluated by the runner"
   # The one path the runtime shares with the machine must not exist when a replay starts.
-  if [ ! -e /tmp/claude ] && mkdir /tmp/claude 2>/dev/null; then
-    case "$(rp env)" in *'/tmp/claude exists'*) pass ;; *) fail "the runner refuses to start while /tmp/claude exists" ;; esac
-    rmdir /tmp/claude
+  if [ ! -e /tmp/claude ] && mkdir /tmp/claude 2>/dev/null; then made_shared=1
+    echo stale > "$o/say.md"; out="$(rp env)"; rc=$?
+    case "$rc:$out" in 2:*'/tmp/claude exists'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "no session runs while /tmp/claude exists" ;;
+      *) fail "the runner refuses to start while /tmp/claude exists (exit $rc)" ;; esac
+    rmdir /tmp/claude; made_shared=""
   fi
   rp env >/dev/null ;;
 esac
@@ -151,5 +156,16 @@ grep -rq TOPSECRET "$d/plug/out" && fail "a link left by the session is not foll
 [ ! -e "$o/compact.result.json" ] && pass || fail "a case file named like an output does not stand in for it"
 [ ! -e "$d/plug/src/new.txt" ] && [ -z "$(git -C "$d/plug/src" status --porcelain)" ] && pass || fail "the source repo is untouched"
 echo stale > "$o/stale"; rp env REPLAY_UNCONFINED=1 >/dev/null; [ ! -e "$o/stale" ] && pass || fail "a rerun replaces the output directory"
+# The runner, and every script in the repo that calls it, at least parses.
+for f in "$HERE/replay.sh" $(grep -rl --include='*.sh' 'scripts/replay/replay\.sh' "$HERE/../../plugins" 2>/dev/null); do
+  bash -n "$f" 2>/dev/null && pass || fail "$f does not parse"; done
+# A run records the instruction files it loaded; one that should have loaded and did not fails the run.
+out="$(rp env REPLAY_UNCONFINED=1)"; rc=$?
+[ "$rc" = 0 ] && grep -q '/.claude/CLAUDE.md' "$o/loaded.jsonl" 2>/dev/null && [ ! -e "$o/noload.txt" ] && pass || fail "a run that loaded its instructions records them and passes (exit $rc)"
+( cd "$d/plug/src" && touch noload && git add noload && git commit -qm noload ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env REPLAY_UNCONFINED=1)"; rc=$?
+[ "$rc" = 3 ] && [ "$(cat "$o/noload.txt" 2>/dev/null)" = home/.claude/CLAUDE.md ] && grep -q 'noload$' "$d/plug/out/summary.txt" && pass \
+  || fail "a run that did not load its instructions is marked noload and the runner exits 3 (exit $rc)"
 kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]

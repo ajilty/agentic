@@ -44,7 +44,16 @@
 #   turn2.result.json, turn2.say.md, guard.turn2.jsonl, journal.turn2.jsonl,
 #   turn.stream.jsonl, compact.md, after.md; journal.jsonl then holds turn 1 only
 #   settings.json stderr.txt      the hook wiring used, and the CLI's stderr
+#   loaded.jsonl                  one row per instruction file the session loaded
+#   noload.txt                    only when an instruction file that should have
+#                                 loaded did not: its name. The run is marked
+#                                 "noload" in the summary and the runner exits 3
 # and <out-dir>/summary.txt, one line per run.
+#
+# The snapshot and the throwaway HOME go under TMPDIR (default /tmp): where is
+# the caller's choice. A run measured without the replayed repo's CLAUDE.md, or
+# without the operator's, is not the run that was asked for, so that is checked
+# per run from the session's own load record and its transcript.
 #
 # Safety. Each session runs inside Anthropic's sandbox runtime (`srt`, the
 # boundary Claude Code's own sandbox is built on: bubblewrap on Linux, Seatbelt
@@ -54,8 +63,9 @@
 #     throwaway HOME and log directory. Nothing else: not the caller's home,
 #     /tmp, /run, the source repo, the set or the out dir;
 #   - it can write only the snapshot, the throwaway HOME and the log directory.
-#     The runtime always shares one more path with the machine, /tmp/claude,
-#     when it exists: the runner refuses to start if it does;
+#     On Linux the runtime shares one more path with the machine, /tmp/claude,
+#     while it exists: the runner refuses to start, or to start a further
+#     session, if it does;
 #   - it has no network of its own. Every connection goes through the runtime's
 #     proxy, which passes only the model's hosts (api.anthropic.com, claude.ai,
 #     platform.claude.com). This machine's services and sockets are out of reach;
@@ -82,7 +92,8 @@
 # Claude Code 2.1.295 or later, checked below.
 # Tools installed under the caller's home are not on the session's PATH.
 # The runtime is a beta: tested with 0.0.82 on Linux. macOS is untested and
-# may not work: the readable list above is Linux's.
+# may not work: the readable list above is Linux's, and there the runtime
+# shares /private/tmp/claude and the terminal device whether or not they exist.
 # Without a usable runtime there is no boundary, only the scrubbed environment
 # and the guard: the session runs as you. The runner refuses to start that way
 # unless REPLAY_UNCONFINED=1.
@@ -193,10 +204,13 @@ if rg: cfg["ripgrep"] = {"command": rg, "argv0": "rg"}
 json.dump(cfg, open(out, "w"))
 POLICY
 }
+# On Linux the runtime keeps this path readable and writable from inside every
+# sandbox it starts while the path exists on the machine. Checked at startup
+# and again before each session, since the runtime decides per sandbox.
+shared(){ local d; for d in /tmp/claude /private/tmp/claude; do [ ! -e "$d" ] && [ ! -L "$d" ] || {
+  echo "replay: $d exists, and the sandbox runtime shares that path with every session: remove it first" >&2; return 1; }; done; }
 if [ -n "$SRT" ]; then
-  # The runtime keeps this path readable and writable from inside every sandbox when it exists on the machine.
-  for d in /tmp/claude /private/tmp/claude; do [ ! -e "$d" ] && [ ! -L "$d" ] || {
-    echo "replay: $d exists, and the sandbox runtime shares that path with every session: remove it first" >&2; exit 2; }; done
+  shared || exit 2
   # The runtime's proxy listens on sockets under TMPDIR, whose path has a short limit.
   [ "${#RUN_DIR}" -le 60 ] || { echo "replay: TMPDIR is too long a path for the sandbox's sockets ($RUN_DIR)" >&2; exit 2; }
   SRT="$(readlink -f "$SRT")"; SRT_PKG="$(dirname "$(dirname "$SRT")")"; mkdir -p "$RUN_DIR/probe"
@@ -208,12 +222,13 @@ fi
   echo "replay: no usable sandbox runtime, so no sandbox boundary (npm install -g @anthropic-ai/sandbox-runtime; Linux also needs bubblewrap, socat and ripgrep); set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }
 [ -n "$SRT" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
 
-RESERVED=" commit after.md turn1.md result.json say.md guard.jsonl transcript.jsonl changed-files.txt journal.jsonl settings.json stderr.txt compact.result.json guard.compact.jsonl turn2.result.json turn2.say.md guard.turn2.jsonl journal.turn2.jsonl turn.stream.jsonl compact.md "
+RESERVED=" commit after.md turn1.md result.json say.md guard.jsonl transcript.jsonl changed-files.txt journal.jsonl settings.json stderr.txt compact.result.json guard.compact.jsonl turn2.result.json turn2.say.md guard.turn2.jsonl journal.turn2.jsonl turn.stream.jsonl compact.md loaded.jsonl noload.txt "
 for d in ${REPLAY_KEEP:-}; do d="${d%/}"; RESERVED+="${d##*/} "; done
 
 run_one(){ # <case> <k>
   local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n t1="" t2=""
   [ -f "$cd_/ask.md" ] && [ -f "$cd_/commit" ] || { echo "replay: $c lacks ask.md or commit" >&2; return; }
+  [ -z "$SRT" ] || shared || { echo "replay: $c.$k not run" >&2; return; }
   commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
     || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
   # Four directories per run. The session can write its snapshot, its HOME and
@@ -243,9 +258,11 @@ run_one(){ # <case> <k>
   # file, so it cannot unhook the guard from there.
   echo '{}' > "$home/.claude/settings.json"
   cat > "$cfg/settings.json" <<JSON
-{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"python3 '$GUARD'","timeout":10,"onFailure":"block"}]}]}}
+{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"python3 '$GUARD'","timeout":10,"onFailure":"block"}]}],"InstructionsLoaded":[{"hooks":[{"type":"command","command":"paste -s -d ' ' - >> '$log/loaded.jsonl'","timeout":10}]}]}}
 JSON
   cp "$cfg/settings.json" "$o/settings.json"
+  # The instruction files this session should load, as they stand before it starts.
+  local expect=(); for f in "$home/.claude/CLAUDE.md" "$repo/CLAUDE.md" "$repo/.claude/CLAUDE.md"; do [ -f "$f" ] && expect+=("$f"); done
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
@@ -312,6 +329,14 @@ JSON
       [ -z "$n" ] || [ -e "$repo/$f" ] || [ -L "$repo/$f" ] || continue; [ -z "$f" ] || printf '%s\n' "$f"; done; } \
     | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | sort -u > "$o/changed-files.txt"
   take "$log" "$log/stderr.txt" "$o/stderr.txt"
+  # The load hook runs on its own time and may lose a row at session end, so the
+  # transcript counts as well. In neither: the run did not have its instructions.
+  take "$log" "$log/loaded.jsonl" "$o/loaded.jsonl"
+  for f in ${expect[@]+"${expect[@]}"}; do
+    grep -qF -- "\"$f\"" "$o/loaded.jsonl" 2>/dev/null || grep -qF -- "\"$(readlink -f "$f")\"" "$o/loaded.jsonl" 2>/dev/null \
+      || grep -qF -- "Contents of $f" "$o/transcript.jsonl" 2>/dev/null \
+      || case "$f" in "$home"/*) echo "home/${f#"$home"/}" ;; *) echo "repo/${f#"$repo"/}" ;; esac
+  done > "$o/noload.txt"; [ -s "$o/noload.txt" ] || rm -f "$o/noload.txt"
   jget "$o/result.json" result > "$o/say.md" || echo "(no result)" > "$o/say.md"
   # Copied by the runner as the caller, from files the session wrote: regular
   # files only, no link followed anywhere on the way, nothing large.
@@ -358,8 +383,13 @@ except Exception: r = {}
 def f(k, fmt, scale=1):   # the session may have written this file: a field is a number or a dash
     v = r.get(k) if isinstance(r, dict) else None
     return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) else "-"
-print("%-28s %-7d %-5d %-5s %-5s %s" % (os.path.basename(o), n(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
-      n(o + "/changed-files.txt"), f("num_turns", "%d"), f("duration_ms", "%d", 1000), f("total_cost_usd", "%.2f")))
+print("%-28s %-7d %-5d %-5s %-5s %s%s" % (os.path.basename(o), n(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
+      n(o + "/changed-files.txt"), f("num_turns", "%d"), f("duration_ms", "%d", 1000), f("total_cost_usd", "%.2f"),
+      "  noload" if os.path.exists(o + "/noload.txt") else ""))
 PY
 done | LC_ALL=C tr -cd '[:print:]\n' | tee -a "$OUT/summary.txt"   # session-written text never reaches the terminal raw
+# A run without its instructions is not a measurement: say so and fail.
+if grep -q '  noload$' "$OUT/summary.txt"; then
+  echo "replay: a run did not load an instruction file it should have (noload above; see its noload.txt)" >&2; exit 3
+fi
 exit 0
