@@ -86,6 +86,15 @@ startup files and a few more paths in the snapshot (its "mandatory deny paths").
 git safe: once a session has run, the runner treats the snapshot's git setup as
 the session's and runs git on it only inside the sandbox.
 
+Another harmless command the guard refuses shows at the opening stage too: the
+guard judges a whole command, the text it only stores included, so a session saving a note whose words name
+`.claude/settings` (a work item that lists per-checkout files, say) is refused
+as if it had touched its own settings. Measured on the first 28 real replays:
+1 of 153 shell commands; the session carried on, and the refusal is in that
+run's `guard.jsonl`. It is left as it is: two attempts to let stored text
+through each let commands through that run it. Whether the sandbox already
+makes that settings check unnecessary is an open question.
+
 On Ubuntu 24.04 and later the runtime also needs AppArmor out of its way:
 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` and
 `sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict` (both last
