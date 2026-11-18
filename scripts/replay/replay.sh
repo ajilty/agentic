@@ -13,8 +13,9 @@
 #   <case>/tree/     a folder to use as the project instead: a made-up situation
 #                    that is no commit of any repo. One or the other, never both.
 #                    It is copied as it stands: files, folders, and links as
-#                    links, never followed (as a commit's would be). A .git
-#                    anywhere inside refuses the case. With only such cases,
+#                    links, never followed. A link must be relative and stay
+#                    inside tree/; one that is absolute or leads out refuses
+#                    the case, as does a .git anywhere inside. With only such cases,
 #                    <source-repo> may be given as -. A case with tree/ that
 #                    cannot be run is removed from the out dir and fails the call.
 #   <case>/after.md  optional: the follow-up turn in post-compaction mode
@@ -298,18 +299,25 @@ run_one(){ # <case> <k>
     cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
   else
     # A plain folder, copied as it stands. A link is copied as a link and never
-    # followed, as a commit's would be: nothing outside the case arrives in the
-    # snapshot, and where a link points is as closed to the session as before.
+    # followed, and only if it is relative and stays inside the folder (a
+    # CLAUDE.md that points at AGENTS.md): a hand-built folder is where a stray
+    # link to somewhere else on the machine would arrive, and the sandbox can read
+    # more than the snapshot, so such a link stops the case instead of resting on it.
     # Anything else that is not a file or a folder is left out; anything unreadable stops the case.
     python3 - "$cd_/tree" "$repo" <<'TREE' || { drop "cannot copy tree/"; return; }
 import os, shutil, stat, sys
 src, dst = sys.argv[1], sys.argv[2]
 def stop(e): raise e
+root = os.path.realpath(src)
+def inside(p):   # a relative link whose target, followed all the way, is still in the folder
+    return not os.path.isabs(os.readlink(p)) and (os.path.realpath(p) + os.sep).startswith(root + os.sep)
 for top, dirs, files in os.walk(src, followlinks=False, onerror=stop):
     to = os.path.join(dst, os.path.relpath(top, src)); os.makedirs(to, exist_ok=True)
     for f in dirs + files:
         p = os.path.join(top, f); mode = os.lstat(p).st_mode
-        if stat.S_ISLNK(mode): os.symlink(os.readlink(p), os.path.join(to, f))
+        if stat.S_ISLNK(mode):
+            if not inside(p): sys.exit("replay: a link in tree/ is absolute or leads outside it: " + os.path.relpath(p, src))
+            os.symlink(os.readlink(p), os.path.join(to, f))
         elif stat.S_ISREG(mode): shutil.copy(p, os.path.join(to, f), follow_symlinks=False)   # keeps the executable bit
     dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(top, x))]
 TREE

@@ -66,14 +66,18 @@ directories and score each.
 A case may carry a `tree/` folder in place of a `commit` file: a made-up
 situation, written for the test, that is no commit of any repo. The folder
 becomes the project, copied as it stands: files, folders, and links as links,
-never followed, as a commit's would be. An empty folder is a blank project.
+never followed. A link must be relative and stay inside the folder (a
+`CLAUDE.md` that points at `AGENTS.md`). An empty folder is a blank project.
 When every case in a set brings its own folder, pass `-` as the source repo.
 
 Such a case is refused by name when it cannot be used: a `.git` anywhere
-inside, a `tree` that is itself a link, a `commit` beside it, something in it
-that cannot be read, or a `commit` case with no source repo to look in. A
-refusal removes any older output for that case and the runner exits 3, so a
-result from an earlier call is never read as this one's.
+inside, a `tree` that is itself a link, a link inside that is absolute or
+leads out of the folder, a `commit` beside it, something in it that cannot be
+read, or a `commit` case with no source repo to look in. A refusal removes any
+older output for that case and the runner exits 3, so a result from an earlier
+call is never read as this one's. This is stricter than for a commit case,
+which is only named on stderr and skipped, with exit 0, as before: a caller
+that scripts on the exit code will see the difference.
 
 ## facts.json
 

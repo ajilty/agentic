@@ -277,23 +277,29 @@ case "$rc:$out" in 2:*'is not a directory'*) pass ;; *) fail "a plugin that is n
 out="$(cd "$d" && printf '%s' "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$d/victim\"}}" | REPLAY_LOG="$d/log.jsonl" REPLAY_ROOTS="$d/sb::" python3 "$g" 2>/dev/null)"
 case "$out" in *'"deny"'*) pass ;; *) fail "an empty entry in the guard's roots does not allow the current directory" ;; esac
 # A case may bring its own folder in place of a commit, with no source repo at all. It arrives as it
-# stands, a link as a link and never followed; the load check, the changed files and the facts work as for a commit.
+# stands, a link inside it as a link; the load check, the changed files and the facts work as for a commit.
 s2="$d/plug/set2"; o3="$d/plug/out3"
-mkdir -p "$s2/two/tree/sub" "$s2/three/tree/sub/.git" "$s2/four/tree" "$s2/five" "$s2/six/tree" "$s2/seven" "$s2/eight/tree" "$s2/nine/tree"
-for c in two three four five six seven eight nine; do echo "tree ask" > "$s2/$c/ask.md"; done
+mkdir -p "$s2/two/tree/sub" "$s2/three/tree/sub/.git" "$s2/four/tree" "$s2/five" "$s2/six/tree" "$s2/seven" "$s2/eight/tree" "$s2/nine/tree" \
+         "$s2/ten/tree" "$s2/eleven/tree/sub" "$s2/twelve/tree"
+for c in two three four five six seven eight nine ten eleven twelve; do echo "tree ask" > "$s2/$c/ask.md"; done
+# Links that leave the folder: an absolute one, one that climbs out, and an absolute one to a place inside it.
+ln -s "$d/victim" "$s2/ten/tree/lnk"; ln -s ../../../../victim "$s2/eleven/tree/sub/up"; echo t > "$s2/twelve/tree/t.txt"; ln -s "$s2/twelve/tree/t.txt" "$s2/twelve/tree/abs"
 echo t > "$s2/two/tree/t.txt"; echo s > "$s2/two/tree/sub/s.txt"; echo "tree rules" > "$s2/two/tree/AGENTS.md"; ln -s AGENTS.md "$s2/two/tree/CLAUDE.md"
-printf '#!/bin/sh\n' > "$s2/two/tree/run.sh"; chmod +x "$s2/two/tree/run.sh"; ln -s "$d/victim" "$s2/two/tree/lnk"; ln -s "$d" "$s2/two/tree/dirlnk"; ln -s ../t.txt "$s2/two/tree/sub/inner"
+printf '#!/bin/sh\n' > "$s2/two/tree/run.sh"; chmod +x "$s2/two/tree/run.sh"; ln -s sub "$s2/two/tree/lnk"; ln -s ../t.txt "$s2/two/tree/sub/inner"
 ln -s ../two/tree "$s2/seven/tree"; : > "$s2/eight/tree/hostile"
 # Older output for cases this call will refuse: it must not survive to be read as this call's.
-mkdir -p "$o3/three.1" "$o3/four.1" "$o3/five.1" "$o3/seven.1"; for c in three four five seven; do echo '{"candidate_sha256": "old"}' > "$o3/$c.1/facts.json"; done
+mkdir -p "$o3/three.1" "$o3/four.1" "$o3/five.1" "$o3/seven.1" "$o3/ten.1"; for c in three four five seven ten; do echo '{"candidate_sha256": "old"}' > "$o3/$c.1/facts.json"; done
 git -C "$d/plug/src" rev-parse HEAD > "$s2/four/commit"; git -C "$d/plug/src" rev-parse HEAD > "$s2/five/commit"
 echo "tree rules" > "$s2/six/tree/CLAUDE.md"; : > "$s2/six/tree/noload"
 out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_KEEP=keep REPLAY_IGNORE=log/ REPLAY_CANDIDATE="$d/cand.md" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$s2" - "$o3" 2>&1)"; rc=$?
 o2="$o3/two.1"
 grep -qx t.txt "$o2/keep/ls" 2>/dev/null && grep -qx sub "$o2/keep/ls" && [ -e "$o2/keep/runnable" ] \
   && [ "$(tr '\n' ' ' < "$o2/keep/links")" = "lnk sub/inner CLAUDE.md " ] && pass \
-  || fail "a case's own folder becomes the project: files, the executable bit, and links kept as links (got: $(tr '\n' ' ' < "$o2/keep/ls" 2>/dev/null); links: $(tr '\n' ' ' < "$o2/keep/links" 2>/dev/null))"
-grep -rq TOPSECRET "$o3" && fail "a link in a case's folder is not followed into the snapshot or the output" || pass
+  || fail "a case's own folder becomes the project: files, the executable bit, and its inside links kept as links (got: $(tr '\n' ' ' < "$o2/keep/ls" 2>/dev/null); links: $(tr '\n' ' ' < "$o2/keep/links" 2>/dev/null))"
+# A link that is absolute or leads out of the folder refuses the case: nothing rests on the sandbox for it.
+for c in ten eleven twelve; do has(){ case "$out" in *"$1"*) ;; *) false ;; esac; }
+  has "a link in tree/ is absolute or leads outside it" && has "$c: cannot copy tree/" && [ ! -e "$o3/$c.1" ] && pass || fail "a case whose folder has a link leading out is refused ($c)"; done
+grep -rq TOPSECRET "$o3" && fail "nothing a link in a case's folder points at reaches the output" || pass
 # An instruction file that is a link inside the folder is still expected, and recorded under the name it points at.
 [ "$(fact "$o2" expected)" = '["home/.claude/CLAUDE.md", "repo/CLAUDE.md"]' ] && [ "$(fact "$o2" loaded)" = '["home/.claude/CLAUDE.md", "repo/AGENTS.md"]' ] && pass \
   || fail "a linked instruction file in a case's folder is expected and checked (got: $(fact "$o2" expected) $(fact "$o2" loaded))"
