@@ -152,8 +152,8 @@ case "$first" in *'no usable sandbox runtime'*) conf=(REPLAY_UNCONFINED=1)
     rmdir /tmp/claude; made_shared=""
   fi
   # Nor when a further session starts: appearing mid-run, it stops the next session and fails the call.
-  if [ ! -e /tmp/claude ]; then : > "$o/result.json"; made_shared=1
-    ( i=0; until [ -s "$o/result.json" ] || [ $i -ge 300 ]; do sleep 0.1; i=$((i+1)); done; mkdir /tmp/claude 2>/dev/null ) & wp=$!
+  if [ ! -e /tmp/claude ]; then : > "$o/result.json"; mkdir -p "$d/plug/out/one.2" && echo stale > "$d/plug/out/one.2/result.json"; made_shared=1
+    ( i=0; until [ -s "$o/result.json" ] || [ $i -ge 300 ]; do sleep 0.1; i=$((i+1)); done; [ -s "$o/result.json" ] && mkdir /tmp/claude 2>/dev/null ) & wp=$!
     out="$(rp env REPLAY_K=2 REPLAY_JOBS=1)"; rc=$?; wait "$wp"; rmdir /tmp/claude 2>/dev/null; made_shared=""
     case "$rc:$out" in 3:*'one.2 not run'*) [ ! -s "$d/plug/out/one.2/result.json" ] && pass || fail "a refused session leaves no result" ;;
       *) fail "a session is refused when /tmp/claude appears mid-run (exit $rc)" ;; esac
