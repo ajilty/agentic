@@ -44,6 +44,62 @@ prints a line. There is no shared scoring format, on purpose: what counts as
 the right behavior differs per plugin. `plugins/orchestrate/tests/eval/replay.sh`
 is the worked example: a wrapper of settings plus two scorecards.
 
+## Test a preferences file instead of a plugin
+
+Set `REPLAY_CANDIDATE=<file>` to replay asks under a candidate version of your
+user-level `CLAUDE.md`. The file takes the place of your own in the throwaway
+home, so the two never run together, and it is covered by the same load check:
+a run where it did not load is `noload`. A file that is missing, empty or
+only whitespace is refused before any session starts. With a candidate set, `REPLAY_PLUGIN_DIR` is
+optional: leave it out and no plugin is loaded.
+
+Only the user-level file can be swapped. A candidate for a repo's own
+`CLAUDE.md` is left out on purpose: current CLIs also read a repo's `AGENTS.md`
+and `.claude/CLAUDE.md`, so the original could load beside the candidate and
+the run would measure both.
+
+To compare two versions, run the same set once per version into two output
+directories and score each.
+
+## Cases that are not a commit
+
+A case may carry a `tree/` folder in place of a `commit` file: a made-up
+situation, written for the test, that is no commit of any repo. The folder
+becomes the project, copied as it stands: files, folders, and links as links,
+never followed, as a commit's would be. An empty folder is a blank project.
+When every case in a set brings its own folder, pass `-` as the source repo.
+
+Such a case is refused by name when it cannot be used: a `.git` anywhere
+inside, a `tree` that is itself a link, a `commit` beside it, something in it
+that cannot be read, or a `commit` case with no source repo to look in. A
+refusal removes any older output for that case and the runner exits 3, so a
+result from an earlier call is never read as this one's.
+
+## facts.json
+
+Each run leaves a `facts.json` for a program to read. It holds what the runner
+knows and no verdict: the case and run number, the model and effort asked for
+and the models that answered, whether the project came from a commit or a
+folder, the candidate's SHA-256 if there was one, whether the session was
+confined, the instruction files the load check expected and the ones the load
+hook recorded (named by where they sat: `home/...`, `repo/...`), `noload`,
+whether the result was an error, cost, turns, seconds, refused tool calls and
+changed files. `noload` is the same mark as the summary's. `loaded` is the
+hook's record only, so it can be empty on a run that passed the check through
+its transcript. In post-compaction mode cost, turns, seconds and refused calls
+are the first turn's, as in the summary; changed files cover the whole run.
+
+The file is always strict JSON. A number the session reported that is not a
+finite number is `null`. The two lists the session reports about itself,
+`loaded` and `models_used`, are cut to a few short entries made of the
+characters a path or a model name has, but they are still the session's words:
+compare them, never act on them.
+
+A case skipped for lacking `ask.md` or a usable `commit` is only named on
+stderr, as before, and whatever an earlier call left for it stays. A caller
+that needs every case measured should use a fresh output directory per call
+and count the `facts.json` files.
+
 ## What keeps a replay safe
 
 Each session runs inside Anthropic's

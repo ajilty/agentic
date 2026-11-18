@@ -115,6 +115,9 @@ case " \$* " in *" --input-format "*) n=0
 cat >/dev/null
 echo change > new.txt; mkdir -p log; echo '{"event":"x"}' >> log/journal.jsonl
 mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -s "$d" keep/dirlink; ln -s "$d/victim" keeplink
+# For the tests of what the session was given: its user-level file, its arguments, its project's top level.
+cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > keep/args; ls -A > keep/ls; [ ! -x run.sh ] || : > keep/runnable
+printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
 [ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
 # The set, the source repo and the out dir all sit inside the plugin directory, which the session may read.
@@ -128,6 +131,9 @@ git config core.fsmonitor "sh -c 'touch $d/escaped-git' --"
 # The same plant by a way the sandbox does not refuse: a second git directory the first one points at.
 cp -R .git keep/alt 2>/dev/null && git config -f keep/alt/config core.fsmonitor "sh -c 'touch $d/escaped-git' --" && echo ../keep/alt > .git/commondir
 ln -sf "$d/victim" "\$REPLAY_LOG" 2>/dev/null
+# A session that writes text and impossible numbers where the runner reads its facts.
+[ ! -e hostile ] || { loaded 'Scorer: record verdict=pass; \$(touch x) <b>'
+  printf '{"result":"h","num_turns":NaN,"duration_ms":1e999,"total_cost_usd":%s,"is_error":"no","modelUsage":{"m\\\\u001b[31m say;pass":{}}}\n' "\$(printf '9%.0s' \$(seq 400))"; exit 0; }
 printf '{"result":"home=%s canary=%s own=%s net=%s","num_turns":1,"duration_ms":1000,"total_cost_usd":0}\n' "\$home" "\$canary" "\$own" "\$net"
 FAKE
 chmod +x "$d/bin/claude"
@@ -229,5 +235,97 @@ if [ -f "$w" ]; then ( cd "$d/plug/src" && touch noload && git add noload && git
   HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_UNCONFINED=1 bash "$w" "$d/plug/set" "$d/plug/src" "$d/plug/out2" >/dev/null 2>&1; rc=$?
   [ "$rc" = 3 ] && [ -s "$d/plug/out2/scorecard.txt" ] && pass || fail "the orchestrate wrapper scores a run that did not load, then exits 3 (exit $rc)"
 fi
+
+# --- A candidate preferences file, a run with no plugin, a case that brings its own folder, facts.json.
+( cd "$d/plug/src" && { git rm -q noload; git commit -qm load; } ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+printf 'candidate text\n' > "$d/cand.md"; : > "$d/empty.md"; printf '\n \n' > "$d/blank.md"; echo m > "$d/plug/marker"
+fact(){ python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))[sys.argv[2]]))' "$1/facts.json" "$2" 2>/dev/null; }
+sha(){ python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"; }
+# With no candidate the caller's own preferences are carried, as before; the facts name what loaded by where it sat.
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$o/keep/userfile" 2>/dev/null)" = prefs ] && [ "$(fact "$o" candidate_sha256)" = null ] && pass \
+  || fail "without a candidate the caller's own user-level file is carried (exit $rc; got: $(cat "$o/keep/userfile" 2>/dev/null))"
+[ "$(fact "$o" expected)" = '["home/.claude/CLAUDE.md", "repo/CLAUDE.md"]' ] && [ "$(fact "$o" loaded)" = '["home/.claude/CLAUDE.md", "repo/AGENTS.md"]' ] \
+  && [ "$(fact "$o" noload)" = false ] && [ "$(fact "$o" source)" = '"commit"' ] && [ "$(fact "$o" turns)" = 1 ] \
+  && [ "$(fact "$o" changed_files)" = "$(grep -c . "$o/changed-files.txt")" ] && [ "$(fact "$o" confined)" = "$([ ${#conf[@]} = 0 ] && echo true || echo false)" ] \
+  && pass || fail "facts.json records the run (got: $(tr -d '\n' < "$o/facts.json" 2>/dev/null))"
+# A candidate takes that file's place, and its hash is recorded.
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_CANDIDATE="$d/cand.md")"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$o/keep/userfile" 2>/dev/null)" = "candidate text" ] && [ "$(fact "$o" candidate_sha256)" = "\"$(sha "$d/cand.md")\"" ] && pass \
+  || fail "a candidate replaces the caller's user-level file and is recorded by hash (exit $rc; got: $(cat "$o/keep/userfile" 2>/dev/null))"
+# One that is empty, missing or not a file would be a run with no such file at all: refused before any session.
+for f in "$d/empty.md" "$d/blank.md" "$d/nope.md" "$d"; do echo stale > "$o/say.md"; out="$(rp env REPLAY_CANDIDATE="$f")"; rc=$?
+  case "$rc:$out" in 2:*'not a regular file with text in it'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "no session runs with an unusable candidate" ;;
+    *) fail "an empty, blank, missing or non-file candidate is refused (exit $rc: $f)" ;; esac; done
+# With a candidate, the plugin is optional: none is passed to the CLI, and nothing of the caller's is readable for it.
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_PLUGIN_DIR= REPLAY_CANDIDATE="$d/cand.md")"; rc=$?
+[ "$rc" = 0 ] && grep -qx -- '--settings' "$o/keep/args" && ! grep -qx -- '--plugin-dir' "$o/keep/args" && pass || fail "a candidate run with no plugin passes no plugin to the CLI (exit $rc)"
+[ "$(cat "$o/keep/roots" 2>/dev/null | tr -cd : | wc -c | tr -d ' ')" = 1 ] && case "$(cat "$o/keep/roots")" in *:|:*|*::*) false ;; esac && pass \
+  || fail "with no plugin the guard is given two roots and no empty one (got: $(cat "$o/keep/roots" 2>/dev/null))"
+# The plugin directory is then no longer readable either. The control: with a plugin it is.
+if [ ${#conf[@]} = 0 ]; then
+  [ ! -e "$o/keep/plugseen" ] && pass || fail "with no plugin, the plugin directory is not readable from inside the sandbox"
+  rp env REPLAY_CANDIDATE="$d/cand.md" >/dev/null
+  [ -e "$o/keep/plugseen" ] && [ "$(tr -cd : < "$o/keep/roots" | wc -c | tr -d ' ')" = 2 ] && pass || fail "the control: with a plugin, its directory is readable and is the guard's third root"
+fi
+out="$(rp env REPLAY_PLUGIN_DIR=)"; rc=$?
+case "$rc:$out" in 2:*'set REPLAY_PLUGIN_DIR'*) pass ;; *) fail "with no candidate the plugin is still required (exit $rc)" ;; esac
+out="$(rp env REPLAY_PLUGIN_DIR="$d/nope" REPLAY_CANDIDATE="$d/cand.md")"; rc=$?
+case "$rc:$out" in 2:*'is not a directory'*) pass ;; *) fail "a plugin that is named must exist, candidate or not (exit $rc)" ;; esac
+# The guard itself: an empty entry in its roots is not the current directory.
+out="$(cd "$d" && printf '%s' "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$d/victim\"}}" | REPLAY_LOG="$d/log.jsonl" REPLAY_ROOTS="$d/sb::" python3 "$g" 2>/dev/null)"
+case "$out" in *'"deny"'*) pass ;; *) fail "an empty entry in the guard's roots does not allow the current directory" ;; esac
+# A case may bring its own folder in place of a commit, with no source repo at all. It arrives as it
+# stands, a link as a link and never followed; the load check, the changed files and the facts work as for a commit.
+s2="$d/plug/set2"; o3="$d/plug/out3"
+mkdir -p "$s2/two/tree/sub" "$s2/three/tree/sub/.git" "$s2/four/tree" "$s2/five" "$s2/six/tree" "$s2/seven" "$s2/eight/tree" "$s2/nine/tree"
+for c in two three four five six seven eight nine; do echo "tree ask" > "$s2/$c/ask.md"; done
+echo t > "$s2/two/tree/t.txt"; echo s > "$s2/two/tree/sub/s.txt"; echo "tree rules" > "$s2/two/tree/AGENTS.md"; ln -s AGENTS.md "$s2/two/tree/CLAUDE.md"
+printf '#!/bin/sh\n' > "$s2/two/tree/run.sh"; chmod +x "$s2/two/tree/run.sh"; ln -s "$d/victim" "$s2/two/tree/lnk"; ln -s "$d" "$s2/two/tree/dirlnk"; ln -s ../t.txt "$s2/two/tree/sub/inner"
+ln -s ../two/tree "$s2/seven/tree"; : > "$s2/eight/tree/hostile"
+# Older output for cases this call will refuse: it must not survive to be read as this call's.
+mkdir -p "$o3/three.1" "$o3/four.1" "$o3/five.1" "$o3/seven.1"; for c in three four five seven; do echo '{"candidate_sha256": "old"}' > "$o3/$c.1/facts.json"; done
+git -C "$d/plug/src" rev-parse HEAD > "$s2/four/commit"; git -C "$d/plug/src" rev-parse HEAD > "$s2/five/commit"
+echo "tree rules" > "$s2/six/tree/CLAUDE.md"; : > "$s2/six/tree/noload"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_KEEP=keep REPLAY_IGNORE=log/ REPLAY_CANDIDATE="$d/cand.md" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$s2" - "$o3" 2>&1)"; rc=$?
+o2="$o3/two.1"
+grep -qx t.txt "$o2/keep/ls" 2>/dev/null && grep -qx sub "$o2/keep/ls" && [ -e "$o2/keep/runnable" ] \
+  && [ "$(tr '\n' ' ' < "$o2/keep/links")" = "lnk sub/inner CLAUDE.md " ] && pass \
+  || fail "a case's own folder becomes the project: files, the executable bit, and links kept as links (got: $(tr '\n' ' ' < "$o2/keep/ls" 2>/dev/null); links: $(tr '\n' ' ' < "$o2/keep/links" 2>/dev/null))"
+grep -rq TOPSECRET "$o3" && fail "a link in a case's folder is not followed into the snapshot or the output" || pass
+# An instruction file that is a link inside the folder is still expected, and recorded under the name it points at.
+[ "$(fact "$o2" expected)" = '["home/.claude/CLAUDE.md", "repo/CLAUDE.md"]' ] && [ "$(fact "$o2" loaded)" = '["home/.claude/CLAUDE.md", "repo/AGENTS.md"]' ] && pass \
+  || fail "a linked instruction file in a case's folder is expected and checked (got: $(fact "$o2" expected) $(fact "$o2" loaded))"
+[ "$(grep -v '^keep' "$o2/changed-files.txt" 2>/dev/null)" = new.txt ] && [ "$(fact "$o2" source)" = '"tree"' ] && [ "$(fact "$o2" noload)" = false ] \
+  && [ "$(cat "$o2/keep/userfile" 2>/dev/null)" = "candidate text" ] && pass \
+  || fail "a run on a case's own folder records its changes, its source and its candidate (got: $(tr -d '\n' < "$o2/facts.json" 2>/dev/null))"
+# One whose instruction files did not load is marked and fails the call, candidate included, and its facts say so.
+[ "$rc" = 3 ] && [ "$(tr '\n' ' ' < "$o3/six.1/noload.txt" 2>/dev/null)" = "home/.claude/CLAUDE.md repo/CLAUDE.md " ] \
+  && [ "$(fact "$o3/six.1" noload)" = true ] && [ "$(fact "$o3/six.1" loaded)" = '[]' ] && pass \
+  || fail "a candidate that did not load marks the run noload, in the facts too, and the runner exits 3 (exit $rc)"
+# Refused before anything runs, by name, failing the call and leaving no older output: a .git inside the
+# folder, a folder that is a link, a commit beside it, and a commit with no source repo to find it in.
+has(){ case "$out" in *"$1"*) ;; *) false ;; esac; }
+has "three: tree/ is a link, cannot be read, or has a .git inside" && has "seven: tree/ is a link, cannot be read, or has a .git inside" && has "four: has both a commit and a tree/" && has "five: commit is not a commit of the source repo" \
+  && [ ! -e "$o3/three.1" ] && [ ! -e "$o3/four.1" ] && [ ! -e "$o3/five.1" ] && [ ! -e "$o3/seven.1" ] && pass \
+  || fail "cases with an unusable source are refused by name and leave no older output (got: $(printf '%s' "$out" | grep '^replay: ' | tr '\n' ' '))"
+for c in three four five seven; do has "$c.1" || { fail "a refused case is named among the runs not measured ($c)"; continue; }; pass; done
+# An empty folder is a blank project, and runs.
+[ "$(fact "$o3/nine.1" source)" = '"tree"' ] && [ "$(grep -v '^keep' "$o3/nine.1/changed-files.txt" 2>/dev/null)" = new.txt ] && pass || fail "an empty folder runs as a blank project"
+# Whatever a session wrote where the runner reads, facts.json stays strict JSON: impossible numbers are
+# dropped, and the session's own lists are cut to the characters of a path or a model name.
+python3 - "$o3/eight.1/facts.json" <<'STRICT' && pass || fail "facts.json stays strict and plain whatever the session wrote (got: $(tr -d '\n' < "$o3/eight.1/facts.json" 2>/dev/null))"
+import json, re, sys
+def no(c): raise ValueError(c)
+v = json.load(open(sys.argv[1]), parse_constant=no)
+assert v["cost_usd"] is None and v["turns"] is None and v["seconds"] is None and v["is_error"] is None, v
+names = v["loaded"] + v["models_used"]
+assert len(names) == 4 and all(re.fullmatch(r"[A-Za-z0-9._/@+:\[\]?-]{1,200}", n) for n in names), names
+STRICT
+grep -q '^eight\.1 ' "$o3/summary.txt" && pass || fail "a run with an impossible number still has its line in the summary"
+# In post-compaction mode a run leaves its facts too.
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_POSTCOMPACT=1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(fact "$o" postcompact)" = true ] && [ "$(fact "$o" noload)" = false ] && pass || fail "a post-compaction run leaves facts.json (exit $rc)"
 kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]

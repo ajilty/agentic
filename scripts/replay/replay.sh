@@ -9,13 +9,25 @@
 # A set is a directory of cases, one directory each, kept OUTSIDE this repo
 # (real asks name real systems):
 #   <case>/ask.md    the ask, verbatim
-#   <case>/commit    the source-repo commit the ask was made against
+#   <case>/commit    the source-repo commit the ask was made against, or
+#   <case>/tree/     a folder to use as the project instead: a made-up situation
+#                    that is no commit of any repo. One or the other, never both.
+#                    It is copied as it stands: files, folders, and links as
+#                    links, never followed (as a commit's would be). A .git
+#                    anywhere inside refuses the case. With only such cases,
+#                    <source-repo> may be given as -. A case with tree/ that
+#                    cannot be run is removed from the out dir and fails the call.
 #   <case>/after.md  optional: the follow-up turn in post-compaction mode
 #   anything else    copied to the output as is (a kind, an answer key), unless
 #                    it carries the name of an output file below
 #
-# Env, required: REPLAY_PLUGIN_DIR (the plugin under test, a working tree).
-# Env, optional: REPLAY_PREFIX (text sent before the ask, such as a slash
+# Env, required: REPLAY_PLUGIN_DIR (the plugin under test, a working tree),
+# unless REPLAY_CANDIDATE is set: a preferences file can be tested with no plugin.
+# Env, optional: REPLAY_CANDIDATE (a file to use as the session's user-level
+# CLAUDE.md in place of the caller's own, which is then not carried: the two
+# never run together. It must be a regular file with text in it. One copy is taken at
+# startup, so every run of the call gets the same text, and the load check below
+# covers it like any other instruction file), REPLAY_PREFIX (text sent before the ask, such as a slash
 # command and a space), REPLAY_MODEL (opus), REPLAY_EFFORT (low), REPLAY_K (runs
 # per case, 1), REPLAY_JOBS (parallel sessions, 4), REPLAY_BUDGET_USD (per
 # session, 4; 8 in post-compaction mode), REPLAY_TIMEOUT (seconds per session,
@@ -45,6 +57,8 @@
 #   turn.stream.jsonl, compact.md, after.md; journal.jsonl then holds turn 1 only
 #   settings.json stderr.txt      the hook wiring used, and the CLI's stderr
 #   loaded.jsonl                  one row per instruction file the session loaded
+#   facts.json                    what the runner knows about the run, for a
+#                                 program to read: see README.md. No verdict.
 #   noload.txt                    only when an instruction file that should have
 #                                 loaded did not: its name. The run is marked
 #                                 "noload" in the summary and the runner exits 3.
@@ -83,12 +97,12 @@
 # left, and once a session has run, runs git on the snapshot only inside the sandbox, because the
 # snapshot's git configuration is the session's to edit.
 # Not limited: the memory and disk a session can fill inside its sandbox.
-# The snapshot is a `git archive` (tracked files only, no remote), taken with
-# the caller's git configuration switched off so no filter, hook or signer of
-# theirs runs.
+# The snapshot is a `git archive` (tracked files only, no remote), or a copy of
+# the case's tree/, either way made with the caller's git configuration switched
+# off so no filter, hook or signer of theirs runs.
 # What the sandbox does not cover: the session holds the model login and talks
 # to the model, so what it can read (the snapshot, the plugin, the operator's
-# CLAUDE.md) goes to the model provider, as in any session, and tools the
+# CLAUDE.md or the candidate in its place) goes to the model provider, as in any session, and tools the
 # provider runs on its side (web search) are a way out. guard.py refuses those,
 # the connected services that come with the login (also switched off by
 # ENABLE_CLAUDEAI_MCP_SERVERS=false), dispatches and any tool it does not know.
@@ -115,8 +129,19 @@ command -v claude >/dev/null 2>&1 || { echo "(skip replay: claude not on PATH)";
   || { echo "(skip replay: no live auth)"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "(skip replay: python3 absent)"; exit 0; }
 [ "$(df -Pk "${TMPDIR:-/tmp}" | awk 'NR==2{print $4}')" -ge 1048576 ] || { echo "(skip replay: low tmp space)"; exit 0; }
-[ -d "$SET" ] && git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1 || { echo "replay: need a set dir and a git source repo" >&2; exit 2; }
-[ -d "${REPLAY_PLUGIN_DIR:-}" ] || { echo "replay: set REPLAY_PLUGIN_DIR to the plugin under test" >&2; exit 2; }
+# A source repo of - means there is none: every case then brings its own tree/.
+[ "$SRC" != - ] || SRC=""
+[ -d "$SET" ] && { [ -z "$SRC" ] || git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1; } || { echo "replay: need a set dir and a git source repo" >&2; exit 2; }
+# The candidate preferences file. Empty or missing would run with no such file at
+# all and still count as measured, so that is refused here, not found out later.
+CAND="${REPLAY_CANDIDATE:-}"
+[ -z "$CAND" ] || { [ -f "$CAND" ] && grep -q '[^[:space:]]' "$CAND" 2>/dev/null; } || { echo "replay: REPLAY_CANDIDATE is not a regular file with text in it ($CAND)" >&2; exit 2; }
+# A plugin is required unless a candidate file is what is under test; one that is named must exist.
+if [ -n "${REPLAY_PLUGIN_DIR:-}" ]; then
+  [ -d "$REPLAY_PLUGIN_DIR" ] || { echo "replay: REPLAY_PLUGIN_DIR is not a directory ($REPLAY_PLUGIN_DIR)" >&2; exit 2; }
+else
+  [ -n "$CAND" ] || { echo "replay: set REPLAY_PLUGIN_DIR to the plugin under test" >&2; exit 2; }
+fi
 # The guard only blocks on its own failure from 2.1.295 on; an older CLI would run the tool.
 ver="$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 [ "$(printf '%s\n' 2.1.295 "${ver:-0}" | sort -V | head -1)" = 2.1.295 ] \
@@ -126,22 +151,24 @@ TIMEOUT="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || 
 [ -n "$TIMEOUT" ] || { echo "replay: needs timeout (GNU coreutils)" >&2; exit 2; }
 REAL_HOME="$(cd "$HOME" 2>/dev/null && pwd -P)"
 [ -n "$REAL_HOME" ] || { echo "replay: HOME is not a directory" >&2; exit 2; }
-SRC="$(cd "$SRC" && pwd -P)"; SET="$(cd "$SET" && pwd -P)"; mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd -P)"
+[ -z "$SRC" ] || SRC="$(cd "$SRC" && pwd -P)"; SET="$(cd "$SET" && pwd -P)"; mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd -P)"
 [ -n "$OUT" ] || { echo "replay: cannot use the out dir" >&2; exit 2; }
 case "$HERE$OUT" in *\'*|*\"*|*\\*) echo "replay: a quote or backslash in the harness or out dir path is not supported" >&2; exit 2 ;; esac
 # The source repo's whole checkout and its git directory are hidden, not just the
 # directory named: a worktree keeps its history elsewhere.
-SRC_HIDE=("$SRC")
-for d in "$(git -C "$SRC" rev-parse --show-toplevel 2>/dev/null)" "$(git -C "$SRC" rev-parse --git-common-dir 2>/dev/null)"; do
-  d="$(cd "$SRC" && cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && [ "$d" != / ] && SRC_HIDE+=("$d")
-done
+SRC_HIDE=()
+if [ -n "$SRC" ]; then SRC_HIDE=("$SRC")
+  for d in "$(git -C "$SRC" rev-parse --show-toplevel 2>/dev/null)" "$(git -C "$SRC" rev-parse --git-common-dir 2>/dev/null)"; do
+    d="$(cd "$SRC" && cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && [ "$d" != / ] && SRC_HIDE+=("$d")
+  done
+fi
 
 # The sandbox runtime (REPLAY_SRT, or `srt` on PATH) is probed after the run
 # directory exists, by running it: present but not permitted here counts as absent.
 SRT="${REPLAY_SRT:-$(command -v srt 2>/dev/null || true)}"
 
 MODEL="${REPLAY_MODEL:-opus}"; EFFORT="${REPLAY_EFFORT:-low}"; K="${REPLAY_K:-1}"
-PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd -P)"; JOBS="${REPLAY_JOBS:-4}"
+PDIR=""; [ -z "${REPLAY_PLUGIN_DIR:-}" ] || PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd -P)"; JOBS="${REPLAY_JOBS:-4}"
 PC="${REPLAY_POSTCOMPACT:-}"; [ "$PC" = 0 ] && PC=""
 AFTER_DEFAULT="Continue. What is the state of this work and what is your next step?"
 BUDGET="${REPLAY_BUDGET_USD:-$([ -n "$PC" ] && echo 8 || echo 4)}"; GUARD="$HERE/guard.py"
@@ -152,11 +179,11 @@ IGNORE="${REPLAY_IGNORE-.agents/}"; JOURNAL="${REPLAY_JOURNAL:-}"
 PLUG_LINKS=()
 while IFS= read -r d; do
   d="$(readlink -f "$d" 2>/dev/null)"; case "$d/" in "$PDIR"/*|/) ;; *) [ -e "$d" ] && PLUG_LINKS+=("$d") ;; esac
-done < <(find "$PDIR" -maxdepth 3 -type l 2>/dev/null)
+done < <([ -z "$PDIR" ] || find "$PDIR" -maxdepth 3 -type l 2>/dev/null)
 # The set and the out dir are hidden from the session whatever else is
 # readable, so nothing the session needs may sit inside them.
 case "$OUT:$SET" in /:*|*:/) echo "replay: the set and the out dir cannot be /" >&2; exit 2 ;; esac
-for d in "$PDIR" "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
+for d in ${PDIR:+"$PDIR"} "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
   echo "replay: the set and the out dir must not contain the plugin, the harness, the CLI or TMPDIR ($d)" >&2; exit 2 ;; esac; done
 [ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
 
@@ -178,6 +205,15 @@ cgit(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYS
 # The run directory's path is written into each session's settings and matched in its records.
 case "$RUN_DIR" in *\'*|*\"*|*\\*) echo "replay: a quote or backslash in TMPDIR is not supported" >&2; exit 2 ;; esac
 mk_tmp(){ mktemp -d "$RUN_DIR/t.XXXXXXXX"; }
+# One copy of the candidate for the whole call: a file edited mid-run cannot make
+# two runs differ, and the hash in facts.json is of the text that ran.
+CAND_SHA=""
+if [ -n "$CAND" ]; then
+  cp -L "$CAND" "$RUN_DIR/candidate.md" && [ -s "$RUN_DIR/candidate.md" ] || { echo "replay: cannot read REPLAY_CANDIDATE ($CAND)" >&2; exit 2; }
+  CAND="$RUN_DIR/candidate.md"
+  CAND_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$CAND")"
+  [ "${#CAND_SHA}" = 64 ] || { echo "replay: cannot hash REPLAY_CANDIDATE" >&2; exit 2; }
+fi
 # Read a file the session could have written, only if it is a regular file that
 # really lives under <root>: the session may have left a link pointing elsewhere.
 # take copies it to <dest> (and writes nothing when it is not there); emit prints it.
@@ -229,14 +265,26 @@ fi
   echo "replay: no usable sandbox runtime, so no sandbox boundary (npm install -g @anthropic-ai/sandbox-runtime; Linux also needs bubblewrap, socat and ripgrep); set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }
 [ -n "$SRT" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
 
-RESERVED=" commit after.md turn1.md result.json say.md guard.jsonl transcript.jsonl changed-files.txt journal.jsonl settings.json stderr.txt compact.result.json guard.compact.jsonl turn2.result.json turn2.say.md guard.turn2.jsonl journal.turn2.jsonl turn.stream.jsonl compact.md loaded.jsonl noload.txt "
+RESERVED=" commit after.md turn1.md result.json say.md guard.jsonl transcript.jsonl changed-files.txt journal.jsonl settings.json stderr.txt compact.result.json guard.compact.jsonl turn2.result.json turn2.say.md guard.turn2.jsonl journal.turn2.jsonl turn.stream.jsonl compact.md loaded.jsonl noload.txt facts.json "
 for d in ${REPLAY_KEEP:-}; do d="${d%/}"; RESERVED+="${d##*/} "; done
 
 run_one(){ # <case> <k>
-  local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit s f d n t1="" t2=""
-  [ -f "$cd_/ask.md" ] && [ -f "$cd_/commit" ] || { echo "replay: $c lacks ask.md or commit" >&2; return; }
-  commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
-    || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
+  local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit="" s f d n t1="" t2=""
+  # The project comes from a commit of the source repo, or from the case's own tree/.
+  # A tree/ case, or any case with no source repo to look in, that cannot be run
+  # fails the call and leaves no older output behind to be read as this call's.
+  drop(){ echo "replay: $c: $1" >&2; rm -rf "${OUT:?}/$c.$k"; echo "$c.$k" >> "$RUN_DIR/failed"; }
+  [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { echo "replay: $c lacks ask.md, or a commit or a tree/" >&2; return; }
+  if [ -f "$cd_/commit" ] && [ -d "$cd_/tree" ]; then
+    drop "has both a commit and a tree/: keep one"; return
+  elif [ -f "$cd_/commit" ] && [ -z "$SRC" ]; then
+    drop "commit is not a commit of the source repo"; return
+  elif [ -f "$cd_/commit" ]; then
+    commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
+      || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
+  elif [ -L "$cd_/tree" ] || [ -n "$(find "$cd_/tree" -name .git -print -quit 2>&1)" ]; then
+    drop "tree/ is a link, cannot be read, or has a .git inside"; return
+  fi
   # Four directories per run. The session can write its snapshot, its HOME and
   # its log directory; it can only read cfg. The output directory is the
   # caller's: the session never sees it. What lands there is the session's
@@ -246,18 +294,40 @@ run_one(){ # <case> <k>
   [ -z "$SRT" ] || shared || { echo "replay: $c.$k not run" >&2; echo "$c.$k" >> "$RUN_DIR/failed"; return; }
   # The case's extra files, except any named like an output: it could stand in for one the session never left.
   for f in "$cd_"/*; do case "$RESERVED" in *" ${f##*/} "*) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
-  cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
+  if [ -n "$commit" ]; then
+    cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
+  else
+    # A plain folder, copied as it stands. A link is copied as a link and never
+    # followed, as a commit's would be: nothing outside the case arrives in the
+    # snapshot, and where a link points is as closed to the session as before.
+    # Anything else that is not a file or a folder is left out; anything unreadable stops the case.
+    python3 - "$cd_/tree" "$repo" <<'TREE' || { drop "cannot copy tree/"; return; }
+import os, shutil, stat, sys
+src, dst = sys.argv[1], sys.argv[2]
+def stop(e): raise e
+for top, dirs, files in os.walk(src, followlinks=False, onerror=stop):
+    to = os.path.join(dst, os.path.relpath(top, src)); os.makedirs(to, exist_ok=True)
+    for f in dirs + files:
+        p = os.path.join(top, f); mode = os.lstat(p).st_mode
+        if stat.S_ISLNK(mode): os.symlink(os.readlink(p), os.path.join(to, f))
+        elif stat.S_ISREG(mode): shutil.copy(p, os.path.join(to, f), follow_symlinks=False)   # keeps the executable bit
+    dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(top, x))]
+TREE
+  fi
   # Project-level harness config can start servers and hooks of its own: drop it.
   ( cd "$repo" && { [ ! -L .claude ] || rm -f .claude; } && rm -rf .mcp.json .claude/settings.json .claude/settings.local.json .envrc )
   ( cd "$repo" && cgit init -q && git config user.email t@t && git config user.name t \
       && { [ -z "$IGNORE" ] || printf '%s\n' "$IGNORE" >> .git/info/exclude; } \
-      && cgit add --all >/dev/null 2>&1 && cgit commit -qm snapshot ) \
-    || { echo "replay: $c: cannot commit the snapshot" >&2; return; }
+      && cgit add --all >/dev/null 2>&1 && cgit commit -qm snapshot $([ -n "$commit" ] || echo --allow-empty) ) \
+    || { [ -n "$commit" ] && echo "replay: $c: cannot commit the snapshot" >&2 || drop "cannot commit the snapshot"; return; }
   # Only the model login, the operator's standing preferences (they shape how a
   # session asks) and the named skills are carried into the sandbox HOME.
+  # A candidate takes the place of those preferences: the caller's own are then left behind.
   for f in .credentials.json CLAUDE.md; do
+    [ "$f" = CLAUDE.md ] && [ -n "$CAND" ] && continue
     [ -f "$HOME/.claude/$f" ] && cp -L "$HOME/.claude/$f" "$home/.claude/$f" 2>/dev/null
   done
+  [ -z "$CAND" ] || cp "$CAND" "$home/.claude/CLAUDE.md" || { echo "replay: $c.$k not run: cannot place the candidate" >&2; echo "$c.$k" >> "$RUN_DIR/failed"; return; }
   for s in ${REPLAY_CARRY_SKILLS:-}; do
     [ -d "$HOME/.claude/skills/$s" ] && cp -RL "$HOME/.claude/skills/$s" "$home/.claude/skills/" 2>/dev/null
   done
@@ -275,15 +345,15 @@ JSON
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
-  local cargs=(-p --model "$MODEL" --effort "$EFFORT" --plugin-dir "$PDIR" --settings "$cfg/settings.json"
+  local cargs=(-p --model "$MODEL" --effort "$EFFORT" ${PDIR:+--plugin-dir "$PDIR"} --settings "$cfg/settings.json"
                --max-budget-usd "$BUDGET" --allowedTools "Read,Grep,Glob,Write,Edit,Bash,Agent,Task,Skill")
   # The policy: what the session may read, then write, then what stays hidden
   # even if it sits inside something readable.
   local box=() sk=""
   if [ -n "$SRT" ]; then
     sk="$(mk_tmp)"
-    policy "$cfg/srt.json" "${SYS_READ[@]}" "$CLAUDE_BIN" "$SRT_PKG" "$PDIR" ${PLUG_LINKS[@]+"${PLUG_LINKS[@]}"} "$HERE" "$cfg" "$sk" \
-           -- "$repo" "$home" "$log" -- "$SET" "$OUT" "${SRC_HIDE[@]}" -- "$home/.claude/settings.json"
+    policy "$cfg/srt.json" "${SYS_READ[@]}" "$CLAUDE_BIN" "$SRT_PKG" ${PDIR:+"$PDIR"} ${PLUG_LINKS[@]+"${PLUG_LINKS[@]}"} "$HERE" "$cfg" "$sk" \
+           -- "$repo" "$home" "$log" -- "$SET" "$OUT" ${SRC_HIDE[@]+"${SRC_HIDE[@]}"} -- "$home/.claude/settings.json"
     box=("$SRT" --settings "$cfg/srt.json" --)
   fi
   # The environment is built from nothing BEFORE the sandbox starts, so the
@@ -298,7 +368,7 @@ JSON
       ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
       ${CLAUDE_CODE_OAUTH_TOKEN:+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"} \
       ${ANTHROPIC_DEFAULT_OPUS_MODEL:+ANTHROPIC_DEFAULT_OPUS_MODEL="$ANTHROPIC_DEFAULT_OPUS_MODEL"} \
-      REPLAY_ALLOW_AGENTS="${REPLAY_ALLOW_AGENTS:-}" REPLAY_LOG="$log/guard.jsonl" REPLAY_ROOTS="$repo:$home:$PDIR" \
+      REPLAY_ALLOW_AGENTS="${REPLAY_ALLOW_AGENTS:-}" REPLAY_LOG="$log/guard.jsonl" REPLAY_ROOTS="$repo:$home${PDIR:+:$PDIR}" \
       ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 10 "$1" "${@:2}"; }
   { printf '%s' "${REPLAY_PREFIX:-}"; cat "$cd_/ask.md"; } > "$log/turn1.md"; cp "$log/turn1.md" "$o/turn1.md"
   if [ -z "$PC" ]; then
@@ -361,6 +431,52 @@ for f, real in zip(want[0::2], want[1::2]):
 LOADED
   if [ -s "$o/noload.txt" ]; then echo "$c.$k" >> "$RUN_DIR/failed"; else rm -f "$o/noload.txt"; fi
   jget "$o/result.json" result > "$o/say.md" || echo "(no result)" > "$o/say.md"
+  # What the runner knows about this run, for a program to read; no verdict. A
+  # value read from a file the session could write is kept only as a finite
+  # number, a yes or no, or, for the two lists the session reports about itself
+  # (files loaded, models used), a few short names cut down to the characters a
+  # path or a model name has. Those two lists are still the session's own words.
+  # "noload" is the mark above, so the two agree.
+  python3 - "$o" "$home" "$repo" "$c" "$k" "$MODEL" "$EFFORT" "${commit:+commit}" "$CAND_SHA" "${SRT:+1}" "${PC:+1}" \
+      ${expect[@]+"${expect[@]}"} > "$o/facts.json" <<'FACTS'
+import json, os, re, sys
+o, home, repo, case, k, model, effort, commit, cand, boxed, pc = sys.argv[1:12]
+def name(f):   # where a file sat in the run, not the temporary path it had
+    for root, tag in ((home, "home"), (repo, "repo")):
+        if f.startswith(root + "/"): return tag + f[len(root):]
+    return f
+def count(p, keep=lambda l: l.strip()):
+    try: return sum(1 for l in open(p, errors="replace") if keep(l))
+    except OSError: return 0
+try: r = json.load(open(o + "/result.json"))
+except Exception: r = {}
+if not isinstance(r, dict): r = {}
+def num(key, scale=1):
+    v = r.get(key)   # not NaN, not infinite, not a number too long to be one
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and -1e12 < v < 1e12
+    return (v if scale == 1 else v / scale) if ok else None
+short = lambda t, n: re.sub(r"[^A-Za-z0-9._/@+:\[\]-]", "?", t[:n])
+loaded = []
+try:
+    for l in open(o + "/loaded.jsonl", errors="replace"):
+        try: f = short(name(json.loads(l)["file_path"]), 200)
+        except Exception: continue
+        if f not in loaded and len(loaded) < 50: loaded.append(f)
+except OSError: pass
+used = r.get("modelUsage")
+json.dump({
+    "case": case, "run": int(k), "model_asked": model, "effort": effort,
+    "models_used": sorted(short(str(m), 80) for m in used)[:10] if isinstance(used, dict) else [],
+    "source": "commit" if commit else "tree", "candidate_sha256": cand or None,
+    "confined": bool(boxed), "postcompact": bool(pc),
+    "expected": [name(f) for f in sys.argv[12::2]], "loaded": loaded, "noload": os.path.exists(o + "/noload.txt"),
+    "is_error": r.get("is_error") if isinstance(r.get("is_error"), bool) else None,
+    "cost_usd": num("total_cost_usd"), "turns": num("num_turns"), "seconds": num("duration_ms", 1000),
+    "refused": count(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
+    "changed_files": count(o + "/changed-files.txt"),
+}, sys.stdout, indent=1, allow_nan=False)
+FACTS
+  [ -s "$o/facts.json" ] || { rm -f "$o/facts.json"; echo "replay: $c.$k: could not write facts.json" >&2; }
   # Copied by the runner as the caller, from files the session wrote: regular
   # files only, no link followed anywhere on the way, nothing large.
   python3 - "$repo" "$o" ${REPLAY_KEEP:-} <<'KEEP'
@@ -405,7 +521,7 @@ try: r = json.load(open(o + "/result.json"))
 except Exception: r = {}
 def f(k, fmt, scale=1):   # the session may have written this file: a field is a number or a dash
     v = r.get(k) if isinstance(r, dict) else None
-    return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) else "-"
+    return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) and -1e12 < v < 1e12 else "-"
 print("%-28s %-7d %-5d %-5s %-5s %s%s" % (os.path.basename(o), n(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
       n(o + "/changed-files.txt"), f("num_turns", "%d"), f("duration_ms", "%d", 1000), f("total_cost_usd", "%.2f"),
       "  noload" if os.path.exists(o + "/noload.txt") else ""))
