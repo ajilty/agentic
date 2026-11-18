@@ -40,6 +40,34 @@ is allow '{"tool_name":"Bash","tool_input":{"command":"sleep 1","run_in_backgrou
 is allow '{"tool_name":"TaskOutput","tool_input":{"task_id":"x"}}' "reading a background command's output"
 is allow '{"tool_name":"Skill","tool_input":{"skill":"x"}}' "loading a skill"
 is allow "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$d/sb/a.md\"}}" "a read inside the sandbox"
+# The settings check reads the whole command, text it only stores included. That refuses a harmless note
+# now and then (README, known limits), and it is why every way below of running or reading such text is
+# refused. An exception for stored notes was tried and dropped: several of these got past a version of it.
+bash_ev(){ python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.stdin.read()}}))'; }
+NOTE='Files a second copy would lack: `config/local.env`, `.claude/settings.local.json`.'
+SET='echo {} > .claude/settings.json'
+is deny  "$(printf "mkdir -p tickets/t && cat > tickets/t/work-item.md <<'EOF'\n%s\nEOF\nledger.sh append '{}'" "$NOTE" | bash_ev)" "a stored note that only names the settings file (the known false refusal)"
+is deny  "$(printf "cat > tickets/t/work-item.md <<'EOF'\n%s\nEOF\ncat .claude/settings.json" "$NOTE" | bash_ev)" "the settings file read after a stored note"
+is deny  "$(printf "cat > .claude/settings.json <<'EOF'\n{}\nEOF" | bash_ev)" "a heredoc stored into the settings file"
+is deny  "$(printf "cat > x <<EOF\n\$(cat .claude/settings.json)\nEOF" | bash_ev)" "a heredoc the shell expands (unquoted end word)"
+is deny  "$(printf "cat <<'EOF' | sh\n%s\nEOF" "$SET" | bash_ev)" "a heredoc piped to a shell"
+is deny  "$(printf "cat <<'EOF'\n%s\nEOF" "$SET" | bash_ev)" "a heredoc with no file to store in"
+is deny  "$(printf "sh -c \"\$(\ncat <<'EOF'\n%s\nEOF\n)\"" "$SET" | bash_ev)" "a heredoc inside a command substitution"
+is deny  "$(printf "bash <<'EOF'\n%s\nEOF" "$SET" | bash_ev)" "a heredoc a shell runs"
+is deny  "$(printf "cat /dev/null && sh <<'EOF'\n%s\nEOF" "$SET" | bash_ev)" "a heredoc that belongs to a shell later on the line"
+is deny  "$(printf "cat > x <<'A'; bash <<'B'\nnote\nA\n%s\nB" "$SET" | bash_ev)" "two heredocs on one line"
+is deny  "$(printf "cat <<'EOF' > >(sh)\n%s\nEOF" "$SET" | bash_ev)" "a heredoc stored into a process substitution"
+is deny  "$(printf "tee x <<'EOF'\n%s\nEOF" "$SET" | bash_ev)" "a heredoc through tee, which also prints it"
+is deny  "$(printf "cat > x <<'EOF' && sh x\n%s\nEOF" "$SET" | bash_ev)" "a stored file run on the same line"
+is deny  "$(printf "cat > x <<'EOF'\n%s\nEOF\nbash x" "$SET" | bash_ev)" "a stored file run afterwards"
+is deny  "$(printf "cat > t/x.md <<'EOF'\n%s\nEOF\ncd t && sh -c '{ sh x.md; }'" "$SET" | bash_ev)" "a stored file run by its bare name inside a quoted command"
+is deny  "$(printf "cat > x <<<'EOF'\ncat .claude/settings.json\nEOF" | bash_ev)" "a here-string, whose next lines are commands"
+is deny  "$(printf "cat x # > y <<'EOF'\ncat .claude/settings.json\nEOF" | bash_ev)" "a heredoc mark inside a comment"
+is deny  "$(printf "cat > x <<'E'OF\nnote\nE\ncat .claude/settings.json\nEOF" | bash_ev)" "an end word the shell reads differently"
+is deny  "$(printf "cat > x <<'EOF' \\\\\\n| sh\n%s\nEOF" "$SET" | bash_ev)" "a pipe on a continuation line"
+is deny  "$(printf "echo \"\ncat > x <<'E'\n\"; cat .claude/settings.json\nE" | bash_ev)" "a heredoc mark inside an open quote"
+# Refused for its network call, as before: the shape of a real refusal first taken for a false one.
+is deny  "$(printf "cat > tickets/t/work-item.md <<'EOF'\n%s\nEOF\ngh run view 1 --log-failed > tickets/t/run.log" "$NOTE" | bash_ev)" "a stored note bundled with a network call"
 run '{"tool_name":"Read","tool_input":{"file_path":"x"}}' "/nonexistent/dir/log.jsonl" >/dev/null; [ $? = 2 ] && pass || fail "guard error (unwritable log) blocks with exit 2"
 printf 'not json' | REPLAY_LOG="$d/log.jsonl" REPLAY_ROOTS="$d/sb" python3 "$g" >/dev/null 2>&1; [ $? = 2 ] && pass || fail "guard error (bad input) blocks with exit 2"
 grep -q '"onFailure":"block"' "$HERE/replay.sh" && pass || fail "replay.sh wires the guard to block on a timeout or failure to start"
