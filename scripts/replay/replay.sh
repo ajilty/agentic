@@ -169,7 +169,7 @@ fi
 SRT="${REPLAY_SRT:-$(command -v srt 2>/dev/null || true)}"
 
 MODEL="${REPLAY_MODEL:-opus}"; EFFORT="${REPLAY_EFFORT:-low}"; K="${REPLAY_K:-1}"
-PDIR=""; [ -z "${REPLAY_PLUGIN_DIR:-}" ] || PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd -P)"; JOBS="${REPLAY_JOBS:-4}"
+PDIR=""; [ -z "${REPLAY_PLUGIN_DIR:-}" ] || PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd -P)" || { echo "replay: cannot enter REPLAY_PLUGIN_DIR ($REPLAY_PLUGIN_DIR)" >&2; exit 2; }; JOBS="${REPLAY_JOBS:-4}"
 PC="${REPLAY_POSTCOMPACT:-}"; [ "$PC" = 0 ] && PC=""
 AFTER_DEFAULT="Continue. What is the state of this work and what is your next step?"
 BUDGET="${REPLAY_BUDGET_USD:-$([ -n "$PC" ] && echo 8 || echo 4)}"; GUARD="$HERE/guard.py"
@@ -283,7 +283,7 @@ run_one(){ # <case> <k>
   elif [ -f "$cd_/commit" ]; then
     commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
       || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
-  elif [ -L "$cd_/tree" ] || [ -n "$(find "$cd_/tree" -name .git -print -quit 2>&1)" ]; then
+  elif [ -L "$cd_/tree" ] || [ -n "$(find "$cd_/tree" -iname .git -print -quit 2>&1)" ]; then
     drop "tree/ is a link, cannot be read, or has a .git inside"; return
   fi
   # Four directories per run. The session can write its snapshot, its HOME and
@@ -309,17 +309,25 @@ import os, shutil, stat, sys
 src, dst = sys.argv[1], sys.argv[2]
 def stop(e): raise e
 root = os.path.realpath(src)
-def inside(p):   # a relative link whose target, followed all the way, is still in the folder
-    return not os.path.isabs(os.readlink(p)) and (os.path.realpath(p) + os.sep).startswith(root + os.sep)
-for top, dirs, files in os.walk(src, followlinks=False, onerror=stop):
-    to = os.path.join(dst, os.path.relpath(top, src)); os.makedirs(to, exist_ok=True)
-    for f in dirs + files:
-        p = os.path.join(top, f); mode = os.lstat(p).st_mode
-        if stat.S_ISLNK(mode):
-            if not inside(p): sys.exit("replay: a link in tree/ is absolute or leads outside it: " + os.path.relpath(p, src))
-            os.symlink(os.readlink(p), os.path.join(to, f))
-        elif stat.S_ISREG(mode): shutil.copy(p, os.path.join(to, f), follow_symlinks=False)   # keeps the executable bit
-    dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(top, x))]
+def inside(p):
+    # A relative link that stays in the folder both ways: read from where it sits (that is where it will
+    # point once copied, so "../tree/x" from the top is out), and followed all the way through other links.
+    target = os.readlink(p)
+    lands = os.path.normpath(os.path.join(os.path.dirname(os.path.relpath(p, src)), target))
+    return (not os.path.isabs(target) and lands != ".." and not lands.startswith(".." + os.sep)
+            and (os.path.realpath(p) + os.sep).startswith(root + os.sep))
+try:
+    for top, dirs, files in os.walk(src, followlinks=False, onerror=stop):
+        to = os.path.join(dst, os.path.relpath(top, src)); os.makedirs(to, exist_ok=True)
+        for f in dirs + files:
+            p = os.path.join(top, f); mode = os.lstat(p).st_mode
+            if stat.S_ISLNK(mode):
+                if not inside(p): sys.exit("replay: a link in tree/ is absolute or leads outside it: " + os.path.relpath(p, src))
+                os.symlink(os.readlink(p), os.path.join(to, f))
+            elif stat.S_ISREG(mode): shutil.copy(p, os.path.join(to, f), follow_symlinks=False)   # keeps the executable bit
+        dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(top, x))]
+except OSError as e:
+    sys.exit("replay: tree/ cannot be read: " + str(e.filename or e))
 TREE
   fi
   # Project-level harness config can start servers and hooks of its own: drop it.
@@ -439,16 +447,41 @@ for f, real in zip(want[0::2], want[1::2]):
 LOADED
   if [ -s "$o/noload.txt" ]; then echo "$c.$k" >> "$RUN_DIR/failed"; else rm -f "$o/noload.txt"; fi
   jget "$o/result.json" result > "$o/say.md" || echo "(no result)" > "$o/say.md"
+  # Copied by the runner as the caller, from files the session wrote: regular
+  # files only, no link followed anywhere on the way, nothing large.
+  python3 - "$repo" "$o" ${REPLAY_KEEP:-} <<'KEEP'
+import os, shutil, stat, sys
+repo, out = os.path.realpath(sys.argv[1]), sys.argv[2]
+def ok(p):   # a regular file whose real path is itself: no link in any component
+    try: st = os.lstat(p)
+    except OSError: return False
+    return stat.S_ISREG(st.st_mode) and st.st_size <= 5 << 20 and os.path.realpath(p) == p
+for rel in sys.argv[3:]:
+    src = os.path.normpath(os.path.join(repo, rel)); dst = os.path.join(out, os.path.basename(src))
+    if not src.startswith(repo + os.sep) or os.path.realpath(src) != src: continue
+    if ok(src):
+        try: shutil.copyfile(src, dst, follow_symlinks=False)
+        except OSError: pass
+        continue
+    for top, dirs, files in os.walk(src, followlinks=False):
+        for f in files:
+            p = os.path.join(top, f)
+            if ok(p):
+                t = os.path.join(dst, os.path.relpath(p, src))
+                try: os.makedirs(os.path.dirname(t), exist_ok=True); shutil.copyfile(p, t, follow_symlinks=False)
+                except OSError: pass
+KEEP
   # What the runner knows about this run, for a program to read; no verdict. A
   # value read from a file the session could write is kept only as a finite
   # number, a yes or no, or, for the two lists the session reports about itself
   # (files loaded, models used), a few short names cut down to the characters a
   # path or a model name has. Those two lists are still the session's own words.
-  # "noload" is the mark above, so the two agree.
-  python3 - "$o" "$home" "$repo" "$c" "$k" "$MODEL" "$EFFORT" "${commit:+commit}" "$CAND_SHA" "${SRT:+1}" "${PC:+1}" \
+  # "noload" is the mark above, so the two agree. Written after the kept paths, so
+  # a file the session left under this name cannot stand in for it.
+  python3 - "$o" "$home" "$repo" "$c" "$k" "$MODEL" "$EFFORT" "${commit:+commit}" "$CAND_SHA" "${SRT:+1}" "${PC:+1}" "${PDIR:+1}" \
       ${expect[@]+"${expect[@]}"} > "$o/facts.json" <<'FACTS'
 import json, os, re, sys
-o, home, repo, case, k, model, effort, commit, cand, boxed, pc = sys.argv[1:12]
+o, home, repo, case, k, model, effort, commit, cand, boxed, pc, plugin = sys.argv[1:13]
 def name(f):   # where a file sat in the run, not the temporary path it had
     for root, tag in ((home, "home"), (repo, "repo")):
         if f.startswith(root + "/"): return tag + f[len(root):]
@@ -476,8 +509,8 @@ json.dump({
     "case": case, "run": int(k), "model_asked": model, "effort": effort,
     "models_used": sorted(short(str(m), 80) for m in used)[:10] if isinstance(used, dict) else [],
     "source": "commit" if commit else "tree", "candidate_sha256": cand or None,
-    "confined": bool(boxed), "postcompact": bool(pc),
-    "expected": [name(f) for f in sys.argv[12::2]], "loaded": loaded, "noload": os.path.exists(o + "/noload.txt"),
+    "confined": bool(boxed), "postcompact": bool(pc), "plugin": bool(plugin),
+    "expected": [name(f) for f in sys.argv[13::2]], "loaded": loaded, "noload": os.path.exists(o + "/noload.txt"),
     "is_error": r.get("is_error") if isinstance(r.get("is_error"), bool) else None,
     "cost_usd": num("total_cost_usd"), "turns": num("num_turns"), "seconds": num("duration_ms", 1000),
     "refused": count(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
@@ -485,30 +518,6 @@ json.dump({
 }, sys.stdout, indent=1, allow_nan=False)
 FACTS
   [ -s "$o/facts.json" ] || { rm -f "$o/facts.json"; echo "replay: $c.$k: could not write facts.json" >&2; }
-  # Copied by the runner as the caller, from files the session wrote: regular
-  # files only, no link followed anywhere on the way, nothing large.
-  python3 - "$repo" "$o" ${REPLAY_KEEP:-} <<'KEEP'
-import os, shutil, stat, sys
-repo, out = os.path.realpath(sys.argv[1]), sys.argv[2]
-def ok(p):   # a regular file whose real path is itself: no link in any component
-    try: st = os.lstat(p)
-    except OSError: return False
-    return stat.S_ISREG(st.st_mode) and st.st_size <= 5 << 20 and os.path.realpath(p) == p
-for rel in sys.argv[3:]:
-    src = os.path.normpath(os.path.join(repo, rel)); dst = os.path.join(out, os.path.basename(src))
-    if not src.startswith(repo + os.sep) or os.path.realpath(src) != src: continue
-    if ok(src):
-        try: shutil.copyfile(src, dst, follow_symlinks=False)
-        except OSError: pass
-        continue
-    for top, dirs, files in os.walk(src, followlinks=False):
-        for f in files:
-            p = os.path.join(top, f)
-            if ok(p):
-                t = os.path.join(dst, os.path.relpath(p, src))
-                try: os.makedirs(os.path.dirname(t), exist_ok=True); shutil.copyfile(p, t, follow_symlinks=False)
-                except OSError: pass
-KEEP
 }
 
 n=0
@@ -519,7 +528,7 @@ done; done; wait
 # One line per run from what every plugin has: refused = tool calls the guard
 # refused, edits = project files changed, then the cost of the first turn.
 printf '%-28s %-7s %-5s %-5s %-5s %s\n' run refused edits turns secs cost | tee "$OUT/summary.txt"
-for o in "$OUT"/*/; do python3 - "${o%/}" <<'PY'
+for o in "$OUT"/*/; do [ -d "$o" ] || continue; python3 - "${o%/}" <<'PY'
 import json, os, sys
 o = sys.argv[1]
 def n(p, keep=lambda l: l.strip()):

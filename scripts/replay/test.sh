@@ -75,6 +75,8 @@ grep -q '"matcher":"\.\*"' "$HERE/replay.sh" && pass || fail "every tool call go
 bash -n "$HERE/replay.sh" && pass || fail "replay.sh parses"
 
 # --- The runner end to end, with a stand-in for the CLI (no model, no cost).
+# Settings left in the caller's shell (a candidate file, a model) must not steer these runs.
+for v in $(compgen -e | grep '^REPLAY_' || true); do unset "$v"; done
 # The stand-in behaves like a session that tries to get out: it looks for the
 # caller's home and environment, writes outside, plants a command in the
 # snapshot's git configuration, and leaves a link where the runner reads a log.
@@ -117,7 +119,7 @@ echo change > new.txt; mkdir -p log; echo '{"event":"x"}' >> log/journal.jsonl
 mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -s "$d" keep/dirlink; ln -s "$d/victim" keeplink
 # For the tests of what the session was given: its user-level file, its arguments, its project's top level.
 cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > keep/args; ls -A > keep/ls; [ ! -x run.sh ] || : > keep/runnable
-printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
+echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
 [ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
 # The set, the source repo and the out dir all sit inside the plugin directory, which the session may read.
@@ -280,8 +282,12 @@ case "$out" in *'"deny"'*) pass ;; *) fail "an empty entry in the guard's roots 
 # stands, a link inside it as a link; the load check, the changed files and the facts work as for a commit.
 s2="$d/plug/set2"; o3="$d/plug/out3"
 mkdir -p "$s2/two/tree/sub" "$s2/three/tree/sub/.git" "$s2/four/tree" "$s2/five" "$s2/six/tree" "$s2/seven" "$s2/eight/tree" "$s2/nine/tree" \
-         "$s2/ten/tree" "$s2/eleven/tree/sub" "$s2/twelve/tree"
-for c in two three four five six seven eight nine ten eleven twelve; do echo "tree ask" > "$s2/$c/ask.md"; done
+         "$s2/ten/tree" "$s2/eleven/tree/sub" "$s2/twelve/tree" "$s2/thirteen/tree" "$s2/fourteen/tree/.GIT" "$s2/fifteen/tree"
+for c in two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen; do echo "tree ask" > "$s2/$c/ask.md"; done
+# A link that names its own folder from above: inside the set it resolves, in the snapshot it would not.
+echo t > "$s2/thirteen/tree/x.txt"; ln -s ../tree/x.txt "$s2/thirteen/tree/outin"
+# Something in the folder that cannot be read (skipped when run as root, who can read anything).
+echo secret > "$s2/fifteen/tree/locked"; chmod 000 "$s2/fifteen/tree/locked"
 # Links that leave the folder: an absolute one, one that climbs out, and an absolute one to a place inside it.
 ln -s "$d/victim" "$s2/ten/tree/lnk"; ln -s ../../../../victim "$s2/eleven/tree/sub/up"; echo t > "$s2/twelve/tree/t.txt"; ln -s "$s2/twelve/tree/t.txt" "$s2/twelve/tree/abs"
 echo t > "$s2/two/tree/t.txt"; echo s > "$s2/two/tree/sub/s.txt"; echo "tree rules" > "$s2/two/tree/AGENTS.md"; ln -s AGENTS.md "$s2/two/tree/CLAUDE.md"
@@ -291,13 +297,13 @@ ln -s ../two/tree "$s2/seven/tree"; : > "$s2/eight/tree/hostile"
 mkdir -p "$o3/three.1" "$o3/four.1" "$o3/five.1" "$o3/seven.1" "$o3/ten.1"; for c in three four five seven ten; do echo '{"candidate_sha256": "old"}' > "$o3/$c.1/facts.json"; done
 git -C "$d/plug/src" rev-parse HEAD > "$s2/four/commit"; git -C "$d/plug/src" rev-parse HEAD > "$s2/five/commit"
 echo "tree rules" > "$s2/six/tree/CLAUDE.md"; : > "$s2/six/tree/noload"
-out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_KEEP=keep REPLAY_IGNORE=log/ REPLAY_CANDIDATE="$d/cand.md" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$s2" - "$o3" 2>&1)"; rc=$?
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_KEEP="keep keep/facts.json" REPLAY_IGNORE=log/ REPLAY_CANDIDATE="$d/cand.md" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$s2" - "$o3" 2>&1)"; rc=$?
 o2="$o3/two.1"
 grep -qx t.txt "$o2/keep/ls" 2>/dev/null && grep -qx sub "$o2/keep/ls" && [ -e "$o2/keep/runnable" ] \
   && [ "$(tr '\n' ' ' < "$o2/keep/links")" = "lnk sub/inner CLAUDE.md " ] && pass \
   || fail "a case's own folder becomes the project: files, the executable bit, and its inside links kept as links (got: $(tr '\n' ' ' < "$o2/keep/ls" 2>/dev/null); links: $(tr '\n' ' ' < "$o2/keep/links" 2>/dev/null))"
 # A link that is absolute or leads out of the folder refuses the case: nothing rests on the sandbox for it.
-for c in ten eleven twelve; do has(){ case "$out" in *"$1"*) ;; *) false ;; esac; }
+for c in ten eleven twelve thirteen; do has(){ case "$out" in *"$1"*) ;; *) false ;; esac; }
   has "a link in tree/ is absolute or leads outside it" && has "$c: cannot copy tree/" && [ ! -e "$o3/$c.1" ] && pass || fail "a case whose folder has a link leading out is refused ($c)"; done
 grep -rq TOPSECRET "$o3" && fail "nothing a link in a case's folder points at reaches the output" || pass
 # An instruction file that is a link inside the folder is still expected, and recorded under the name it points at.
@@ -317,6 +323,15 @@ has "three: tree/ is a link, cannot be read, or has a .git inside" && has "seven
   && [ ! -e "$o3/three.1" ] && [ ! -e "$o3/four.1" ] && [ ! -e "$o3/five.1" ] && [ ! -e "$o3/seven.1" ] && pass \
   || fail "cases with an unusable source are refused by name and leave no older output (got: $(printf '%s' "$out" | grep '^replay: ' | tr '\n' ' '))"
 for c in three four five seven; do has "$c.1" || { fail "a refused case is named among the runs not measured ($c)"; continue; }; pass; done
+has "fourteen: tree/ is a link, cannot be read, or has a .git inside" && [ ! -e "$o3/fourteen.1" ] && pass || fail "a .git in any letter case refuses the case"
+if [ "$(id -u)" != 0 ]; then
+  has "tree/ cannot be read" && has "fifteen: cannot copy tree/" && ! has Traceback && [ ! -e "$o3/fifteen.1" ] && pass || fail "unreadable content refuses the case, by name and without a traceback"
+fi
+chmod 600 "$s2/fifteen/tree/locked" 2>/dev/null
+# The facts say whether a plugin was passed, and a file the session leaves under that name does not replace them.
+[ "$(fact "$o2" plugin)" = false ] && pass || fail "facts.json records that no plugin was passed (got: $(fact "$o2" plugin))"
+[ "$(cat "$o2/keep/facts.json" 2>/dev/null)" = "SESSION WROTE THIS" ] && [ "$(fact "$o2" case)" = '"two"' ] && pass \
+  || fail "a file the session left under the name facts.json, kept by the caller, does not replace the runner's"
 # An empty folder is a blank project, and runs.
 [ "$(fact "$o3/nine.1" source)" = '"tree"' ] && [ "$(grep -v '^keep' "$o3/nine.1/changed-files.txt" 2>/dev/null)" = new.txt ] && pass || fail "an empty folder runs as a blank project"
 # Whatever a session wrote where the runner reads, facts.json stays strict JSON: impossible numbers are

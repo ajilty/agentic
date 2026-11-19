@@ -67,7 +67,10 @@ A case may carry a `tree/` folder in place of a `commit` file: a made-up
 situation, written for the test, that is no commit of any repo. The folder
 becomes the project, copied as it stands: files, folders, and links as links,
 never followed. A link must be relative and stay inside the folder (a
-`CLAUDE.md` that points at `AGENTS.md`). An empty folder is a blank project.
+`CLAUDE.md` that points at `AGENTS.md`). Anything that is not a file, a folder
+or a link is left out, and project-level harness config is dropped as for a
+commit. An empty folder is a blank project. Commit cases are not checked this
+way: a commit's own links arrive as they are.
 When every case in a set brings its own folder, pass `-` as the source repo.
 
 Such a case is refused by name when it cannot be used: a `.git` anywhere
@@ -81,14 +84,23 @@ that scripts on the exit code will see the difference.
 
 ## facts.json
 
-Each run leaves a `facts.json` for a program to read. It holds what the runner
-knows and no verdict: the case and run number, the model and effort asked for
-and the models that answered, whether the project came from a commit or a
-folder, the candidate's SHA-256 if there was one, whether the session was
-confined, the instruction files the load check expected and the ones the load
-hook recorded (named by where they sat: `home/...`, `repo/...`), `noload`,
-whether the result was an error, cost, turns, seconds, refused tool calls and
-changed files. `noload` is the same mark as the summary's. `loaded` is the
+Each run that reached a session leaves a `facts.json` for a program to read. It
+holds what the runner knows and no verdict:
+
+| Key | Meaning |
+| --- | --- |
+| `case`, `run` | the case and which of its K runs |
+| `model_asked`, `effort`, `models_used` | what was asked for, and the models that answered |
+| `source` | `commit` or `tree` |
+| `candidate_sha256` | the candidate's SHA-256, or null when the caller's own file was carried |
+| `plugin`, `confined`, `postcompact` | whether a plugin was passed, the sandbox was up, the run was a post-compaction one |
+| `expected`, `loaded`, `noload` | instruction files the load check required, the ones the load hook recorded (named by where they sat: `home/...`, `repo/...`), and whether one was missing |
+| `is_error`, `cost_usd`, `turns`, `seconds` | from the session's result; null where it gave none |
+| `refused`, `changed_files` | tool calls the guard refused, project files changed |
+
+A run stopped before its session (the sandbox's shared path appeared, the
+candidate could not be placed, the snapshot could not be made) has a folder
+and a summary row but no `facts.json`. `noload` is the same mark as the summary's. `loaded` is the
 hook's record only, so it can be empty on a run that passed the check through
 its transcript. In post-compaction mode cost, turns, seconds and refused calls
 are the first turn's, as in the summary; changed files cover the whole run.
@@ -135,7 +147,7 @@ npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, so
   not the sandbox.
 
 What the sandbox does not cover: the session talks to the model, so what it
-reads (the snapshot, the plugin, your `CLAUDE.md`) goes to the model provider
+reads (the snapshot, the plugin, your `CLAUDE.md` or the candidate in its place) goes to the model provider
 as in any session, and tools the provider runs on its side, such as web search,
 are a way out. `guard.py` refuses those, connected services, dispatches and any
 tool it does not know. It is best effort, not the boundary. It also refuses
