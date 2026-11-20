@@ -124,7 +124,7 @@ cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > k
 [ ! -e "\$HOME/.claude/.credentials.json" ] || : > keep/credfile
 printf 'key=%s token=%s file=%s\n' "\${ANTHROPIC_API_KEY:-}" "\${CLAUDE_CODE_OAUTH_TOKEN:-}" "\$(cat "\$HOME/.claude/.credentials.json" 2>/dev/null)" | tee keep/spill >&2
 echo forged > keep/login-removed.txt
-[ -z "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { mkdir -p "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN"; echo in > "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN/inner"; echo n > "keep/n-\$CLAUDE_CODE_OAUTH_TOKEN"; }
+[ -z "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { mkdir -p "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN"; echo in > "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN/inner"; echo n > "keep/n-\$CLAUDE_CODE_OAUTH_TOKEN"; printf '%s' "\$CLAUDE_CODE_OAUTH_TOKEN" > "keep/odd\$(printf '\377')name"; }
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
 [ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
@@ -371,7 +371,7 @@ out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY= CLAUDE_CODE_OAUTH_TOKEN
 [ "$rc" = 0 ] && [ ! -e "$o/keep/credfile" ] && grep -q 'token=\[login removed\]#* file=' "$o/keep/spill" && pass \
   || fail "with a token in the environment the file stays behind and the token the session wrote is cut (exit $rc)"
 grep -rqF "$vtok" "$d/plug/out" && fail "the token is in no kept file" || pass
-[ -z "$(find "$d/plug/out" -name "*$vtok*" 2>/dev/null)" ] && [ -e "$o/keep/sub/a.txt" ] && [ "$(grep -c 'its name held the login: not kept' "$o/login-removed.txt" 2>/dev/null)" = 2 ] && pass \
+[ -z "$(find "$d/plug/out" -name "*$vtok*" 2>/dev/null)" ] && [ -e "$o/keep/sub/a.txt" ] && grep -q '^keep/odd.*name$' "$o/login-removed.txt" && [ "$(grep -c 'its name held the login: not kept' "$o/login-removed.txt" 2>/dev/null)" = 2 ] && pass \
   || fail "a file or folder the session named after its token is not kept, and the listing does not spell the token (got: $(tr '\n' ' ' < "$o/login-removed.txt" 2>/dev/null))"
 grep -rqF "$shaped" "$d/plug/out" && fail "text shaped like a key is cut wherever it is kept, the ask included" || pass
 grep -qF "$ftok" "$o/turn1.md" && pass || fail "the credential file's own strings are not looked for"
@@ -398,7 +398,8 @@ grep -qF "$ftok" "$o/keep/spill" && grep -qx keep/spill "$o/login-removed.txt" 2
 rm -f "$fh/.claude/.credentials.json"
 # The last step failing as a whole: the mark stands, even against a kept path of the same name, and the call fails.
 realpy="$(command -v python3)"
-printf '#!/usr/bin/env bash\ns="$(cat)"; case "$s" in *"login removed"*) exit 1 ;; esac\nexec %q "$@" <<<"$s"\n' "$realpy" > "$d/bin/python3"; chmod +x "$d/bin/python3"
+# The stand-in for python3 fails that step alone, late: after the step emptied the runner's mark.
+printf '#!/usr/bin/env bash\ns="$(cat)"; case "$s" in *"login removed"*) : > "$2/login-removed.txt"; exit 1 ;; esac\nexec %q "$@" <<<"$s"\n' "$realpy" > "$d/bin/python3"; chmod +x "$d/bin/python3"
 out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_KEEP="keep keep/login-removed.txt")"; rc=$?; rm -f "$d/bin/python3"
 [ "$rc" = 3 ] && grep -q '^one\.1 .*login-unchecked' "$d/plug/out/summary.txt" && [ "$(fact "$o" login_in_kept_files)" = null ] \
   && case "$(head -n 1 "$o/login-removed.txt" 2>/dev/null)" in unchecked:*) true ;; *) false ;; esac \

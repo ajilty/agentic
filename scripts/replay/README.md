@@ -97,7 +97,7 @@ holds what the runner knows and no verdict:
 | `expected`, `loaded`, `noload` | instruction files the load check required, the ones the load hook recorded (named by where they sat: `home/...`, `repo/...`), and whether one was missing |
 | `is_error`, `cost_usd`, `turns`, `seconds` | from the session's result; null where it gave none |
 | `refused`, `changed_files` | tool calls the guard refused, project files changed |
-| `login_in_kept_files` | true when the last step changed what was kept: it cut the model login, or text shaped like one, out of a file, or removed a file it could not check; false when it changed nothing; null when that step did not finish |
+| `login_in_kept_files` | true when the last step changed what was kept: it cut the model login, or text shaped like one, out of a file, or removed a file or folder (named after the login, not a regular file, or not readable or rewritable); false when it changed nothing; null when that step did not finish |
 
 A run stopped before its session (the sandbox's shared path appeared, the
 candidate could not be placed, the snapshot could not be made) has a folder
@@ -154,7 +154,10 @@ npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, so
     is 20 characters or longer) and anything shaped like an Anthropic key,
     example text in a replayed project included. A kept file or folder whose
     name holds one is removed, as is a kept file that is not a regular file
-    or could not be read or rewritten.
+    or could not be read or rewritten. That last case is every kept file of
+    a run when the output directory is on a filesystem that cannot map files
+    into memory: the run then keeps nothing but the list. A read-only kept
+    file that held the login is left writable by its owner.
   - *With neither set:* the session gets a copy of
     `~/.claude/.credentials.json`, which it can read and which can do more
     than ask a model. The runner says so when it starts. Of what that file

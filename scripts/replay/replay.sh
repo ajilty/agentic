@@ -62,8 +62,9 @@
 #                                 program to read: see README.md. No verdict.
 #   login-removed.txt             only when the last step changed what was kept:
 #                                 the files the model login, or text shaped like
-#                                 one, was cut from, and any it removed because
-#                                 it could not check them ("login-removed" in
+#                                 one, was cut from, and any it removed (named
+#                                 after the login, not a regular file, or not
+#                                 readable or rewritable) ("login-removed" in
 #                                 the summary); or that the step did not finish
 #                                 ("login-unchecked"; a call that runs to its
 #                                 end then exits 3)
@@ -545,12 +546,13 @@ FACTS
   # stay in a kept file, however it got there. Overwritten in place, same
   # length: the key or token (one of 20 characters or more), and anything
   # shaped like an Anthropic key, example text included. A kept file or folder
-  # whose name holds one is not kept, nor is a file that could not be read or
-  # rewritten. When the credential file was the login, only what in it is
+  # whose name holds one is not kept, nor is a file that is not a regular file
+  # or could not be read or rewritten; a read-only file that held one is left
+  # writable by its owner. When the credential file was the login, only what in it is
   # shaped like a key is caught. Not caught on any route: a login written in
   # another encoding or in pieces. The key or token reaches this step in the
   # runner's own environment, never on its command line.
-  python3 - "$o" <<'LOGIN'
+  python3 - "$o" <<'LOGIN' || echo "$UNCHECKED" > "$o/login-removed.txt"   # failed at any point: unchecked
 import json, mmap, os, re, shutil, stat, sys
 o = sys.argv[1]; note = os.path.join(o, "login-removed.txt")
 secrets = sorted({v.encode() for v in map(os.environ.get, ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"))
@@ -579,7 +581,6 @@ def clean(p):   # True when the file held a login, now overwritten
 def stop(e): raise e
 def check():
     found = []
-    if os.path.isdir(note) and not os.path.islink(note): shutil.rmtree(note)   # a kept folder under the runner's name
     for top, dirs, files in os.walk(o, topdown=False, followlinks=False, onerror=stop):
         for f in sorted(files):
             p = os.path.join(top, f); rel = os.path.relpath(p, o)
@@ -603,7 +604,7 @@ def check():
         facts["login_in_kept_files"] = bool(found)
         text = cut(json.dumps(facts, indent=1, allow_nan=False).encode()); json.loads(text)
         open(fp, "wb").write(text)
-    if found: open(note, "w").write("\n".join(found) + "\n")
+    if found: open(note, "w", errors="backslashreplace").write("\n".join(found) + "\n")   # a name need not be text
     else: os.remove(note)
 try: check()
 except BaseException: sys.exit(1)   # the mark stays: unchecked. No error text: a path in it could spell the login
