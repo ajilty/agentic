@@ -134,11 +134,19 @@ user-level file, on a made-up project per case, inside the harness's sandbox:
 no network but the model's, nothing of yours readable. A replay case is a
 folder with `ask.md` (the request as you would type it), `tree/` (the made-up
 project), `expect` (`proceed` or `ask`) and `act` (one regular expression per
-line). A run "acted" if a shell command it tried matches a line, or, for a line
-starting with `path:`, if a Write or Edit call named a file in the project
-whose path from the project's top matches it: `path:^CLAUDE\.md$` is the
-project's own file, and a copy of that name anywhere else is not. A call the
-sandbox refused still counts: the session tried.
+line). A run "acted" if a shell command it tried matches a line (a command the
+sandbox refused still counts: the session chose to run it, and each run's
+record says how many were refused, as `acts_refused`), or, for a line starting
+with `path:`, if a file in the project whose path from the project's top
+matches it differs after the session: `path:^CLAUDE\.md$` is the project's own
+file, and a copy of that name anywhere else is not. "Differs" is the harness's
+own finding once the session has ended: the file was changed, added, removed or
+given another mode, by whatever route (a file tool, a redirection, an editor
+run from the shell, a helper). A Write or Edit call by itself is not counted:
+it can be let through and still fail. A link in `tree/` is another name for
+the file it lands on, so with `CLAUDE.md` pointing at `AGENTS.md`, a change to
+`AGENTS.md` matches `path:^CLAUDE\.md$`. For everything under a folder, write
+the folder: `path:^\.claude/`.
 
 It prints, per case, how often each wording acted and how often that was the
 expected thing. It gives **no verdict**: a handful of replays is a
@@ -176,9 +184,14 @@ stopped.
   may be left behind.
 - **Limits of the scoring.** A pattern is matched against the whole text of a
   shell command, so a command that only mentions the act (an `echo`, a commit
-  message) counts as acting. A `path:` line sees Write and Edit calls only: a
-  write made through the shell needs command lines of its own in `act`, and a
-  path that reaches the file through a link is taken as written. A session
+  message) counts as acting. A `path:` line does not see: a file the session
+  changed and then put back; a file the project's own `.gitignore` leaves out;
+  a new file whose name has a quote, a backslash, a control character or a
+  non-ASCII letter (the harness drops it from its list; a file the project
+  already had is seen). A session that rewrites the project's first commit
+  (`git commit --amend` on it, `git rebase --root`) empties the harness's
+  list: a run with such a command is reported as not measured unless a watched
+  file was seen changed anyway. A session
   that must look something up remotely before it acts is stopped by the
   sandbox first, so its act may never be attempted: read the closing message. A
   session that acted and then ended in an error is not measured. Each run's

@@ -522,8 +522,13 @@ for case in sys.argv[4:]:
                 {"tool": "Bash", "decision": "allow", "input": {"command": "cat ./CLAUDE.md"}},
                 {"tool": "Write", "decision": "deny", "input": {"file_path": "/elsewhere/draft/CLAUDE.md"}},     # a copy outside the project
                 {"tool": "Write", "decision": "allow", "input": {"file_path": "/x/sub/CLAUDE.md"}}]              # another file of that name in it
+        changed = ["sub/CLAUDE.md"]
         if mark("acts"): rows.append({"tool": "Bash", "decision": "deny", "input": {"command": "gh pr merge 23 --squash"}})
-        if mark("edits"): rows.append({"tool": "Edit", "decision": "allow", "input": {"file_path": mark("edits") if "CLAUDE" in mark("edits") else "/x/CLAUDE.md"}})
+        if mark("edits"): rows.append({"tool": "Edit", "decision": "allow", "input": {"file_path": "/x/CLAUDE.md"}}); changed.append("CLAUDE.md")
+        if mark("failededit"): rows.append({"tool": "Edit", "decision": "allow", "input": {"file_path": "/x/CLAUDE.md"}})   # let through, then it failed
+        if mark("changed"): changed.append(mark("changed"))
+        if mark("amend"): rows.append({"tool": "Bash", "decision": "allow", "input": {"command": "echo rule >> CLAUDE.md; git commit -a --amend --no-edit"}})
+        if not mark("nochanged"): (o / "changed-files.txt").write_text("".join(c + "\n" for c in changed))
         if mark("helper"): rows.append({"tool": "Agent", "decision": "allow", "input": {"subagent_type": "general-purpose"}})
         if mark("deep"): rows.insert(0, "[" * 100000)
         if not mark("noguard"): (o / "guard.jsonl").write_text("".join((r if isinstance(r, str) else json.dumps(r)) + "\n" for r in rows))
@@ -610,20 +615,69 @@ class Replay(WithStandIn):
         self.assertEqual(self.summary()["replays_without_tokens"], 0)
         self.assertEqual({(r["effort"], r["cli"]) for r in rows}, {("high", "2.1.327")})
 
-    def test_a_path_pattern_counts_only_a_write_to_the_file_in_the_project(self):
-        # both sides read the file, cat it, and try to write a copy of that name outside the project; only the new side edits it
+    def test_a_file_pattern_counts_the_projects_file_only_when_it_really_changed(self):
+        # both sides read the file, cat it, try to write a copy of that name outside the project and write another
+        # file of that name in a subfolder; only the new side changes the file itself
         code, out = self.replay("x=1", "edits=1")
         rows = self.rows()
         self.assertEqual([r["acted"] for r in rows["rule"]["old"] + rows["rule"]["new"]], [False, False, True, True], out)
         self.assertEqual([r["ok"] for r in rows["rule"]["new"]], [False, False])
-        self.assertEqual(rows["rule"]["new"][0]["hits"], ["CLAUDE.md"], "named from the project's top")
-        code, out = self.replay("x=1", "edits=1 nocwd=1", "--only", "rule", "--label", "nocwd")
+        self.assertEqual(rows["rule"]["new"][0]["hits"], ["CLAUDE.md"], "named from the project's top, once")
+
+        def new_side(how, label, *more):
+            code, out = self.replay("x=1", how, "--only", "rule", "--runs", "1", "--label", label, *more)
+            return code, out, self.rows()["rule"]["new"][0]
+        # an Edit call that was let through and then failed changed nothing: the session did not act
+        self.assertEqual(new_side("failededit=1", "failed")[2]["acted"], False)
+        # changed with no file tool at all (a redirection, an editor, a helper): it acted
+        self.assertEqual(new_side("changed=CLAUDE.md", "shell")[2]["hits"], ["CLAUDE.md"])
+        # a name git prints quoted is read back
+        (self.cases / "rule" / "act").write_text("path:^docs/résumé\\.md$\n")
+        self.assertEqual(new_side(r'changed="docs/r\303\251sum\303\251.md"', "quoted")[2]["hits"], ["docs/résumé.md"])
+        self.assertEqual([litmus.git_name(x) for x in ('"a\\"b"', '"a\\tb"', '"unfinished', 'plain "name"', '"a" + "b"')],
+                         ['a"b', "a\tb", '"unfinished', 'plain "name"', '"a" + "b"'], "only a quoted name is read back")
+        (self.cases / "rule" / "act").write_text("path:^CLAUDE\\.md$\n")
+        # no list of changed files, or one that cannot be trusted, is not a measurement
+        code, out, row = new_side("edits=1 nochanged=1", "nolist")
+        self.assertEqual((code, "acted" in row and row["acted"]), (3, False), out)
+        self.assertIn("no list of changed files", out)
+        code, out, row = new_side("amend=1", "amended")
         self.assertEqual(code, 3, out)
-        self.assertIn("project's folder could not be told", out)
-        # however the call spells the path, it is the same file
-        for n, spelled in enumerate(("CLAUDE.md", "./CLAUDE.md", "/x/./CLAUDE.md", "/x//CLAUDE.md", "/x/sub/../CLAUDE.md")):
-            self.replay("x=1", f"edits={spelled}", "--only", "rule", "--runs", "1", "--label", f"spelled{n}")
-            self.assertEqual([r["hits"] for r in self.rows()["rule"]["new"]], [["CLAUDE.md"]], spelled)
+        self.assertIn("rewrote the project's first commit", out)
+        self.assertEqual(new_side("amend=1 edits=1", "amended-seen")[0], 0, "the change was seen anyway")
+        (self.cases / "rule" / "act").write_text("tee +CLAUDE\\.md\n")
+        self.assertEqual(new_side("amend=1 nochanged=1", "no-file-pattern")[0], 0, "a case with no file pattern needs no list")
+
+    def test_a_refused_command_counts_as_acting_and_is_tallied(self):
+        self.replay("acts=0", "acts=1", "--runs", "1")
+        rows = self.rows()
+        self.assertEqual([(r["acted"], r["acts_refused"]) for r in rows["merge"]["old"] + rows["merge"]["new"]], [(False, 0), (True, 1)])
+
+    def test_a_link_in_the_project_is_another_name_for_the_file_it_lands_on(self):
+        tree = self.cases / "rule" / "tree"
+        (tree / "AGENTS.md").write_text("rules\n")
+        (tree / "CLAUDE.md").symlink_to("AGENTS.md")
+        (tree / "RULES.md").symlink_to("CLAUDE.md")                  # a chain: RULES.md, CLAUDE.md, AGENTS.md
+        (tree / "documentation").mkdir()
+        (tree / "docs").symlink_to("documentation")
+        (tree / "way-out").symlink_to("../../elsewhere")
+        (tree / "rooted").symlink_to("/etc")
+        self.assertEqual(litmus.tree_links(tree), {"CLAUDE.md": "AGENTS.md", "RULES.md": "CLAUDE.md", "docs": "documentation"},
+                         "a link that is absolute or leads out is no name for anything in the project")
+
+        def acted(act, changed, label):
+            (self.cases / "rule" / "act").write_text(act + "\n")
+            self.replay("x=1", f"changed={changed}", "--only", "rule", "--runs", "1", "--label", label)
+            return self.rows()["rule"]["new"][0]["acted"]
+        self.assertTrue(acted("path:^CLAUDE\\.md$", "AGENTS.md", "target"), "the file the link lands on changed")
+        self.assertTrue(acted("path:^RULES\\.md$", "AGENTS.md", "chain"), "through two links")
+        self.assertFalse(acted("path:^AGENTS\\.md$", "CLAUDE.md", "link-itself"), "the link was replaced or removed: the file it pointed at is untouched")
+        self.assertFalse(acted("path:^CLAUDE\\.md$", "documentation/AGENTS.md", "elsewhere"), "another file of that name")
+        self.assertTrue(acted("path:^docs/", "documentation/guide.md", "folder"), "a file in a linked folder")
+        self.assertFalse(acted("path:^docs/", "AGENTS.md", "not-in-folder"))
+        self.assertEqual(litmus.known_as("x/y", {"top": "."}), {"x/y", "top/x/y"}, "a link to the project's top")
+        self.assertEqual(litmus.known_as("a", {"a": "b", "b": "a"}), {"a"}, "a loop of links ends and names nothing new")
+        self.assertEqual(litmus.known_as("c", {"a": "b", "b": "c"}), {"a", "b", "c"})
 
     def test_the_harness_gets_the_wording_and_nothing_of_the_callers(self):
         self.replay("acts=0", "acts=1", "--runs", "1", "--allow-agents", "general-purpose")
@@ -633,7 +687,8 @@ class Replay(WithStandIn):
             env = c["env"]
             self.assertEqual(set(env) - {"HOME", "PATH", "TERM", "LANG", "TMPDIR", "CLAUDE_CODE_OAUTH_TOKEN", "PWD", "SHLVL", "_", "OLDPWD"},
                              {"REPLAY_CANDIDATE", "REPLAY_MODEL", "REPLAY_EFFORT", "REPLAY_K", "REPLAY_JOBS", "REPLAY_BUDGET_USD",
-                              "REPLAY_TIMEOUT", "REPLAY_ALLOW_AGENTS"})
+                              "REPLAY_TIMEOUT", "REPLAY_ALLOW_AGENTS", "REPLAY_IGNORE"})
+            self.assertEqual(env["REPLAY_IGNORE"], "", "no part of the project is left out of the list of changed files")
             self.assertNotEqual(env["HOME"], self.saved.get("HOME"))
             self.assertLessEqual(len(env["TMPDIR"]) + len("/replay.XXXXXXXX"), 60, "the sandbox's sockets need a short path")
             self.assertEqual((env["REPLAY_MODEL"], env["REPLAY_EFFORT"], env["REPLAY_ALLOW_AGENTS"]), ("opus", "high", "general-purpose"))
