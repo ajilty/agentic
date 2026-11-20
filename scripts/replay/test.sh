@@ -75,6 +75,11 @@ grep -q '"matcher":"\.\*"' "$HERE/replay.sh" && pass || fail "every tool call go
 bash -n "$HERE/replay.sh" && pass || fail "replay.sh parses"
 
 # --- The runner end to end, with a stand-in for the CLI (no model, no cost).
+# One checkout at a time on a machine: these tests make and remove /tmp/claude, which
+# every replay on the machine refuses to start beside. A second run waits for the first.
+if command -v flock >/dev/null 2>&1; then
+  exec 8> "/tmp/replay-test.$(id -u).lock" && flock -w 1800 8 || { echo "replay: FAIL: another run of these tests held the machine for 30 minutes"; exit 1; }
+fi
 # Settings left in the caller's shell (a candidate file, a model) must not steer these runs.
 for v in $(compgen -e | grep '^REPLAY_' || true); do unset "$v"; done
 # The stand-in behaves like a session that tries to get out: it looks for the
@@ -89,12 +94,15 @@ mkdir -p "$d/bin" "$d/plug/src" "$d/plug/set/one" "$d/plug"
 real="$(command -v claude 2>/dev/null || true)"
 command -v rg >/dev/null 2>&1 || [ -z "$real" ] || { printf '#!/usr/bin/env bash\nexec -a rg %q "$@"\n' "$real" > "$d/bin/rg"; chmod +x "$d/bin/rg"; }
 # A service of this machine, listening on its loopback address: the session must not reach it.
-python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(8); open(sys.argv[1],"w").write(str(s.getsockname()[1])); time.sleep(300)' "$d/port" & lp=$!
+python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(8); open(sys.argv[1],"w").write(str(s.getsockname()[1])); time.sleep(300)' "$d/port" 8>&- & lp=$!   # not the lock: a listener left behind must not hold it
 i=0; until [ -s "$d/port" ] || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done; port="$(cat "$d/port")"
 knock(){ python3 -c 'import socket,sys
 try: socket.create_connection(("127.0.0.1", int(sys.argv[1])), 2); print("open")
 except OSError: print("closed")' "$1"; }
 [ "$(knock "$port")" = open ] && pass || fail "the control: the listener answers on this machine"
+# The stand-in's long sleep is told apart by this run's own number, so two checkouts
+# testing at once do not count each other's sleeping sessions.
+nap="31.$$"
 cat > "$d/bin/claude" <<FAKE
 #!/usr/bin/env bash
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
@@ -109,7 +117,7 @@ elif [ ! -e noload ]; then loaded "\$HOME/.claude/CLAUDE.md"; loaded "\$(readlin
 # Post-compaction mode: answer each turn, and after the first, rewrite the turn
 # record the runner reads a line count from, with text a shell would evaluate.
 case " \$* " in *" --input-format "*) n=0
-  mkdir -p log; echo '{"event":"pc"}' >> log/journal.jsonl; [ -e hang ] && sleep 31.4159
+  mkdir -p log; echo '{"event":"pc"}' >> log/journal.jsonl; [ -e hang ] && sleep $nap
   while IFS= read -r line; do n=\$((n+1))
     [ \$n = 2 ] && printf '{"_lines":{"j":"HOME[\$(touch %s)]"},"result":"r"}' "$d/escaped-arith" > "\$(dirname "\$REPLAY_LOG")/turn.1.json"
     echo '{"type":"result","result":"r"}'
@@ -120,7 +128,7 @@ mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -
 # For the tests of what the session was given: its user-level file, its arguments, its project's top level.
 cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > keep/args; ls -A > keep/ls; [ ! -x run.sh ] || : > keep/runnable
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
-[ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
+[ -e hang ] && { sleep $nap & sleep $nap; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
 # The set, the source repo and the out dir all sit inside the plugin directory, which the session may read.
 home=\$([ -e "$fh/secret" ] || [ -e "$d/plug/set/one/ask.md" ] || [ -e "$d/plug/src/a.txt" ] || [ -e "$d/plug/out/one.1/turn1.md" ] && echo seen || echo hidden)
@@ -163,13 +171,13 @@ case "$first" in *'no usable sandbox runtime'*) conf=(REPLAY_UNCONFINED=1)
   git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
   rp env REPLAY_TIMEOUT=2 >/dev/null; sleep 1
   [ "$(cat "$o/say.md" 2>/dev/null)" = "(no result)" ] && pass || fail "the hung session was ended by the time limit (got: $(cat "$o/say.md" 2>/dev/null))"
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
   # An interrupted runner takes its sessions with it.
   rp env >/dev/null & rpid=$!; i=0
-  until pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && pass || fail "the session to interrupt started"
+  until pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && pass || fail "the session to interrupt started"
   pkill -TERM -f "replay.sh $d/plug/set" 2>/dev/null; wait "$rpid" 2>/dev/null; sleep 1
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
   # Cut short in its first turn, a post-compaction run still shows what that turn journaled.
   rp env REPLAY_POSTCOMPACT=1 REPLAY_TIMEOUT=2 >/dev/null
   [ "$(cat "$o/journal.jsonl" 2>/dev/null)" = '{"event":"pc"}' ] && [ ! -s "$o/journal.turn2.jsonl" ] && pass \
