@@ -55,7 +55,7 @@ plugin_tests() {
   if [ "$found" -eq 0 ]; then echo "no plugin suites found"; failed+=("plugin-tests: no suites"); fi
 }
 
-# Tooling under scripts/ that carries its own test.sh (the replay harness).
+# Tooling under scripts/ that carries its own test.sh (the replay harness, litmus).
 script_tests() {
   local t
   for t in scripts/*/test.sh; do
