@@ -140,12 +140,15 @@ npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, so
   of reach.
 - **Processes and environment:** its own process table, and an environment
   built from nothing.
-- **Login:** a session needs the model login, and its own commands can read
-  whichever login it was given: Claude Code's setting that strips credentials
-  from what a session starts (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is left
-  off, because with it every Bash call fails inside the sandbox runtime
-  (tried on CLI 2.1.328 with runtime 0.0.82). So what matters is which login
-  that is, and what a run keeps.
+- **Login:** a session needs the model login. Its commands can read the
+  copied login file; with a token set, the one real run found the variable
+  absent from its commands' environment, and whether they could reach it
+  another way was not tested. Treat either login as reachable: Claude Code's
+  setting that strips credentials from what a session starts
+  (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is left off, because with it every
+  Bash call fails inside the sandbox runtime (tried on CLI 2.1.328 with
+  runtime 0.0.82). So what matters is which login that is, and what a run
+  keeps.
   - *With `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` set* (do this):
     that variable is the whole login and your credential file stays behind.
     Prefer a token from `claude setup-token`: it can only make model
