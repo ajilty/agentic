@@ -77,6 +77,7 @@ bash -n "$HERE/replay.sh" && pass || fail "replay.sh parses"
 # --- The runner end to end, with a stand-in for the CLI (no model, no cost).
 # Settings left in the caller's shell (a candidate file, a model) must not steer these runs.
 for v in $(compgen -e | grep '^REPLAY_' || true); do unset "$v"; done
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN   # nor a login of the caller's: each test names the one it means
 # The stand-in behaves like a session that tries to get out: it looks for the
 # caller's home and environment, writes outside, plants a command in the
 # snapshot's git configuration, and leaves a link where the runner reads a log.
@@ -119,6 +120,11 @@ echo change > new.txt; mkdir -p log; echo '{"event":"x"}' >> log/journal.jsonl
 mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -s "$d" keep/dirlink; ln -s "$d/victim" keeplink
 # For the tests of what the session was given: its user-level file, its arguments, its project's top level.
 cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > keep/args; ls -A > keep/ls; [ ! -x run.sh ] || : > keep/runnable
+# For the login tests: which login the session was handed, and a session that writes all of it down.
+[ ! -e "\$HOME/.claude/.credentials.json" ] || : > keep/credfile
+printf 'key=%s token=%s file=%s\n' "\${ANTHROPIC_API_KEY:-}" "\${CLAUDE_CODE_OAUTH_TOKEN:-}" "\$(cat "\$HOME/.claude/.credentials.json" 2>/dev/null)" | tee keep/spill >&2
+echo forged > keep/login-removed.txt
+[ -z "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { mkdir -p "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN"; echo in > "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN/inner"; echo n > "keep/n-\$CLAUDE_CODE_OAUTH_TOKEN"; printf '%s' "\$CLAUDE_CODE_OAUTH_TOKEN" > "keep/odd\$(printf '\377')name"; }
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
 [ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
@@ -170,6 +176,7 @@ case "$first" in *'no usable sandbox runtime'*) conf=(REPLAY_UNCONFINED=1)
   pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && pass || fail "the session to interrupt started"
   pkill -TERM -f "replay.sh $d/plug/set" 2>/dev/null; wait "$rpid" 2>/dev/null; sleep 1
   pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
+  case "$(head -n 1 "$o/login-removed.txt" 2>/dev/null)" in unchecked:*) pass ;; *) fail "a run that was interrupted says its kept files were not checked for the login" ;; esac
   # Cut short in its first turn, a post-compaction run still shows what that turn journaled.
   rp env REPLAY_POSTCOMPACT=1 REPLAY_TIMEOUT=2 >/dev/null
   [ "$(cat "$o/journal.jsonl" 2>/dev/null)" = '{"event":"pc"}' ] && [ ! -s "$o/journal.turn2.jsonl" ] && pass \
@@ -348,5 +355,55 @@ grep -q '^eight\.1 ' "$o3/summary.txt" && pass || fail "a run with an impossible
 # In post-compaction mode a run leaves its facts too.
 out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_POSTCOMPACT=1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(fact "$o" postcompact)" = true ] && [ "$(fact "$o" noload)" = false ] && pass || fail "a post-compaction run leaves facts.json (exit $rc)"
+# --- The model login. A key or token in the environment is the whole login: the
+# credential file, which can do more, stays behind even when the caller has one.
+ftok=FILE-ACCESS-0123456789abcdefghij; shaped=sk-ant-api03-ZZZZZZZZZZZZZZZZZZZZZZZZ; vtok=VAR-TOKEN-0123456789abcdefghijklmn; exact=abcdefghijklmnopqrst
+printf '{"claudeAiOauth":{"accessToken":"%s","scopes":["user:inference"]},"note":"%s"}\n' "$ftok" "$shaped" > "$fh/.claude/.credentials.json"
+short=abcdefghijklmnopqrs   # one character under the length a login is taken to have
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY="$short")"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$o/keep/credfile" ] && pass || fail "with a key in the environment the credential file is not carried into the session (exit $rc)"
+case "$out" in *'no login variable'*) fail "no warning about the login file when a key is set" ;; *) pass ;; esac
+[ ! -e "$o/login-removed.txt" ] && grep -q "key=$short " "$o/keep/spill" && ! grep -q 'login-' "$d/plug/out/summary.txt" && [ "$(fact "$o" login_in_kept_files)" = false ] && pass \
+  || fail "a value too short to be a login is not cut from kept files, and the run is not marked (got: $(cat "$o/login-removed.txt" 2>/dev/null))"
+[ "$(cat "$o/keep/login-removed.txt" 2>/dev/null)" = forged ] && pass || fail "a file the session named like the runner's mark, inside a kept folder, is just a kept file"
+# A session that writes its token down: no kept file holds it afterwards, and the run says so.
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY= CLAUDE_CODE_OAUTH_TOKEN="$vtok" REPLAY_PREFIX="$shaped $ftok ")"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$o/keep/credfile" ] && grep -q 'token=\[login removed\]#* file=' "$o/keep/spill" && pass \
+  || fail "with a token in the environment the file stays behind and the token the session wrote is cut (exit $rc)"
+grep -rqF "$vtok" "$d/plug/out" && fail "the token is in no kept file" || pass
+[ -z "$(find "$d/plug/out" -name "*$vtok*" 2>/dev/null)" ] && [ -e "$o/keep/sub/a.txt" ] && grep -q '^keep/odd.*name$' "$o/login-removed.txt" && [ "$(grep -c 'its name held the login: not kept' "$o/login-removed.txt" 2>/dev/null)" = 2 ] && pass \
+  || fail "a file or folder the session named after its token is not kept, and the listing does not spell the token (got: $(tr '\n' ' ' < "$o/login-removed.txt" 2>/dev/null))"
+grep -rqF "$shaped" "$d/plug/out" && fail "text shaped like a key is cut wherever it is kept, the ask included" || pass
+grep -qF "$ftok" "$o/turn1.md" && pass || fail "the credential file's own strings are not looked for"
+[ "$(fact "$o" login_in_kept_files)" = true ] && [ "$(wc -c < "$o/keep/spill")" = "$(printf 'key= token=%s file=\n' "$vtok" | wc -c)" ] && pass \
+  || fail "facts.json says the login was found, and the cut keeps a file's length"
+grep -qx keep/spill "$o/login-removed.txt" 2>/dev/null && grep -qx stderr.txt "$o/login-removed.txt" && grep -q '^one\.1 .*login-removed' "$d/plug/out/summary.txt" \
+  && case "$out" in *'was in kept files and was cut out'*) true ;; *) false ;; esac && pass \
+  || fail "a run whose kept files held the login names them and is marked in the summary (got: $(tr '\n' ' ' < "$o/login-removed.txt" 2>/dev/null))"
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY="$exact")"
+grep -rqF "$exact" "$d/plug/out" && fail "a key of exactly 20 characters is cut" || pass
+# A kept file the runner may not write is left alone when clean, and still cut when it holds the key.
+echo "answers $exact" > "$d/plug/set/one/key.md"; echo "plain answers" > "$d/plug/set/one/key2.md"; chmod 0444 "$d/plug/set/one/key.md" "$d/plug/set/one/key2.md"
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY="$exact")"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$o/key2.md" 2>/dev/null)" = "plain answers" ] && ! grep -q key2 "$o/login-removed.txt" && grep -q '^answers \[login removed\]' "$o/key.md" && pass \
+  || fail "a read-only kept file is kept as it is when clean and cut when it holds the key (exit $rc)"
+rm -f "$d/plug/set/one/key.md" "$d/plug/set/one/key2.md"
+# With no key and no token the file is the only login: it is carried and the caller is
+# told. Of what is in it, only text shaped like a key is cut from what is kept.
+out="$(rp env -u ANTHROPIC_API_KEY ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ -e "$o/keep/credfile" ] && case "$out" in *'no login variable'*) true ;; *) false ;; esac && pass \
+  || fail "with no key or token the credential file is carried and the caller is warned (exit $rc)"
+grep -rqF "$shaped" "$d/plug/out" && fail "on the credential-file route, text shaped like a key is in no kept file" || pass
+grep -qF "$ftok" "$o/keep/spill" && grep -qx keep/spill "$o/login-removed.txt" 2>/dev/null && pass || fail "on the credential-file route only key-shaped text is cut, as the warning says"
+rm -f "$fh/.claude/.credentials.json"
+# The last step failing as a whole: the mark stands, even against a kept path of the same name, and the call fails.
+realpy="$(command -v python3)"
+# The stand-in for python3 fails that step alone, late: after the step emptied the runner's mark.
+printf '#!/usr/bin/env bash\ns="$(cat)"; case "$s" in *"login removed"*) : > "$2/login-removed.txt"; exit 1 ;; esac\nexec %q "$@" <<<"$s"\n' "$realpy" > "$d/bin/python3"; chmod +x "$d/bin/python3"
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_KEEP="keep keep/login-removed.txt")"; rc=$?; rm -f "$d/bin/python3"
+[ "$rc" = 3 ] && grep -q '^one\.1 .*login-unchecked' "$d/plug/out/summary.txt" && [ "$(fact "$o" login_in_kept_files)" = null ] \
+  && case "$(head -n 1 "$o/login-removed.txt" 2>/dev/null)" in unchecked:*) true ;; *) false ;; esac \
+  && case "$out" in *'could not check the kept files'*) true ;; *) false ;; esac && pass \
+  || fail "a run whose kept files could not be checked keeps the runner's mark, says so in the summary and facts.json, and fails the call (exit $rc; mark: $(head -n 1 "$o/login-removed.txt" 2>/dev/null))"
 kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]
