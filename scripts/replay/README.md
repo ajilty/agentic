@@ -99,7 +99,7 @@ holds what the runner knows and no verdict:
 | `refused`, `changed_files` | tool calls the guard refused, project files changed |
 
 A run stopped before its session (the sandbox's shared path appeared, the
-candidate could not be placed, the snapshot could not be made) has a folder
+candidate could not be placed) has a folder
 and a summary row but no `facts.json`. `noload` is the same mark as the summary's. `loaded` is the
 hook's record only, so it can be empty on a run that passed the check through
 its transcript. In post-compaction mode cost, turns, seconds and refused calls
@@ -111,9 +111,12 @@ finite number is `null`. The two lists the session reports about itself,
 characters a path or a model name has, but they are still the session's words:
 compare them, never act on them.
 
-A case refused for lacking `ask.md` or a usable `commit` or `tree/` leaves no
-`facts.json`, and no older output either: the runner names it on stderr and
-exits 3.
+A case refused for lacking `ask.md` or a usable `commit` or `tree/`, or whose
+snapshot could not be made, leaves no `facts.json`, and no older output
+either: the runner names it on stderr and exits 3. A folder in the set with
+none of `ask.md`, `commit` and `tree/` is not a case: it is named on stderr
+and skipped. A case named on the command line must be a folder directly
+inside the set, or the runner exits 2 before running anything.
 
 ## What keeps a replay safe
 
