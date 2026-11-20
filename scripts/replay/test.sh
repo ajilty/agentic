@@ -75,6 +75,17 @@ grep -q '"matcher":"\.\*"' "$HERE/replay.sh" && pass || fail "every tool call go
 bash -n "$HERE/replay.sh" && pass || fail "replay.sh parses"
 
 # --- The runner end to end, with a stand-in for the CLI (no model, no cost).
+# One run at a time for a user, among checkouts that have this lock: these tests make and
+# remove /tmp/claude, which every replay on the machine refuses to start beside. A second
+# run waits for the first. The lock is one file under the user's own cache folder, never
+# truncated; a run that cannot open it goes on without one.
+if command -v flock >/dev/null 2>&1; then
+  lock="$HOME/.cache/replay-test.lock"; mkdir -p "$HOME/.cache" 2>/dev/null
+  if ( : >> "$lock" ) 2>/dev/null && exec 8>> "$lock"; then
+    flock -n 8 || { echo "replay: waiting for another run of these tests ($lock)" >&2
+      flock -w 1800 8 || { echo "replay: FAIL: another run of these tests held the lock for 30 minutes" >&2; exit 1; }; }
+  else echo "replay: no lock ($lock cannot be opened): another run at the same time may disturb this one" >&2; fi
+fi
 # Settings left in the caller's shell (a candidate file, a model) must not steer these runs.
 for v in $(compgen -e | grep '^REPLAY_' || true); do unset "$v"; done
 unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN   # nor a login of the caller's: each test names the one it means
@@ -90,12 +101,15 @@ mkdir -p "$d/bin" "$d/plug/src" "$d/plug/set/one" "$d/plug"
 real="$(command -v claude 2>/dev/null || true)"
 command -v rg >/dev/null 2>&1 || [ -z "$real" ] || { printf '#!/usr/bin/env bash\nexec -a rg %q "$@"\n' "$real" > "$d/bin/rg"; chmod +x "$d/bin/rg"; }
 # A service of this machine, listening on its loopback address: the session must not reach it.
-python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(8); open(sys.argv[1],"w").write(str(s.getsockname()[1])); time.sleep(300)' "$d/port" & lp=$!
+python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(8); open(sys.argv[1],"w").write(str(s.getsockname()[1])); time.sleep(300)' "$d/port" 8>&- & lp=$!   # not the lock: a listener left behind must not hold it
 i=0; until [ -s "$d/port" ] || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done; port="$(cat "$d/port")"
 knock(){ python3 -c 'import socket,sys
 try: socket.create_connection(("127.0.0.1", int(sys.argv[1])), 2); print("open")
 except OSError: print("closed")' "$1"; }
 [ "$(knock "$port")" = open ] && pass || fail "the control: the listener answers on this machine"
+# The stand-in's long sleep is told apart by this run's own number, so two checkouts
+# testing at once do not count each other's sleeping sessions.
+nap="31.$$"
 cat > "$d/bin/claude" <<FAKE
 #!/usr/bin/env bash
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
@@ -110,7 +124,7 @@ elif [ ! -e noload ]; then loaded "\$HOME/.claude/CLAUDE.md"; loaded "\$(readlin
 # Post-compaction mode: answer each turn, and after the first, rewrite the turn
 # record the runner reads a line count from, with text a shell would evaluate.
 case " \$* " in *" --input-format "*) n=0
-  mkdir -p log; echo '{"event":"pc"}' >> log/journal.jsonl; [ -e hang ] && sleep 31.4159
+  mkdir -p log; echo '{"event":"pc"}' >> log/journal.jsonl; [ -e hang ] && sleep $nap
   while IFS= read -r line; do n=\$((n+1))
     [ \$n = 2 ] && printf '{"_lines":{"j":"HOME[\$(touch %s)]"},"result":"r"}' "$d/escaped-arith" > "\$(dirname "\$REPLAY_LOG")/turn.1.json"
     echo '{"type":"result","result":"r"}'
@@ -126,7 +140,7 @@ printf 'key=%s token=%s file=%s\n' "\${ANTHROPIC_API_KEY:-}" "\${CLAUDE_CODE_OAU
 echo forged > keep/login-removed.txt
 [ -z "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { mkdir -p "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN"; echo in > "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN/inner"; echo n > "keep/n-\$CLAUDE_CODE_OAUTH_TOKEN"; printf '%s' "\$CLAUDE_CODE_OAUTH_TOKEN" > "keep/odd\$(printf '\377')name"; }
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
-[ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
+[ -e hang ] && { sleep $nap & sleep $nap; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
 # The set, the source repo and the out dir all sit inside the plugin directory, which the session may read.
 home=\$([ -e "$fh/secret" ] || [ -e "$d/plug/set/one/ask.md" ] || [ -e "$d/plug/src/a.txt" ] || [ -e "$d/plug/out/one.1/turn1.md" ] && echo seen || echo hidden)
@@ -169,13 +183,13 @@ case "$first" in *'no usable sandbox runtime'*) conf=(REPLAY_UNCONFINED=1)
   git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
   rp env REPLAY_TIMEOUT=2 >/dev/null; sleep 1
   [ "$(cat "$o/say.md" 2>/dev/null)" = "(no result)" ] && pass || fail "the hung session was ended by the time limit (got: $(cat "$o/say.md" 2>/dev/null))"
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
   # An interrupted runner takes its sessions with it.
   rp env >/dev/null & rpid=$!; i=0
-  until pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && pass || fail "the session to interrupt started"
+  until pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && pass || fail "the session to interrupt started"
   pkill -TERM -f "replay.sh $d/plug/set" 2>/dev/null; wait "$rpid" 2>/dev/null; sleep 1
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
   case "$(head -n 1 "$o/login-removed.txt" 2>/dev/null)" in unchecked:*) pass ;; *) fail "a run that was interrupted says its kept files were not checked for the login" ;; esac
   # Cut short in its first turn, a post-compaction run still shows what that turn journaled.
   rp env REPLAY_POSTCOMPACT=1 REPLAY_TIMEOUT=2 >/dev/null
