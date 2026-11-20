@@ -58,7 +58,7 @@ class Judge(unittest.TestCase):
     def test_clear_changes_are_found(self):
         self.assertGreater(simulate(1.0, 0.1, 6, 500, 1).get("worse", 0), 0.99)
         self.assertGreater(simulate(0.2, 0.9, 6, 500, 2).get("better", 0), 0.98)
-        self.assertGreater(simulate(0.1, 0.6, 6, 1500, 3).get("better", 0), 0.8)    # the founding case, as Phase 0 measured it
+        self.assertGreater(simulate(0.1, 0.6, 6, 1500, 3).get("better", 0), 0.8)    # a large, clear improvement
         self.assertAlmostEqual(simulate(1.0, 1.0, 6, 50, 4)["holds"], 1.0)
 
     def test_a_case_stops_at_its_first_decision_and_asks_for_more_until_then(self):
@@ -400,14 +400,108 @@ class Compare(WithStandIn):
         self.assertIn("401", s["reason"])
 
     def test_the_spend_ceiling_stops_the_run_spans_invocations_and_is_per_model(self):
-        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--jobs", "1")
+        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.01", "--jobs", "1")
         s = self.summary()
         self.assertEqual((code, s["verdict"], s["new_sessions"]), (3, "invalid", 5), out)
         self.assertIn("spend ceiling", s["reason"])
-        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--label", "second")    # the ledger remembers
+        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.01", "--label", "second")    # the ledger remembers
         self.assertEqual((code, self.summary()["new_sessions"]), (3, 0), out)
-        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--jobs", "1", model="sonnet")
+        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.01", "--jobs", "1", model="sonnet")
         self.assertEqual(self.summary()["new_sessions"], 5, "another model has its own ceiling")
+
+    def test_a_session_that_reports_no_cost_is_booked_at_its_limit(self):
+        def booked(control, *more, label):
+            self.control.write_text(json.dumps(control))
+            before = len((self.state / "ledger.jsonl").read_text().splitlines()) if (self.state / "ledger.jsonl").exists() else 0
+            code, out = self.compare(1, 0, "--session-budget", "0.05", "--jobs", "1", "--only", "alpha", "--label", label, *more)
+            rows = [json.loads(l) for l in (self.state / "ledger.jsonl").read_text().splitlines()][before:]
+            return code, self.summary(), {(r["cost_usd"], r.get("cost_untold", False)) for r in rows}, len(rows)
+        # killed for running too long, dead without a word, or reporting a cost that is no number: never said what it spent
+        for label, control, more in (("hung", {"sleep": 60}, ("--timeout", "1")), ("crashed", {"crash": True}, ()),
+                                     ("nan", {"fail": True, "fail_cost": float("nan")}, ()), ("negative", {"fail": True, "fail_cost": -5}, ())):
+            code, s, rows, n = booked(control, *more, label=label)
+            self.assertEqual((code, s["verdict"], s["failed_sessions"], rows, n), (3, "invalid", 5, {(0.05, True)}, 5), label)
+            self.assertAlmostEqual(s["cost_usd"], 0.25)
+        # a failure that says it spent nothing is booked at nothing, and a session that says what it spent at that
+        self.assertEqual(booked({"fail": True}, label="failed-free")[2], {(0.0, False)})
+        self.assertEqual(booked({}, label="told")[2], {(0.002, False)})
+        self.assertAlmostEqual(self.summary()["ledger_usd"], 4 * 0.25 + self.summary()["cost_usd"], msg="the ledger stays a number")
+
+    def test_a_session_budget_that_cannot_be_kept_is_refused(self):
+        for more in (("--session-budget", "0"), ("--session-budget", "nan"), ("--session-budget", "-1"),
+                     ("--session-budget", "0.5", "--ceiling-usd", "0.4")):
+            code, out = self.compare(1, 0, *more)
+            self.assertEqual(code, 3, more)
+            self.assertIn("--session-budget", out)
+            code, out = self.run_cli("probe", *more)
+            self.assertEqual(code, 3, more)
+        self.assertFalse((self.state / "ledger.jsonl").exists(), "nothing was spent")
+
+    def test_a_pass_is_not_given_while_part_of_the_edit_has_no_case(self):
+        shutil.rmtree(self.cases / "beta")                           # nothing asks about Section B any more
+        both = lambda: ("compare", "--old", self.file("old.md", 0.1, 1.0), "--new", self.file("new.md", 0.95, 0.5), "--cases", str(self.cases))
+        for more in ((), ("--all", "--label", "every-case")):        # the edit touches both sections; alpha gets better
+            code, out = self.run_cli(*both(), *more)
+            s = self.summary()
+            self.assertEqual((code, s["verdict"], [r["state"] for r in s["rows"]]), (2, "inconclusive", ["better"]), out)
+            self.assertEqual((s["sections_touched"], s["sections_without_a_case"]), (["Section A", "Section B"], ["Section B"]))
+            self.assertIn("no case in this run covers: Section B", out)
+        # a regression found is still a regression, and with every section covered the same edit passes
+        code, out = self.run_cli("compare", "--old", self.file("old.md", 1, 1.0), "--new", self.file("new.md", 0, 0.5),
+                                 "--cases", str(self.cases), "--label", "worse")
+        self.assertEqual((code, self.summary()["verdict"]), (1, "regress"), out)
+        code, out = self.compare(0.1, 0.95, "--label", "covered")
+        s = self.summary()
+        self.assertEqual((code, s["verdict"], s["sections_touched"], s["sections_without_a_case"]), (0, "pass", ["Section A"], []), out)
+        # a case left out of the run does not cover its section either
+        case(self.cases, "beta", "Section B")
+        code, out = self.run_cli(*both(), "--only", "alpha", "--label", "left-out")
+        self.assertEqual((code, self.summary()["sections_without_a_case"]), (2, ["Section B"]), out)
+        code, out = self.run_cli(*both(), "--label", "all-covered")
+        self.assertEqual((code, self.summary()["verdict"], self.summary()["sections_without_a_case"]), (0, "pass", []), out)
+
+    def test_a_renamed_heading_needs_a_case_under_its_new_name_only(self):
+        shutil.rmtree(self.cases / "beta")
+        case(self.cases, "gamma", "Section C")
+        old = self.file("old.md", 0.1)
+        new = pathlib.Path(self.file("new.md", 0.95))
+        new.write_text(new.read_text().replace("## Section B", "## Section C"))
+        code, out = self.run_cli("compare", "--old", old, "--new", str(new), "--cases", str(self.cases))
+        s = self.summary()
+        self.assertEqual((code, s["verdict"], s["sections_touched"], s["sections_without_a_case"]),
+                         (0, "pass", ["Section A", "Section B", "Section C"], []), out)
+        shutil.rmtree(self.cases / "gamma")                          # nothing about the section under its new name
+        code, out = self.run_cli("compare", "--old", old, "--new", str(new), "--cases", str(self.cases), "--label", "new-name-bare")
+        self.assertEqual((code, self.summary()["sections_without_a_case"]), (2, ["Section C"]), out)
+
+    def test_a_case_whose_sections_are_not_a_list_is_refused(self):
+        toml = self.cases / "alpha" / "case.toml"
+        toml.write_text(toml.read_text().replace('sections = ["Section A"]', 'sections = "Section A"'))
+        code, out = self.compare(0.1, 0.95)
+        self.assertEqual(code, 3, out)
+        self.assertIn("sections must be a list", out)
+
+    def test_a_stored_answer_that_cannot_be_read_is_asked_again(self):
+        replaced, real = [], os.replace
+        self.addCleanup(setattr, litmus.os, "replace", real)
+        litmus.os.replace = lambda a, b: (replaced.append(str(b)), real(a, b))[1]
+        self.compare(1, 0, "--all", "--only", "alpha")
+        n, cache = self.summary()["new_sessions"], sorted((self.state / "cache").iterdir())
+        self.assertEqual([p.suffix for p in cache], [".json"] * n, "no half-written entry is left")
+        self.assertEqual(sorted(replaced), [str(p) for p in cache], "each was written beside its place and moved in whole")
+        # as a run killed mid-write once left it; not an answer; an answer with no result in it
+        for label, damage in (("cut", '{"choice": "b", "pa'), ("list", "[]"), ("empty", "{}"), ("no-result", '{"choice": "b"}')):
+            cache[0].write_text(damage)
+            code, out = self.compare(1, 0, "--all", "--only", "alpha", "--label", label)
+            s = self.summary()
+            self.assertEqual((code, s["new_sessions"], s["cached_answers"]), (1, 2, n - 2), (label, out))   # its pair is asked again, whole
+            self.assertTrue(all(isinstance(json.loads(p.read_text()).get("pass"), bool) for p in (self.state / "cache").iterdir()))
+        code, out = self.compare(1, 0, "--all", "--only", "alpha", "--ceiling-usd", "0", "--label", "nothing-to-spend")
+        self.assertEqual((code, self.summary()["new_sessions"]), (1, 0), "a ceiling of nothing still replays stored answers")
+        cache[0].unlink()
+        cache[0].mkdir()                                             # an entry that can be neither read nor replaced
+        code, out = self.compare(1, 0, "--all", "--only", "alpha", "--label", "unwritable")
+        self.assertEqual((code, self.summary()["new_sessions"]), (1, 2), out)
 
     def test_a_damaged_ledger_refuses_to_run(self):
         self.state.mkdir()
@@ -695,6 +789,42 @@ class Replay(WithStandIn):
             self.assertEqual(c["argv"][1], "-")
             self.assertEqual(sorted(c["argv"][3:]), ["merge", "rule"])
             self.assertFalse(pathlib.Path(env["TMPDIR"]).exists(), "the working folder is removed")
+
+    def test_the_tools_a_sessions_side_runs_come_from_folders_the_sandbox_can_read(self):
+        system, shims, cli = self.tmp / "system" / "bin", self.tmp / "shims", self.tmp / "cli"
+        def tool(folder, *names):
+            folder.mkdir(parents=True, exist_ok=True)
+            for name in names:
+                (folder / name).write_text("#!/bin/sh\n")
+                (folder / name).chmod(0o755)
+        tool(system, "python3", "git", "timeout", "bash")
+        tool(shims, "srt", "node", "python3")                        # a version manager's folder: the runtime, and a python3 shim
+        tool(cli, "claude")
+        self.addCleanup(setattr, litmus, "SANDBOX_READS", litmus.SANDBOX_READS)
+        litmus.SANDBOX_READS = (str(self.tmp / "system"),)           # all a sandboxed session can read
+        os.environ["PATH"] = f"{shims}:{system}"
+
+        def refused():
+            with self.assertRaises(litmus.Refuse) as e:
+                litmus.harness_path(cli)
+            return str(e.exception)
+        self.assertIn(f"python3 would be taken from {shims / 'python3'}", refused())     # found first, and it would fail
+        (shims / "python3").unlink()
+        self.assertEqual(litmus.harness_path(cli).split(":")[:3], [str(cli), str(shims), str(system)], "the caller's order is kept")
+        for name in ("git", "timeout", "bash", "python3"):           # each of them, not only python3
+            (system / name).rename(self.tmp / name)
+            tool(shims, name)
+            self.assertIn(f"{name} was not found in a folder a sandboxed session can read", refused())
+            (shims / name).unlink()
+            (system / name).symlink_to(self.tmp / name)              # in a readable folder, but the file itself lives outside
+            self.assertIn(f"{name} was not found in a folder a sandboxed session can read", refused())
+            (system / name).unlink()
+            (self.tmp / name).rename(system / name)
+        (self.tmp / "way-in").symlink_to(system)                     # a folder outside that is really the readable one
+        os.environ["PATH"] = f"{shims}:{self.tmp / 'way-in'}"
+        self.assertIn(str(self.tmp / "way-in"), litmus.harness_path(cli).split(":"))
+        tool(cli, "git")                                             # beside the CLI, which always leads
+        self.assertIn("git would be taken from", refused())
 
     def test_the_room_for_a_whole_batch_is_checked_before_anything_runs(self):
         code, out = self.replay("acts=0", "acts=1", "--ceiling-usd", "19.99")   # 8 replays at up to $2, plus a quarter of headroom

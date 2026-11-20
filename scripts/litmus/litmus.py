@@ -18,7 +18,10 @@ A case is a folder holding case.toml:
   situation = "..."            what the agent faces, written as the user turn
   options   = ["...", "..."]   the actions it may choose from
   expect    = ["b"]            letters of the acceptable actions (a = first option)
-  sections  = ["Heading"]      headings of the file this case exercises
+  sections  = ["Heading"]      headings of the file this case exercises. Only
+                               cases for headings the edit touches are run,
+                               and no `pass` is given while a touched heading
+                               has no case in the run: that is `inconclusive`.
   kind      = "single-turn"    other kinds are skipped here
 
 Exit: 0 pass, 1 regress, 2 inconclusive, 3 no verdict (a broken run, the spend
@@ -84,7 +87,7 @@ ASK = ("\n\nChoose the one action you would take. Reply with a single line of "
        "JSON and nothing else: {\"action\": \"<letter>\", \"action_text\": \"<the full "
        "text of the action you chose, copied exactly>\", \"reason\": \"<one line>\"}")
 LETTERS = "abcdefgh"
-MAX_JOBS = 3              # the operator's standing limit on live sessions
+MAX_JOBS = 3              # at most three live sessions at a time
 # Commands that can replace the commit the harness measures changed files from (the project's first one).
 REWRITES = re.compile(r"\bgit\b[^;&|\n]*?\b(commit\b[^;&|\n]*--amend|rebase\b[^;&|\n]*--root|(checkout|switch)\b[^;&|\n]*--orphan"
                       r"|filter-branch|filter-repo|update-ref)")
@@ -131,6 +134,9 @@ def load_cases(dirs, exclude=(), only=()):
             seen.add(c["id"])
             if c.get("kind", "single-turn") != "single-turn" or c["id"] in exclude or (only and c["id"] not in only):
                 continue
+            secs = c.setdefault("sections", [])
+            if not (isinstance(secs, list) and all(isinstance(x, str) for x in secs)):
+                raise Refuse(f"case {c['id']}: sections must be a list of headings, like [\"Heading\"]")
             if not (2 <= len(c["options"]) <= len(LETTERS) and c["expect"]
                     and set(c["expect"]) <= set(LETTERS[:len(c["options"])])):
                 raise Refuse(f"case {c['id']} has options or expected letters this runner cannot use")
@@ -227,6 +233,11 @@ class Run:
             raise Refuse(f"--jobs must be 1 to {MAX_JOBS} (the limit on live sessions)")
         if not 0 <= a.ceiling_usd < float("inf"):          # also refuses "nan", which would switch every spend check off
             raise Refuse("--ceiling-usd must be a sum of 0 or more")
+        if not 0 < a.session_budget < 1000:                # also refuses "nan"
+            raise Refuse("--session-budget must be a sum above 0 and below 1000")
+        if a.ceiling_usd and a.session_budget > a.ceiling_usd:
+            raise Refuse(f"--session-budget (${a.session_budget:.2f}) is above --ceiling-usd (${a.ceiling_usd:.2f}): "
+                         "one session could spend more than the whole run may")
         try:
             self.cli = engine.find_cli(a.cli)
             self.cli_version = engine.require_cli(self.cli)
@@ -306,8 +317,12 @@ class Run:
         except engine.EngineError as e:
             self.invalid(str(e))
             return None
+        # A session that was killed, or failed before it could say, reports no cost, yet it may have spent up to
+        # its limit: it is booked at that limit, not at nothing.
+        untold = not f.get("cost_known")
+        cost = f["booked_usd"] = a.session_budget if untold else f["cost_usd"]
         with self.lock:
-            self.spent += f["cost_usd"]
+            self.spent += cost
             self.tool_runs += bool(f["tool_attempts"])
             self.failures += f["failed"]
             over = f["failed"] and self.failures >= a.error_limit
@@ -315,8 +330,9 @@ class Run:
             for k in TOKENS:
                 self.tokens[k] += used[k]
             with self.ledger.open("a") as fh:        # dollars are list price; tokens are what was actually used, for later arithmetic
-                fh.write(json.dumps({"when": f["started"], "run": self.id, "model": a.model, "cost_usd": f["cost_usd"],
-                                     "tokens": used, "effort": a.effort, "cli": self.cli_version}) + "\n")
+                fh.write(json.dumps({"when": f["started"], "run": self.id, "model": a.model, "cost_usd": cost,
+                                     "tokens": used, "effort": a.effort, "cli": self.cli_version}
+                                    | ({"cost_untold": True} if untold else {})) + "\n")
             with (self.out / "runs.jsonl").open("a") as fh:
                 fh.write(json.dumps({"name": name} | f) + "\n")
         if over:
@@ -329,17 +345,28 @@ class Run:
         return sha("|".join([PROMPT_VERSION, self.cli_version, a.scope, sha(text), case["id"], case["sha"], a.model,
                              a.effort or "default", a.draw, slot]))
 
+    def stored(self, slot, text, case):
+        """A kept answer, or None. One that cannot be read (a run killed while writing it) counts as not there."""
+        if self.a.sabotage:
+            return None
+        try:
+            out = json.loads((self.cache / f"{self.key(slot, text, case)}.json").read_text())
+        except (OSError, ValueError):
+            return None
+        return out if isinstance(out, dict) and isinstance(out.get("pass"), bool) else None
+
     def has(self, slot, text, case):
-        return not self.a.sabotage and (self.cache / f"{self.key(slot, text, case)}.json").exists()
+        return self.stored(slot, text, case) is not None
 
     def ask(self, slot, text, case, pair, fresh=False):
         """One graded answer to one case under one text. {'void': why} if none could be had."""
         key = self.key(slot, text, case)
         cpath = self.cache / f"{key}.json"
-        if not fresh and self.has(slot, text, case):
+        kept = None if fresh else self.stored(slot, text, case)
+        if kept is not None:
             with self.lock:
                 self.cached += 1
-            return json.loads(cpath.read_text())
+            return kept
         prompt, opts = question(case, pair)
         why = "stopped"
         for attempt in range(2):                 # one retry, whatever went wrong
@@ -368,7 +395,13 @@ class Run:
                 out = {"choice": choice, "pass": passed, "tools": len(f["tool_attempts"]), "run": self.id,
                        "models": sorted(f.get("models") or []) or None}
                 if not self.a.sabotage:
-                    cpath.write_text(json.dumps(out))
+                    part = cpath.with_name(f"{cpath.name}.{os.getpid()}.{threading.get_ident()}.part")
+                    try:
+                        part.write_text(json.dumps(out))     # whole or not at all: a kill mid-write leaves no half entry
+                        os.replace(part, cpath)
+                    except OSError:                          # an answer that cannot be kept is still an answer
+                        part.unlink(missing_ok=True)
+                        return out
                     with self.lock:
                         self.wrote.append(cpath)
                 return out
@@ -407,13 +440,18 @@ def cmd_compare(a):
     if a.reuse_old and a.without:
         raise Refuse("--reuse-old is for a wording already sampled: it cannot go with --without")
     cases = load_cases(a.cases, set(a.exclude.split(",")) - {""}, set(a.only.split(",")) - {""})
-    if not (a.all or a.same):
+    hit, bare = set(), []
+    if not a.same:
         hit = touched_sections(old, new)
-        bare = sorted(h for h in hit if not any(h in c.get("sections", []) for c in cases))
-        cases = [c for c in cases if hit & set(c.get("sections", []))]
+        # A heading the edit removed or renamed away is not one a case can still be about: what the new file
+        # says is what has to be covered. (Text cut from a removed section also touches the heading before it.)
+        now = set(headings(new))
+        bare = sorted(h for h in hit if h in now and not any(h in c["sections"] for c in cases))
+        if not a.all:
+            cases = [c for c in cases if hit & set(c["sections"])]
         print("sections the edit touches:", ", ".join(sorted(hit)) or "(none)")
         if bare:
-            print("no case covers:", ", ".join(bare))
+            print("no case in this run covers:", ", ".join(bare))
     if not cases:
         print("no cases selected: nothing was tested")
         return EXIT["inconclusive"]
@@ -472,6 +510,9 @@ def cmd_compare(a):
                 run.invalid("interrupted")       # queued sessions are dropped; those in flight finish and are counted
         stopped = run.halt.is_set()
         verdict = "invalid" if stopped else judge.verdict(s["judge"]["state"] for s in st.values())
+        untested = verdict == "pass" and bool(bare)      # part of the edit was never asked about: that is not a pass
+        if untested:
+            verdict = "inconclusive"
         print(f"\n{'case':36} {'old':>5} {'new':>5} {'pairs':>5} {'worse':>5} {'better':>6} {'void':>4}  state")
         rows = []
         for c in cases:
@@ -480,7 +521,8 @@ def cmd_compare(a):
             print(f"{c['id']:36} {j['old']:5.0%} {j['new']:5.0%} {j['pairs']:5d} {j['worse']:5d} {j['better']:6d} {s['void']:4d}  {state}")
             rows.append({"case": c["id"], "state": state, "void": s["void"], "pairs_from_two_runs": s["split"]}
                         | {k: j[k] for k in ("old", "new", "pairs", "worse", "better")})
-        print(f"\nverdict: {verdict}" + (f" (no verdict: {run.reason})" if stopped else ""))
+        print(f"\nverdict: {verdict}" + (f" (no verdict: {run.reason})" if stopped else "")
+              + (f" (every case that ran passed, but no case in this run covers: {', '.join(bare)})" if untested else ""))
         split, mixed = sum(s["split"] for s in st.values()), sum(s["mixed"] for s in st.values())
         if split:
             print(f"reused old side: {split} of the {sum(r['pairs'] for r in rows)} pairs judged put an answer from one run beside "
@@ -488,6 +530,7 @@ def cmd_compare(a):
         if mixed:
             print(f"{mixed} pairs were left out because two different models answered their halves")
         run.finish({"verdict": verdict, "reason": run.reason, "old": sha(old), "new": sha(new), "rows": rows,
+                    "sections_touched": sorted(hit), "sections_without_a_case": bare,
                     "rules": dataclasses.asdict(rules), "reuse_old": bool(a.reuse_old), "pairs_from_two_runs": split,
                     "pairs_dropped_for_mixed_models": mixed})
         return EXIT[verdict]
@@ -528,7 +571,7 @@ def cmd_probe(a):
             print(f"{scope:8} {brk or kind:7} {str(ok):>11}  recorded as loaded: {', '.join(names)}; missing {len(load['missing'])}, "
                   f"extra {len(load['extra'])}; knew the code word: {knows}; tools tried: {len(f['tool_attempts'])}; "
                   f"files left: {len(f['left_behind'])}; {'FAILED; ' if f['failed'] else ''}"
-                  f"{sum(f['tokens'].values())} tokens, ${f['cost_usd']:.4f}")
+                  f"{sum(f['tokens'].values())} tokens, ${f['booked_usd']:.4f}" + ("" if f.get("cost_known") else " (no cost reported: booked at the limit)"))
             rows.append({"scope": scope, "arm": brk or kind, "as_expected": ok, "loaded": f["loaded"], "knew_code_word": knows,
                          "tool_attempts": f["tool_attempts"], "left_behind": f["left_behind"], "failed": f["failed"]})
         done = not run.halt.is_set() and len(rows) == len(arms) * a.repeats
@@ -740,14 +783,34 @@ def die_with_parent():                 # Linux: if this process is killed outrig
         pass
 
 
+# The system folders the harness lets a sandboxed session read (its own list, in scripts/replay/replay.sh).
+SANDBOX_READS = ("/usr", "/etc", "/nix", "/opt/homebrew", "/home/linuxbrew")
+
+
 def harness_path(cli_dir):
-    """A PATH of the folders the harness's own tools live in, and nothing else of the caller's."""
-    srt = shutil.which("srt")
-    if not srt:
+    """A PATH of the folders the harness's own tools live in, and nothing else of the caller's. The sandbox hides
+    everything but the system's program folders, and the harness has a throwaway home, so the tools a session's
+    side runs must come from a folder the sandbox can read: a version manager's shim would be found first and
+    then fail, and every replay would be paid for and none measured. The caller's order is otherwise kept."""
+    if not shutil.which("srt"):
         raise Refuse("the sandbox runtime (srt) was not found on PATH: replays never run without it")
-    dirs = [str(cli_dir)] + [os.path.dirname(w) for name in ("srt", "node", "rg", "bwrap", "socat", "git", "python3", "timeout", "bash")
-                             if (w := shutil.which(name))] + ["/usr/bin", "/bin"]
-    return ":".join(dict.fromkeys(dirs))
+    roots = [os.path.realpath(d) for d in SANDBOX_READS if os.path.isdir(d)]
+    seen = lambda p: any((os.path.realpath(p) + os.sep).startswith(r + os.sep) for r in roots)
+    usable = lambda d, name: seen(d) and seen(os.path.join(d, name)) and os.access(os.path.join(d, name), os.X_OK)
+    inside, where = ("python3", "git", "timeout", "bash"), ", ".join(SANDBOX_READS)
+    dirs = [str(cli_dir)] + [os.path.dirname(w) for name in ("srt", "node", "rg", "bwrap", "socat") if (w := shutil.which(name))]
+    for name in inside:
+        d = next((d for d in os.environ.get("PATH", "").split(os.pathsep) + ["/usr/bin", "/bin"] if d and usable(d, name)), None)
+        if d is None:
+            raise Refuse(f"{name} was not found in a folder a sandboxed session can read ({where}): install it there")
+        dirs.append(d)
+    path = os.pathsep.join(dict.fromkeys(dirs + ["/usr/bin", "/bin"]))
+    for name in inside:                                  # a folder added for another tool may hold one of these too
+        w = shutil.which(name, path=path)
+        if not usable(os.path.dirname(w), name):
+            raise Refuse(f"{name} would be taken from {w}, which a sandboxed session cannot read (it reads {where}): "
+                         "take that folder off PATH for this run")
+    return path
 
 
 def cmd_replay(a):
@@ -764,8 +827,8 @@ def cmd_replay(a):
     token = {k: os.environ[k] for k in engine.AUTH_NAMES if os.environ.get(k)}
     if not token:
         raise Refuse(f"no login for test sessions: set {' or '.join(engine.AUTH_NAMES)} (a token from `claude setup-token`)")
-    if a.runs < 1 or a.timeout < 1 or not 0 < a.session_budget < 1000:
-        raise Refuse("--runs and --timeout must be at least 1, and --session-budget a sum above 0")
+    if a.runs < 1 or a.timeout < 1:
+        raise Refuse("--runs and --timeout must be at least 1")
     cases = load_replay_cases(a.cases, set(a.only.split(",")) - {""})
     cases_dir = pathlib.Path(a.cases).resolve()
     with Run(a, "replay") as run:

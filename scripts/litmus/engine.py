@@ -178,7 +178,7 @@ def run_session(*, cli, run_root, name, text, scope, prompt, model, effort=None,
     if effort:
         cmd += ["--effort", effort]
     facts = {"scope": scope, "model": model, "effort": effort, "sabotage": sabotage, "started": time.strftime("%F %T"),
-             "exit_code": None, "timed_out": False, "result": "", "is_error": None, "cost_usd": 0.0, "tokens": {},
+             "exit_code": None, "timed_out": False, "result": "", "is_error": None, "cost_usd": 0.0, "cost_known": False, "tokens": {},
              "models": [],
              "num_turns": None, "stderr": ""}
     t0 = time.time()
@@ -204,10 +204,12 @@ def run_session(*, cli, run_root, name, text, scope, prompt, model, effort=None,
     if isinstance(d, dict):
         u = d.get("usage") if isinstance(d.get("usage"), dict) else {}
         cost = d.get("total_cost_usd")
+        # a killed session reports none; anything but a finite sum of 0 or more is no report either
+        facts["cost_known"] = isinstance(cost, (int, float)) and not isinstance(cost, bool) and 0 <= cost < 1e6
         facts.update(result=d.get("result") if isinstance(d.get("result"), str) else "",
                      is_error=d.get("is_error"), num_turns=d.get("num_turns"),
                      models=sorted(d["modelUsage"]) if isinstance(d.get("modelUsage"), dict) else [],
-                     cost_usd=float(cost) if isinstance(cost, (int, float)) and not isinstance(cost, bool) else 0.0,
+                     cost_usd=float(cost) if facts["cost_known"] else 0.0,
                      tokens={k: u.get(k, 0) for k in ("input_tokens", "output_tokens",
                                                       "cache_read_input_tokens", "cache_creation_input_tokens")})
     loaded = read_records(lay["log"] / "loaded.jsonl")

@@ -14,7 +14,8 @@ given one, and a Write attempt when asked to create proof.txt.
 control.json beside this file may set: version, env_dump (a file to append this
 process's environment names to), skip_load_hook (never report what loaded),
 skip_load_hook_after (report loading for only the first N sessions), fail
-(every session ends in an error), sleep (seconds before answering), no_tool
+(every session ends in an error), fail_cost (the cost such a session reports), crash (every session
+dies without a word), sleep (seconds before answering), no_tool
 (never try a tool), model (the name of the model that "answered").
 """
 import hashlib
@@ -57,9 +58,11 @@ if control.get("env_dump"):
     with open(control["env_dump"], "a") as fh:
         fh.write(json.dumps({"names": sorted(os.environ), "home": str(home), "cwd": str(cwd)}) + "\n")
 
+if control.get("crash"):
+    sys.exit(1)
 if control.get("fail"):
     print(json.dumps({"type": "result", "subtype": "error", "is_error": True, "result": "API Error: 401 the login is not valid",
-                      "total_cost_usd": 0.0}))
+                      "total_cost_usd": control.get("fail_cost", 0.0)}))
     sys.exit(1)
 
 files = []   # (path, memory type)

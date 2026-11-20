@@ -15,6 +15,16 @@ python3 scripts/litmus/litmus.py compare \
   --old OLD.md --new NEW.md --cases <cases-dir> --model haiku
 ```
 
+- Cases are chosen by section. Each case names the headings of the file it
+  exercises (`sections`), and only the cases for headings the edit touches are
+  run; `--all` runs every case. Either way, when the edit touches a heading
+  that no case in the run names, the run says which and cannot return `pass`:
+  with every case that ran passing, it returns `inconclusive`, because part of
+  the edit was never asked about. A case left out with `--only` or `--exclude`
+  covers nothing. A heading the edit removes or renames away needs no case;
+  its new name does. The summary file lists the headings touched and those
+  without a case. Coverage is by heading: a case that names a heading is not
+  proof that it exercises every sentence under it.
 - `--without "<sentence>"` in place of `--new`: does that sentence earn its place.
 - `--same` in place of `--new`: the file against itself.
 - `--scope project|user|rules`: how the file is delivered (default `project`).
@@ -99,20 +109,39 @@ reads it.
 - **Spend is capped per model.** Every session's list-price cost goes into a
   ledger under `.agents/runs/litmus/`; a run stops with no verdict at
   `--ceiling-usd`. A ledger that cannot be read refuses the run. A session that
-  is killed for running too long reports no cost, so it is ledgered at zero.
+  reports no cost (one killed for running too long, one that failed before it
+  could say) is booked at `--session-budget`, which must be above zero and no
+  more than the ceiling. Three limits: the ceiling is checked before each
+  session starts, so a run can pass it by what the sessions then in flight
+  spend, about three times `--session-budget` (the CLI can itself pass its
+  per-session limit by a little); if `litmus` is killed outright, the sessions
+  then in flight are not booked; and the ledger is kept per model name as
+  typed, so `opus` and `claude-opus-5-5` are counted apart.
 - **One run at a time, at most three sessions.** A second invocation on the
   same state folder is refused.
-- **An interrupt stops cleanly.** Sessions not yet started are dropped; the one
-  or two in flight finish and are counted; no verdict is given.
+- **An interrupt stops cleanly.** Sessions not yet started are dropped; the
+  up to three in flight finish and are counted; no verdict is given.
 
 This is not an operating-system boundary: a session runs as you, with the
 network up, and the tool-refusing hook is all that stands between it and your
 files. Cases that need tools belong in the replay harness's sandbox.
 
-Known limits: a file that Claude Code loads without telling the loading record
-(an `AGENTS.md` read directly, for one) cannot be seen by the load check, which
-is why such files above the run root refuse the run; and a record that arrives
-late can be missed in a short session, in either direction.
+Known limits:
+
+- A file that Claude Code loads without telling the loading record (an
+  `AGENTS.md` read directly, for one) cannot be seen by the load check, which
+  is why such files above the run root refuse the run; and a record that
+  arrives late can be missed in a short session, in either direction.
+- A machine-wide instruction file refuses the run. Other machine-wide settings
+  (a managed settings file with hooks or permissions of its own) are not
+  looked for, and would apply to every session.
+- The Claude Code version is read by running `claude --version` in your own
+  environment, before any session's clean one exists.
+- `compare` does not check that `probe` has passed for the installed Claude
+  Code version. Run `probe` after an upgrade: it is what shows that loading
+  and the tool refusal still work.
+- A stored answer that cannot be read is asked again, with the other half of
+  its pair (unless `--reuse-old` lets a stored old half stand).
 
 ## Replays: what a session does, not what it says
 
@@ -153,9 +182,9 @@ expected thing. It gives **no verdict**: a handful of replays is a
 measurement. Exit 0 means every replay was measured, 3 that one was not (the
 wording did not load or another file ran in its place, a file from outside the
 project loaded, the session was not confined or left no result, it used tools
-but none was recorded, the project's folder could not be told so file writes
-could not be judged, or the harness left no record), or that the run was
-stopped.
+but none was recorded, the harness left no list of changed files or the
+session rewrote the commit that list is measured from, or the harness left no
+record), or that the run was stopped.
 
 - **Spend.** The harness runs a whole batch, so the room for it is checked
   before anything starts: cases x runs x 2 wordings x `--session-budget`
@@ -173,11 +202,20 @@ stopped.
 - **Nothing of yours is carried.** The harness is started with an empty
   throwaway home, a `PATH` of the folders its own tools live in, and the login
   token, so neither your login file nor your own preferences file can reach a
-  session. It is never run without the sandbox runtime.
+  session. It is never run without the sandbox runtime. A sandboxed session
+  can read only the system's program folders (`/usr`, `/etc`, a Homebrew or
+  Nix prefix), so the tools its side runs (`python3`, `git`, `timeout`,
+  `bash`) must be found there. If one would be taken from anywhere else (a
+  version manager's shim under your home, say), the run is refused before
+  anything is spent.
 - **The login.** A session holds the login token, as any session does, and
   with tools it can print its own environment into its transcript, which is
   kept. So after each batch the token is removed from every kept file, and the
-  run says so if it had to.
+  run says so if it had to. It is found only as the exact text of the token: a
+  copy in another encoding or in pieces is not. If `litmus` is killed outright
+  mid-batch, that step has not run: treat the run's output folder (under
+  `.agents/runs/litmus/out/`) and any working folder left under the run root
+  as holding the token, and delete them.
 - **Stopping.** An interrupt, a closed terminal or the time limit stops the
   harness and everything it started. If `litmus` itself is killed outright,
   the harness is told to stop (Linux), and a working folder under the run root
