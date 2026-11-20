@@ -114,11 +114,12 @@ compare them, never act on them.
 A case refused for lacking `ask.md` or a usable `commit` or `tree/`, or whose
 snapshot could not be made, leaves no `facts.json`, and no older output
 either: the runner names it on stderr and exits 3. Every folder in a set
-whose name does not start with a dot is a case, so a folder of notes kept
+(or link to one) whose name does not start with a dot is a case, so a folder of notes kept
 inside one fails the call the same way: keep such things outside the set, or
 under a name that starts with a dot. A case named on the command line must be
 a folder (or a link to one) directly inside the set, given without a slash
-and only once, and `REPLAY_K` must be a whole number, 1 or more; otherwise
+and only once, and `REPLAY_K` must be a whole number, 1 or more, written
+without a leading zero; otherwise
 the runner exits 2 before running or removing anything.
 
 ## What keeps a replay safe

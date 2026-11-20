@@ -256,23 +256,34 @@ out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/
 rm -rf "$d/plug/src.1"
 # A name is one case, never split at a space or matched against other files: a folder "a b" that is
 # no case fails by its whole name, and the older output of "a", "b" and of a file's name stays.
-mkdir -p "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1"; here="$PWD"; cd "$d" && : > xfile
-out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; cd "$here"
+mkdir -p "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1"; here="$PWD"; cd "$d" && : > xfile || fail "the control: the test stands where a file matches the wildcard name"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 case "$rc:$out" in 3:*'a b: lacks ask.md'*) case "$out" in *'x*: lacks ask.md'*) [ -d "$d/plug/out/a.1" ] && [ -d "$d/plug/out/b.1" ] && [ -d "$d/plug/out/xfile.1" ] && [ -s "$o/result.json" ] && pass \
   || fail "a case name with a space or a wildcard touches no other name's output, and the real case still runs" ;; *) fail "a folder named with a wildcard is one case by that name" ;; esac ;;
   *) fail "a folder named with a space is one case by that name (exit $rc)" ;; esac
+# The same when the caller gives those names.
+rpn(){ HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" "$@" 2>&1; }
+out="$(rpn "a b" 'x*')"; rc=$?; cd "$here"
+case "$rc:$out" in 3:*'a b: lacks ask.md'*) case "$out" in *'x*: lacks ask.md'*) [ -d "$d/plug/out/a.1" ] && [ -d "$d/plug/out/b.1" ] && [ -d "$d/plug/out/xfile.1" ] && pass \
+  || fail "a named case with a space or a wildcard touches no other name's output" ;; *) fail "a named case with a wildcard is one case by that name" ;; esac ;;
+  *) fail "a named case with a space is one case by that name (exit $rc)" ;; esac
 rm -rf "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1" "$d/xfile"
+# A set with no folders has no cases: nothing runs and nothing fails.
+mkdir -p "$d/plug/noset"; echo f > "$d/plug/noset/file.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/noset" "$d/plug/src" "$d/plug/out-none" 2>&1)"; rc=$?
+case "$rc:$out" in 0:*lacks*) fail "a set with no folders has no case to refuse" ;; 0:*) pass ;; *) fail "a set with no folders runs nothing and fails nothing (exit $rc)" ;; esac
 # Refused before anything runs: an empty name, a name given twice, a runs-per-case number that is not one.
 echo stale > "$o/say.md"
-for bad in "'' one" "one one"; do
-  out="$(eval "HOME=\"\$fh\" ANTHROPIC_API_KEY=x PATH=\"\$d/bin:\$PATH\" REPLAY_PLUGIN_DIR=\"\$d/plug\" env \${conf[@]+\"\${conf[@]}\"} bash \"\$HERE/replay.sh\" \"\$d/plug/set\" \"\$d/plug/src\" \"\$d/plug/out\" $bad" 2>&1)"; rc=$?
-  [ "$rc" = 2 ] && [ "$(cat "$o/say.md")" = stale ] && pass || fail "refused before any run: case names [$bad] (exit $rc)"
-done
-for bad in abc 0 1.5 ""; do
+out="$(rpn '' one)"; rc=$?
+case "$rc:$out" in 2:*'not a case folder of the set'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "an empty case name runs nothing" ;; *) fail "an empty case name is refused by that message (exit $rc)" ;; esac
+out="$(rpn one one)"; rc=$?
+case "$rc:$out" in 2:*'case named twice: one'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "a case named twice runs nothing" ;; *) fail "a case named twice is refused by that message (exit $rc)" ;; esac
+for bad in abc 0 1.5 007; do
   out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_K="$bad")"; rc=$?
-  if [ -z "$bad" ]; then [ "$rc" = 0 ] && pass || fail "an empty REPLAY_K means one run (exit $rc)"; echo stale > "$o/say.md"
-  else [ "$rc" = 2 ] && [ "$(cat "$o/say.md")" = stale ] && pass || fail "refused before any run: REPLAY_K=$bad (exit $rc)"; fi
+  case "$rc:$out" in 2:*'REPLAY_K must be'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "REPLAY_K=$bad runs nothing" ;; *) fail "REPLAY_K=$bad is refused by that message (exit $rc)" ;; esac
 done
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_K=)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$o/say.md")" != stale ] && pass || fail "an empty REPLAY_K means one run (exit $rc)"
 out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" nosuch 2>&1)"; rc=$?
 [ "$rc" = 2 ] && pass || fail "a case name that is not a folder of the set is refused (exit $rc)"
 rm -rf "$d/plug/victim.1"
