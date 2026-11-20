@@ -254,6 +254,25 @@ mkdir -p "$d/plug/src.1" && echo keep > "$d/plug/src.1/keep.txt"
 out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" ../src 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ -s "$d/plug/src.1/keep.txt" ] && case "$out" in *'not a case folder of the set: ../src'*) true ;; *) false ;; esac && pass || fail "a case name that leads to a real folder outside the set is refused by name, and nothing is removed (exit $rc)"
 rm -rf "$d/plug/src.1"
+# A name is one case, never split at a space or matched against other files: a folder "a b" that is
+# no case fails by its whole name, and the older output of "a", "b" and of a file's name stays.
+mkdir -p "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1"; here="$PWD"; cd "$d" && : > xfile
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; cd "$here"
+case "$rc:$out" in 3:*'a b: lacks ask.md'*) case "$out" in *'x*: lacks ask.md'*) [ -d "$d/plug/out/a.1" ] && [ -d "$d/plug/out/b.1" ] && [ -d "$d/plug/out/xfile.1" ] && [ -s "$o/result.json" ] && pass \
+  || fail "a case name with a space or a wildcard touches no other name's output, and the real case still runs" ;; *) fail "a folder named with a wildcard is one case by that name" ;; esac ;;
+  *) fail "a folder named with a space is one case by that name (exit $rc)" ;; esac
+rm -rf "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1" "$d/xfile"
+# Refused before anything runs: an empty name, a name given twice, a runs-per-case number that is not one.
+echo stale > "$o/say.md"
+for bad in "'' one" "one one"; do
+  out="$(eval "HOME=\"\$fh\" ANTHROPIC_API_KEY=x PATH=\"\$d/bin:\$PATH\" REPLAY_PLUGIN_DIR=\"\$d/plug\" env \${conf[@]+\"\${conf[@]}\"} bash \"\$HERE/replay.sh\" \"\$d/plug/set\" \"\$d/plug/src\" \"\$d/plug/out\" $bad" 2>&1)"; rc=$?
+  [ "$rc" = 2 ] && [ "$(cat "$o/say.md")" = stale ] && pass || fail "refused before any run: case names [$bad] (exit $rc)"
+done
+for bad in abc 0 1.5 ""; do
+  out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_K="$bad")"; rc=$?
+  if [ -z "$bad" ]; then [ "$rc" = 0 ] && pass || fail "an empty REPLAY_K means one run (exit $rc)"; echo stale > "$o/say.md"
+  else [ "$rc" = 2 ] && [ "$(cat "$o/say.md")" = stale ] && pass || fail "refused before any run: REPLAY_K=$bad (exit $rc)"; fi
+done
 out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" nosuch 2>&1)"; rc=$?
 [ "$rc" = 2 ] && pass || fail "a case name that is not a folder of the set is refused (exit $rc)"
 rm -rf "$d/plug/victim.1"

@@ -17,9 +17,6 @@
 #                    inside tree/; one that is absolute or leads out refuses
 #                    the case, as does a .git anywhere inside. With only such cases,
 #                    <source-repo> may be given as -.
-#   A case that cannot be run (no ask.md, an unusable commit or tree/, a snapshot
-#   that fails) has its older output removed and fails the call with exit 3.
-#   Every folder in the set is a case: keep notes and the like outside it.
 #   <case>/after.md  optional: the follow-up turn in post-compaction mode
 #   anything else    copied to the output as is (a kind, an answer key), unless
 #                    it carries the name of an output file below
@@ -45,6 +42,10 @@
 # followed), REPLAY_SRT (the sandbox runtime to use; default `srt` on PATH).
 #
 # An existing <out-dir>/<case>.<k> is replaced, never added to.
+# A case that cannot be run (no ask.md, an unusable commit or tree/, a snapshot
+# that fails) has its older output removed and fails the call with exit 3.
+# Every folder of the set whose name does not start with a dot is a case: keep
+# notes and the like outside it, or under such a name.
 #
 # Post-compaction mode, REPLAY_POSTCOMPACT=1: one process runs three turns
 # (turns.py): the ask, then `/compact`, then after.md (default below).
@@ -188,12 +189,19 @@ done < <([ -z "$PDIR" ] || find "$PDIR" -maxdepth 3 -type l 2>/dev/null)
 case "$OUT:$SET" in /:*|*:/) echo "replay: the set and the out dir cannot be /" >&2; exit 2 ;; esac
 for d in ${PDIR:+"$PDIR"} "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
   echo "replay: the set and the out dir must not contain the plugin, the harness, the CLI or TMPDIR ($d)" >&2; exit 2 ;; esac; done
-[ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
-# A case named by the caller is a folder directly inside the set: its name is also
-# where its output is removed from and written to.
+case "$K" in ''|*[!0-9]*|0*) echo "replay: REPLAY_K must be a whole number, 1 or more (got: $K)" >&2; exit 2 ;; esac
+# The cases, kept as a list so a name is never split or matched against other
+# files. A case named by the caller is a folder (or a link to one) directly
+# inside the set, named once: its name is also where its output is removed from
+# and written to. With none named: every folder of the set whose name does not
+# start with a dot.
+CASES=()
 for c in "$@"; do case "$c" in */*|.|..|"") d="" ;; *) d="$SET/$c" ;; esac
   [ -n "$d" ] && [ -d "$d" ] || { echo "replay: not a case folder of the set: $c" >&2; exit 2; }
+  for d in ${CASES[@]+"${CASES[@]}"}; do [ "$d" != "$c" ] || { echo "replay: case named twice: $c" >&2; exit 2; }; done
+  CASES+=("$c")
 done
+[ $# -gt 0 ] || for d in "$SET"/*/; do [ -d "$d" ] || continue; d="${d%/}"; CASES+=("${d##*/}"); done
 
 # Every sandbox nests under one directory made here, in the parent shell, so one
 # trap removes them all whichever subshell made them.
@@ -528,7 +536,7 @@ FACTS
 }
 
 n=0
-for c in $CASES; do for k in $(seq 1 "$K"); do
+for c in ${CASES[@]+"${CASES[@]}"}; do for k in $(seq 1 "$K"); do
   run_one "$c" "$k" & n=$((n+1)); [ $((n % JOBS)) -eq 0 ] && wait
 done; done; wait
 
