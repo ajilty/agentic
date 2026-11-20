@@ -24,7 +24,7 @@ export REPLAY_PLUGIN_DIR="${REPLAY_PLUGIN_DIR:-$HERE/../..}" REPLAY_PREFIX='/orc
 # The engine's own one-line-per-run summary is kept in <out-dir>/summary.txt; show only a skip.
 mkdir -p "$OUT" && : > "$OUT/.started"
 bash "$HERE/../../../../scripts/replay/replay.sh" "$@" | grep '^(skip'; rc="${PIPESTATUS[0]}"
-[ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"   # 3: a run did not load its instructions, its session was refused, or a case could not be used; score what there is, then fail
+[ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"   # 3: a run did not load its instructions, its session was refused, a case could not be used, or its kept files could not be checked for the login; score what there is, then fail
 [ -f "$OUT/summary.txt" ] || exit 0   # the engine skipped
 # The brief under test, kept beside each run this call produced; a run left by an earlier call keeps its own.
 for o in "$OUT"/*/; do [ "$o" -nt "$OUT/.started" ] && cp "$REPLAY_PLUGIN_DIR/skills/orchestrate/SKILL.md" "$o/skill.md" 2>/dev/null; done

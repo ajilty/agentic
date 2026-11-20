@@ -97,6 +97,7 @@ holds what the runner knows and no verdict:
 | `expected`, `loaded`, `noload` | instruction files the load check required, the ones the load hook recorded (named by where they sat: `home/...`, `repo/...`), and whether one was missing |
 | `is_error`, `cost_usd`, `turns`, `seconds` | from the session's result; null where it gave none |
 | `refused`, `changed_files` | tool calls the guard refused, project files changed |
+| `login_in_kept_files` | true when the last step changed what was kept: it cut the model login, or text shaped like one, out of a file, or removed a file or folder (named after the login, not a regular file, or not readable or rewritable); false when it changed nothing; null when that step did not finish |
 
 A run stopped before its session (the sandbox's shared path appeared, the
 candidate could not be placed) has a folder
@@ -145,6 +146,42 @@ npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, so
   of reach.
 - **Processes and environment:** its own process table, and an environment
   built from nothing.
+- **Login:** a session needs the model login. Its commands can read the
+  copied login file; with a token set, the one real run found the variable
+  absent from its commands' environment, and whether they could reach it
+  another way was not tested. Treat either login as reachable: Claude Code's
+  setting that strips credentials from what a session starts
+  (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is left off, because with it every
+  Bash call fails inside the sandbox runtime (tried on CLI 2.1.328 with
+  runtime 0.0.82). So what matters is which login that is, and what a run
+  keeps.
+  - *With `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` set* (do this):
+    that variable is the whole login and your credential file stays behind.
+    Prefer a token from `claude setup-token`: it can only make model
+    requests. The last step of every run then checks everything it kept and
+    overwrites, in place and at the same length, the key or token (when it
+    is 20 characters or longer) and anything shaped like an Anthropic key,
+    example text in a replayed project included. A kept file or folder whose
+    name holds one is removed, as is a kept file that is not a regular file
+    or could not be read or rewritten. That last case is every kept file of
+    a run when the output directory is on a filesystem that cannot map files
+    into memory: the run then keeps nothing but the list. A read-only kept
+    file that held the login is left writable by its owner.
+  - *With neither set:* the session gets a copy of
+    `~/.claude/.credentials.json`, which it can read and which can do more
+    than ask a model. The runner says so when it starts. Of what that file
+    holds, the last step cuts only text shaped like an Anthropic key: any
+    other secret in it that a session wrote into a kept file stays there.
+  - *Either way:* a run where the last step changed anything lists it in
+    `login-removed.txt`, is marked `login-removed` in the summary, and has
+    `login_in_kept_files` true in `facts.json`. A mark written before the
+    session starts stands until that step finishes, so a run that was
+    interrupted, or whose step failed, keeps a `login-removed.txt` that says
+    it is unchecked: treat its files as holding the login. A call that runs
+    to its end marks such a run `login-unchecked` and exits 3. Not caught: a
+    login written in another encoding or in pieces. With `REPLAY_UNCONFINED=1`
+    none of this is a guarantee: a session that outlives its time limit can
+    write to the output afterwards.
 - **Time:** the time limit runs inside the sandbox, so nothing a session
   started outlives it, and an interrupted runner kills its sandboxes.
 - **Not limited:** the memory and disk a session can fill inside its sandbox.
