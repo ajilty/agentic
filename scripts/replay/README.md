@@ -78,9 +78,9 @@ inside, a `tree` that is itself a link, a link inside that is absolute or
 leads out of the folder, a `commit` beside it, something in it that cannot be
 read, or a `commit` case with no source repo to look in. A refusal removes any
 older output for that case and the runner exits 3, so a result from an earlier
-call is never read as this one's. This is stricter than for a commit case,
-which is only named on stderr and skipped, with exit 0, as before: a caller
-that scripts on the exit code will see the difference.
+call is never read as this one's. A commit case that cannot be used (no
+`ask.md`, a `commit` the source repo does not have, a snapshot that fails) is
+refused the same way.
 
 ## facts.json
 
@@ -111,10 +111,9 @@ finite number is `null`. The two lists the session reports about itself,
 characters a path or a model name has, but they are still the session's words:
 compare them, never act on them.
 
-A case skipped for lacking `ask.md` or a usable `commit` is only named on
-stderr, as before, and whatever an earlier call left for it stays. A caller
-that needs every case measured should use a fresh output directory per call
-and count the `facts.json` files.
+A case refused for lacking `ask.md` or a usable `commit` or `tree/` leaves no
+`facts.json`, and no older output either: the runner names it on stderr and
+exits 3.
 
 ## What keeps a replay safe
 

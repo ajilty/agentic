@@ -272,17 +272,17 @@ for d in ${REPLAY_KEEP:-}; do d="${d%/}"; RESERVED+="${d##*/} "; done
 run_one(){ # <case> <k>
   local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit="" s f d n t1="" t2=""
   # The project comes from a commit of the source repo, or from the case's own tree/.
-  # A tree/ case, or any case with no source repo to look in, that cannot be run
-  # fails the call and leaves no older output behind to be read as this call's.
+  # A case that cannot be run fails the call and leaves no older output behind
+  # to be read as this call's.
   drop(){ echo "replay: $c: $1" >&2; rm -rf "${OUT:?}/$c.$k"; echo "$c.$k" >> "$RUN_DIR/failed"; }
-  [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { echo "replay: $c lacks ask.md, or a commit or a tree/" >&2; return; }
+  [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { drop "lacks ask.md, or a commit or a tree/"; return; }
   if [ -f "$cd_/commit" ] && [ -d "$cd_/tree" ]; then
     drop "has both a commit and a tree/: keep one"; return
   elif [ -f "$cd_/commit" ] && [ -z "$SRC" ]; then
     drop "commit is not a commit of the source repo"; return
   elif [ -f "$cd_/commit" ]; then
     commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
-      || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
+      || { drop "commit is not a commit of the source repo"; return; }
   elif [ -L "$cd_/tree" ] || [ -n "$(find "$cd_/tree" -iname .git -print -quit 2>&1)" ]; then
     drop "tree/ is a link, cannot be read, or has a .git inside"; return
   fi
@@ -296,7 +296,7 @@ run_one(){ # <case> <k>
   # The case's extra files, except any named like an output: it could stand in for one the session never left.
   for f in "$cd_"/*; do case "$RESERVED" in *" ${f##*/} "*) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
   if [ -n "$commit" ]; then
-    cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
+    cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { drop "cannot snapshot $commit"; return; }
   else
     # A plain folder, copied as it stands. A link is copied as a link and never
     # followed, and only if it is relative and stays inside the folder (a
@@ -335,7 +335,7 @@ TREE
   ( cd "$repo" && cgit init -q && git config user.email t@t && git config user.name t \
       && { [ -z "$IGNORE" ] || printf '%s\n' "$IGNORE" >> .git/info/exclude; } \
       && cgit add --all >/dev/null 2>&1 && cgit commit -qm snapshot $([ -n "$commit" ] || echo --allow-empty) ) \
-    || { [ -n "$commit" ] && echo "replay: $c: cannot commit the snapshot" >&2 || drop "cannot commit the snapshot"; return; }
+    || { drop "cannot commit the snapshot"; return; }
   # Only the model login, the operator's standing preferences (they shape how a
   # session asks) and the named skills are carried into the sandbox HOME.
   # A candidate takes the place of those preferences: the caller's own are then left behind.
@@ -357,7 +357,7 @@ JSON
   # The instruction files this session should load, each with what it resolves
   # to, both as they stand before the session can change them.
   local expect=(); for f in "$home/.claude/CLAUDE.md" "$repo/CLAUDE.md" "$repo/.claude/CLAUDE.md"; do
-    [ -s "$f" ] && expect+=("$f" "$(readlink -f "$f")"); done
+    [ -f "$f" ] && [ -s "$f" ] && expect+=("$f" "$(readlink -f "$f")"); done   # a file, or a link to one: not a folder of that name
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
@@ -442,7 +442,7 @@ except OSError: pass
 try: said = open(o + "/transcript.jsonl", errors="replace").read()
 except OSError: said = ""
 for f, real in zip(want[0::2], want[1::2]):
-    if f in seen or real in seen or ("Contents of " + f) in said: continue
+    if f in seen or real in seen or ("Contents of " + f) in said or ("Contents of " + real) in said: continue
     print("home/" + f[len(home) + 1:] if f.startswith(home + "/") else "repo/" + f[len(repo) + 1:])
 LOADED
   if [ -s "$o/noload.txt" ]; then echo "$c.$k" >> "$RUN_DIR/failed"; else rm -f "$o/noload.txt"; fi

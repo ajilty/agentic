@@ -104,7 +104,7 @@ hookcmd=\$(python3 -c 'import json,sys
 a=sys.argv[1:]; print(json.load(open(a[a.index("--settings")+1]))["hooks"]["InstructionsLoaded"][0]["hooks"][0]["command"])' "\$@" 2>/dev/null)
 loaded(){ printf '{"hook_event_name": "InstructionsLoaded",\n "file_path": "%s"}\n' "\$1" | sh -c "\$hookcmd"; }
 if [ -e viatranscript ]; then mkdir -p "\$HOME/.claude/projects/p"
-  printf '{"a":"Contents of %s"}\n{"a":"Contents of %s"}\n' "\$HOME/.claude/CLAUDE.md" "\$PWD/CLAUDE.md" > "\$HOME/.claude/projects/p/t.jsonl"
+  printf '{"a":"Contents of %s"}\n{"a":"Contents of %s"}\n' "\$HOME/.claude/CLAUDE.md" "\$([ -s viatranscript ] && readlink -f CLAUDE.md || echo "\$PWD/CLAUDE.md")" > "\$HOME/.claude/projects/p/t.jsonl"
 elif [ ! -e noload ]; then loaded "\$HOME/.claude/CLAUDE.md"; loaded "\$(readlink -f CLAUDE.md)"; fi
 # Post-compaction mode: answer each turn, and after the first, rewrite the turn
 # record the runner reads a line count from, with text a shell would evaluate.
@@ -219,6 +219,24 @@ out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 [ "$rc" = 0 ] && [ ! -s "$o/loaded.jsonl" ] && [ ! -e "$o/noload.txt" ] && pass || fail "a file the transcript shows as loaded counts when the hook left no row (exit $rc)"
+# So does the mark when it names what a linked file resolves to, as the hook's own rows do.
+( cd "$d/plug/src" && echo resolved > viatranscript && git add viatranscript && git commit -qm resolved ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ ! -s "$o/loaded.jsonl" ] && [ ! -e "$o/noload.txt" ] && pass || fail "the transcript's mark counts when it names the file a linked instruction file resolves to (exit $rc; missing: $(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null))"
+# A folder that only has an instruction file's name is not one, and is not waited for.
+( cd "$d/plug/src" && mkdir -p .claude/CLAUDE.md && echo x > .claude/CLAUDE.md/note && git add .claude/CLAUDE.md/note && git commit -qm folder ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$o/noload.txt" ] && pass || fail "a folder named like an instruction file is not expected to load (exit $rc; missing: $(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null))"
+# A commit case that cannot be used fails the call and leaves no older output to be scored as this call's.
+echo 0000000000000000000000000000000000000000 > "$d/plug/set/one/commit"; [ -s "$o/result.json" ] || fail "the control: an earlier call left output for the case"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+case "$rc:$out" in 3:*'one: commit is not a commit of the source repo'*) [ ! -e "$o" ] && pass || fail "a case with a bad commit leaves no older output behind" ;;
+  *) fail "a case whose commit the source repo does not have fails the call (exit $rc)" ;; esac
+mkdir -p "$o" && echo stale > "$o/result.json"; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"; mv "$d/plug/set/one/ask.md" "$d/plug/set/one/ask.off"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; mv "$d/plug/set/one/ask.off" "$d/plug/set/one/ask.md"
+case "$rc:$out" in 3:*'one: lacks ask.md'*) [ ! -e "$o" ] && pass || fail "a case with no ask leaves no older output behind" ;; *) fail "a case with no ask fails the call (exit $rc)" ;; esac
 # In neither: the run is marked, each missing file is named, and the call fails.
 ( cd "$d/plug/src" && git mv viatranscript noload && git commit -qm noload ) >/dev/null 2>&1
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
