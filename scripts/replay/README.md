@@ -113,11 +113,13 @@ snapshot's commit, remembered before the session, so a session that amends,
 rebases or resets is measured the same. Names are given as they are, with any
 control character shown as `?`. Not listed: a new file the project's ignore
 rules cover (`.env`, a build folder), and anything a session hid by changing
-what git reports (its git configuration is its own). If git cannot make the
-comparison at all (the session removed the snapshot's commit or the
-repository), the runner says so on stderr and lists every file.
+what git reports: its git configuration is its own, and so are the flags in
+the index that tell git to overlook a file. If git cannot give the list (the
+session removed the snapshot's commit or the repository, or git failed or
+ran out of time), the runner says so on stderr and lists every file.
 
-`REPLAY_JOBS` must be a whole number from 1 to 999.
+`REPLAY_JOBS` must be a whole number from 1 to 999, written without a leading
+zero.
 
 The file is always strict JSON. A number the session reported that is not a
 finite number is `null`. The two lists the session reports about itself,

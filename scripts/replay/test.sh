@@ -120,7 +120,7 @@ mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -
 # For the tests of what the session was given: its user-level file, its arguments, its project's top level.
 cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > keep/args; ls -A > keep/ls; [ ! -x run.sh ] || : > keep/runnable
 # For the changed-files tests: new files whose names git would quote, and a session that rewrites or removes history.
-touch 'keep/odd "q" é.txt' "keep/ctl\$(printf '\tx')"
+touch 'keep/odd "q" é.txt' "keep/ctl\$(printf '\tx')" "keep/s\$(printf '\377')x" "keep/s\$(printf '\376')x"
 [ ! -e amend ] || { git mv AGENTS.md RULES.md 2>/dev/null; echo more >> a.txt; git -c user.email=t@t -c user.name=t commit -qa --amend -m amended; }
 [ ! -e wipe ] || rm -rf .git/objects
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
@@ -357,6 +357,8 @@ out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_POSTCOMPACT=1)"; rc=$?
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 grep -qxF 'keep/odd "q" é.txt' "$o/changed-files.txt" && grep -qxF 'keep/ctl?x' "$o/changed-files.txt" && pass \
   || fail "a new file with a quote, a letter outside ASCII or a control character in its name is listed (got: $(grep '^keep/[oc]' "$o/changed-files.txt" | tr '\n' ' '))"
+# Two names that differ in one byte are two lines, whatever the caller's language settings would merge.
+[ "$(LC_ALL=C grep -c '^keep/s.x$' "$o/changed-files.txt")" = 2 ] && pass || fail "names are listed and sorted byte for byte (got: $(LC_ALL=C grep -c '^keep/s' "$o/changed-files.txt") of 2)"
 # A session that amends the snapshot's commit is still measured against the snapshot.
 ( cd "$d/plug/src" && touch amend && git add amend && git commit -qm amend ) >/dev/null 2>&1; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?

@@ -127,13 +127,13 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 SET="${1:?set dir}"; SRC="${2:?source repo}"; OUT="${3:?out dir}"; shift 3
-case "${REPLAY_JOBS:-4}" in [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;; *) echo "replay: REPLAY_JOBS must be a whole number from 1 to 999, written without a leading zero (got: ${REPLAY_JOBS:-})" >&2; exit 2 ;; esac
 command -v claude >/dev/null 2>&1 || { echo "(skip replay: claude not on PATH)"; exit 0; }
 # Only logins the sandboxed session can be handed: a key, a token, or the credential file.
 [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] \
   || { echo "(skip replay: no live auth)"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "(skip replay: python3 absent)"; exit 0; }
 [ "$(df -Pk "${TMPDIR:-/tmp}" | awk 'NR==2{print $4}')" -ge 1048576 ] || { echo "(skip replay: low tmp space)"; exit 0; }
+case "${REPLAY_JOBS:-4}" in [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;; *) echo "replay: REPLAY_JOBS must be a whole number from 1 to 999, written without a leading zero (got: ${REPLAY_JOBS:-})" >&2; exit 2 ;; esac
 # A source repo of - means there is none: every case then brings its own tree/.
 [ "$SRC" != - ] || SRC=""
 [ -d "$SET" ] && { [ -z "$SRC" ] || git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1; } || { echo "replay: need a set dir and a git source repo" >&2; exit 2; }
@@ -425,7 +425,8 @@ JSON
   # snapshot's own git reports it: what differs from the snapshot's commit (a
   # renamed file under both names), plus files git neither tracks nor ignores.
   # The repo's git configuration is now the session's, so git runs inside the
-  # sandbox, and a session that changes what git reports can shorten the list.
+  # sandbox, and a session that changes what git reports (its configuration, or
+  # flags in the index that tell git to overlook a file) can shorten the list.
   # While the sandbox is up it shows placeholders over paths it protects
   # (.bashrc, .mcp.json), so a new file counts only if it is still there after.
   # Names arrive NUL-ended, each as it is; in the list, a control character in a
@@ -434,17 +435,17 @@ JSON
   # The list is taken whole first: the placeholders are gone only once the sandbox has ended.
   rm -f "$cfg/nocompare"
   inbox ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 5 60 sh -c \
-      'git diff --name-only --no-renames -z "$1" && printf "//\0" && git ls-files -z --others --exclude-standard && printf "/ok\0"' sh "$snap" 2>/dev/null > "$cfg/changed.z"
+      'git --no-replace-objects diff --name-only --no-renames -z "$1" && printf "//\0" && git ls-files -z --others --exclude-standard && printf "/ok\0"' sh "$snap" 2>/dev/null > "$cfg/changed.z"
   { LC_ALL=C; n=""; ok=""; while IFS= read -r -d '' f; do
         [ "$f" = // ] && { n=1; continue; }; [ "$f" = /ok ] && { ok=1; continue; }
         [ -z "$n" ] || [ -e "$repo/$f" ] || [ -L "$repo/$f" ] || continue; [ -z "$f" ] || printf '%s\n' "${f//[[:cntrl:]]/?}"; done
       [ -n "$ok" ] || : > "$cfg/nocompare"; } < "$cfg/changed.z" \
-    | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
+    | LC_ALL=C awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
   if [ -e "$cfg/nocompare" ]; then
     echo "replay: $c.$k: cannot compare the project with its snapshot: changed-files.txt lists every file" >&2
     ( cd "$repo" && find . -name .git -prune -o \( -type f -o -type l \) -print0 ) \
       | { LC_ALL=C; while IFS= read -r -d '' f; do f="${f#./}"; printf '%s\n' "${f//[[:cntrl:]]/?}"; done; } \
-      | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
+      | LC_ALL=C awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
   fi
   take "$log" "$log/stderr.txt" "$o/stderr.txt"
   # The load hook runs on its own time and may lose a row at session end, so the
