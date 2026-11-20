@@ -119,7 +119,7 @@ hookcmd=\$(python3 -c 'import json,sys
 a=sys.argv[1:]; print(json.load(open(a[a.index("--settings")+1]))["hooks"]["InstructionsLoaded"][0]["hooks"][0]["command"])' "\$@" 2>/dev/null)
 loaded(){ printf '{"hook_event_name": "InstructionsLoaded",\n "file_path": "%s"}\n' "\$1" | sh -c "\$hookcmd"; }
 if [ -e viatranscript ]; then mkdir -p "\$HOME/.claude/projects/p"
-  printf '{"a":"Contents of %s"}\n{"a":"Contents of %s"}\n' "\$HOME/.claude/CLAUDE.md" "\$PWD/CLAUDE.md" > "\$HOME/.claude/projects/p/t.jsonl"
+  printf '{"a":"Contents of %s"}\n{"a":"Contents of %s"}\n' "\$HOME/.claude/CLAUDE.md" "\$([ -s viatranscript ] && readlink -f CLAUDE.md || echo "\$PWD/CLAUDE.md")" > "\$HOME/.claude/projects/p/t.jsonl"
 elif [ ! -e noload ]; then loaded "\$HOME/.claude/CLAUDE.md"; loaded "\$(readlink -f CLAUDE.md)"; fi
 # Post-compaction mode: answer each turn, and after the first, rewrite the turn
 # record the runner reads a line count from, with text a shell would evaluate.
@@ -240,6 +240,74 @@ out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 [ "$rc" = 0 ] && [ ! -s "$o/loaded.jsonl" ] && [ ! -e "$o/noload.txt" ] && pass || fail "a file the transcript shows as loaded counts when the hook left no row (exit $rc)"
+# So does the mark when it names what a linked file resolves to, as the hook's own rows do.
+( cd "$d/plug/src" && echo resolved > viatranscript && git add viatranscript && git commit -qm resolved ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ ! -s "$o/loaded.jsonl" ] && [ ! -e "$o/noload.txt" ] && pass || fail "the transcript's mark counts when it names the file a linked instruction file resolves to (exit $rc; missing: $(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null))"
+# A folder that only has an instruction file's name is not one, and is not waited for.
+( cd "$d/plug/src" && mkdir -p .claude/CLAUDE.md && echo x > .claude/CLAUDE.md/note && git add .claude/CLAUDE.md/note && git commit -qm folder ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$o/noload.txt" ] && pass || fail "a folder named like an instruction file is not expected to load (exit $rc; missing: $(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null))"
+# A commit case that cannot be used fails the call and leaves no older output to be scored as this call's.
+echo 0000000000000000000000000000000000000000 > "$d/plug/set/one/commit"; [ -s "$o/result.json" ] || fail "the control: an earlier call left output for the case"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+case "$rc:$out" in 3:*'one: commit is not a commit of the source repo'*) [ ! -e "$o" ] && pass || fail "a case with a bad commit leaves no older output behind" ;;
+  *) fail "a case whose commit the source repo does not have fails the call (exit $rc)" ;; esac
+mkdir -p "$o" && echo stale > "$o/result.json"; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"; mv "$d/plug/set/one/ask.md" "$d/plug/set/one/ask.off"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; mv "$d/plug/set/one/ask.off" "$d/plug/set/one/ask.md"
+case "$rc:$out" in 3:*'one: lacks ask.md'*) [ ! -e "$o" ] && pass || fail "a case with no ask leaves no older output behind" ;; *) fail "a case with no ask fails the call (exit $rc)" ;; esac
+# So does a snapshot that cannot be made: here the archive cannot be unpacked.
+mkdir -p "$o" && echo stale > "$o/result.json"; printf '#!/bin/sh\nexit 1\n' > "$d/bin/tar"; chmod +x "$d/bin/tar"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; rm -f "$d/bin/tar"
+case "$rc:$out" in 3:*'one: cannot snapshot'*) [ ! -e "$o" ] && pass || fail "a case whose snapshot failed leaves no older output behind" ;; *) fail "a case whose snapshot cannot be made fails the call (exit $rc)" ;; esac
+# Every folder in a set is a case: one with nothing of a case in it fails the call by name, and the real case still runs.
+mkdir -p "$d/plug/set/notes" "$d/plug/out/notes.1"; echo n > "$d/plug/set/notes/readme.txt"; echo stale > "$d/plug/out/notes.1/result.json"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; rm -rf "$d/plug/set/notes"
+case "$rc:$out" in 3:*'notes: lacks ask.md'*) [ -s "$o/result.json" ] && [ ! -e "$d/plug/out/notes.1" ] && pass || fail "a folder that is no case leaves no older output, and the real case still runs" ;; *) fail "a folder in the set that is no case fails the call by name (exit $rc)" ;; esac
+# A case named on the command line is a folder of the set: a name that leads elsewhere runs nothing and removes nothing.
+mkdir -p "$d/plug/victim.1" && echo keep > "$d/plug/victim.1/keep.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" ../victim 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ -s "$d/plug/victim.1/keep.txt" ] && pass || fail "a case name that leads out of the set is refused before anything is removed (exit $rc)"
+# The same when the name leads to a folder that exists: here the set's own parent's "src".
+mkdir -p "$d/plug/src.1" && echo keep > "$d/plug/src.1/keep.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" ../src 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ -s "$d/plug/src.1/keep.txt" ] && case "$out" in *'not a case folder of the set: ../src'*) true ;; *) false ;; esac && pass || fail "a case name that leads to a real folder outside the set is refused by name, and nothing is removed (exit $rc)"
+rm -rf "$d/plug/src.1"
+# A name is one case, never split at a space or matched against other files: a folder "a b" that is
+# no case fails by its whole name, and the older output of "a", "b" and of a file's name stays.
+mkdir -p "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1"; here="$PWD"; cd "$d" && : > xfile || fail "the control: the test stands where a file matches the wildcard name"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+case "$rc:$out" in 3:*'a b: lacks ask.md'*) case "$out" in *'x*: lacks ask.md'*) [ -d "$d/plug/out/a.1" ] && [ -d "$d/plug/out/b.1" ] && [ -d "$d/plug/out/xfile.1" ] && [ -s "$o/result.json" ] && pass \
+  || fail "a case name with a space or a wildcard touches no other name's output, and the real case still runs" ;; *) fail "a folder named with a wildcard is one case by that name" ;; esac ;;
+  *) fail "a folder named with a space is one case by that name (exit $rc)" ;; esac
+# The same when the caller gives those names.
+rpn(){ HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" "$@" 2>&1; }
+out="$(rpn "a b" 'x*')"; rc=$?; cd "$here"
+case "$rc:$out" in 3:*'a b: lacks ask.md'*) case "$out" in *'x*: lacks ask.md'*) [ -d "$d/plug/out/a.1" ] && [ -d "$d/plug/out/b.1" ] && [ -d "$d/plug/out/xfile.1" ] && pass \
+  || fail "a named case with a space or a wildcard touches no other name's output" ;; *) fail "a named case with a wildcard is one case by that name" ;; esac ;;
+  *) fail "a named case with a space is one case by that name (exit $rc)" ;; esac
+rm -rf "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1" "$d/xfile"
+# A set with no folders has no cases: nothing runs and nothing fails.
+mkdir -p "$d/plug/noset"; echo f > "$d/plug/noset/file.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/noset" "$d/plug/src" "$d/plug/out-none" 2>&1)"; rc=$?
+case "$rc:$out" in 0:*lacks*) fail "a set with no folders has no case to refuse" ;; 0:*) pass ;; *) fail "a set with no folders runs nothing and fails nothing (exit $rc)" ;; esac
+# Refused before anything runs: an empty name, a name given twice, a runs-per-case number that is not one.
+echo stale > "$o/say.md"
+out="$(rpn '' one)"; rc=$?
+case "$rc:$out" in 2:*'not a case folder of the set'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "an empty case name runs nothing" ;; *) fail "an empty case name is refused by that message (exit $rc)" ;; esac
+out="$(rpn one one)"; rc=$?
+case "$rc:$out" in 2:*'case named twice: one'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "a case named twice runs nothing" ;; *) fail "a case named twice is refused by that message (exit $rc)" ;; esac
+for bad in abc 0 1.5 007; do
+  out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_K="$bad")"; rc=$?
+  case "$rc:$out" in 2:*'REPLAY_K must be'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "REPLAY_K=$bad runs nothing" ;; *) fail "REPLAY_K=$bad is refused by that message (exit $rc)" ;; esac
+done
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_K=)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$o/say.md")" != stale ] && pass || fail "an empty REPLAY_K means one run (exit $rc)"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" nosuch 2>&1)"; rc=$?
+[ "$rc" = 2 ] && pass || fail "a case name that is not a folder of the set is refused (exit $rc)"
+rm -rf "$d/plug/victim.1"
 # In neither: the run is marked, each missing file is named, and the call fails.
 ( cd "$d/plug/src" && git mv viatranscript noload && git commit -qm noload ) >/dev/null 2>&1
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"

@@ -78,9 +78,9 @@ inside, a `tree` that is itself a link, a link inside that is absolute or
 leads out of the folder, a `commit` beside it, something in it that cannot be
 read, or a `commit` case with no source repo to look in. A refusal removes any
 older output for that case and the runner exits 3, so a result from an earlier
-call is never read as this one's. This is stricter than for a commit case,
-which is only named on stderr and skipped, with exit 0, as before: a caller
-that scripts on the exit code will see the difference.
+call is never read as this one's. A commit case that cannot be used (no
+`ask.md`, a `commit` the source repo does not have, a snapshot that fails) is
+refused the same way.
 
 ## facts.json
 
@@ -100,7 +100,7 @@ holds what the runner knows and no verdict:
 | `login_in_kept_files` | true when the last step changed what was kept: it cut the model login, or text shaped like one, out of a file, or removed a file or folder (named after the login, not a regular file, or not readable or rewritable); false when it changed nothing; null when that step did not finish |
 
 A run stopped before its session (the sandbox's shared path appeared, the
-candidate could not be placed, the snapshot could not be made) has a folder
+candidate could not be placed) has a folder
 and a summary row but no `facts.json`. `noload` is the same mark as the summary's. `loaded` is the
 hook's record only, so it can be empty on a run that passed the check through
 its transcript. In post-compaction mode cost, turns, seconds and refused calls
@@ -112,10 +112,16 @@ finite number is `null`. The two lists the session reports about itself,
 characters a path or a model name has, but they are still the session's words:
 compare them, never act on them.
 
-A case skipped for lacking `ask.md` or a usable `commit` is only named on
-stderr, as before, and whatever an earlier call left for it stays. A caller
-that needs every case measured should use a fresh output directory per call
-and count the `facts.json` files.
+A case refused for lacking `ask.md` or a usable `commit` or `tree/`, or whose
+snapshot could not be made, leaves no `facts.json`, and no older output
+either: the runner names it on stderr and exits 3. Every folder in a set
+(or link to one) whose name does not start with a dot is a case, so a folder of notes kept
+inside one fails the call the same way: keep such things outside the set, or
+under a name that starts with a dot. A case named on the command line must be
+a folder (or a link to one) directly inside the set, given without a slash
+and only once, and `REPLAY_K` must be a whole number, 1 or more, written
+without a leading zero; otherwise
+the runner exits 2 before running or removing anything.
 
 ## What keeps a replay safe
 

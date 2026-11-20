@@ -16,8 +16,7 @@
 #                    links, never followed. A link must be relative and stay
 #                    inside tree/; one that is absolute or leads out refuses
 #                    the case, as does a .git anywhere inside. With only such cases,
-#                    <source-repo> may be given as -. A case with tree/ that
-#                    cannot be run is removed from the out dir and fails the call.
+#                    <source-repo> may be given as -.
 #   <case>/after.md  optional: the follow-up turn in post-compaction mode
 #   anything else    copied to the output as is (a kind, an answer key), unless
 #                    it carries the name of an output file below
@@ -43,6 +42,10 @@
 # followed), REPLAY_SRT (the sandbox runtime to use; default `srt` on PATH).
 #
 # An existing <out-dir>/<case>.<k> is replaced, never added to.
+# A case that cannot be run (no ask.md, an unusable commit or tree/, a snapshot
+# that fails) has its older output removed and fails the call with exit 3.
+# Every folder of the set whose name does not start with a dot is a case: keep
+# notes and the like outside it, or under such a name.
 #
 # Post-compaction mode, REPLAY_POSTCOMPACT=1: one process runs three turns
 # (turns.py): the ask, then `/compact`, then after.md (default below).
@@ -200,7 +203,19 @@ done < <([ -z "$PDIR" ] || find "$PDIR" -maxdepth 3 -type l 2>/dev/null)
 case "$OUT:$SET" in /:*|*:/) echo "replay: the set and the out dir cannot be /" >&2; exit 2 ;; esac
 for d in ${PDIR:+"$PDIR"} "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
   echo "replay: the set and the out dir must not contain the plugin, the harness, the CLI or TMPDIR ($d)" >&2; exit 2 ;; esac; done
-[ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
+case "$K" in ''|*[!0-9]*|0*) echo "replay: REPLAY_K must be a whole number, 1 or more (got: $K)" >&2; exit 2 ;; esac
+# The cases, kept as a list so a name is never split or matched against other
+# files. A case named by the caller is a folder (or a link to one) directly
+# inside the set, named once: its name is also where its output is removed from
+# and written to. With none named: every folder of the set whose name does not
+# start with a dot.
+CASES=()
+for c in "$@"; do case "$c" in */*|.|..|"") d="" ;; *) d="$SET/$c" ;; esac
+  [ -n "$d" ] && [ -d "$d" ] || { echo "replay: not a case folder of the set: $c" >&2; exit 2; }
+  for d in ${CASES[@]+"${CASES[@]}"}; do [ "$d" != "$c" ] || { echo "replay: case named twice: $c" >&2; exit 2; }; done
+  CASES+=("$c")
+done
+[ $# -gt 0 ] || for d in "$SET"/*/; do [ -d "$d" ] || continue; d="${d%/}"; CASES+=("${d##*/}"); done
 
 # Every sandbox nests under one directory made here, in the parent shell, so one
 # trap removes them all whichever subshell made them.
@@ -286,17 +301,17 @@ for d in ${REPLAY_KEEP:-}; do d="${d%/}"; RESERVED+="${d##*/} "; done
 run_one(){ # <case> <k>
   local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit="" s f d n t1="" t2=""
   # The project comes from a commit of the source repo, or from the case's own tree/.
-  # A tree/ case, or any case with no source repo to look in, that cannot be run
-  # fails the call and leaves no older output behind to be read as this call's.
+  # A case that cannot be run fails the call and leaves no older output behind
+  # to be read as this call's.
   drop(){ echo "replay: $c: $1" >&2; rm -rf "${OUT:?}/$c.$k"; echo "$c.$k" >> "$RUN_DIR/failed"; }
-  [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { echo "replay: $c lacks ask.md, or a commit or a tree/" >&2; return; }
+  [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { drop "lacks ask.md, or a commit or a tree/"; return; }
   if [ -f "$cd_/commit" ] && [ -d "$cd_/tree" ]; then
     drop "has both a commit and a tree/: keep one"; return
   elif [ -f "$cd_/commit" ] && [ -z "$SRC" ]; then
     drop "commit is not a commit of the source repo"; return
   elif [ -f "$cd_/commit" ]; then
     commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
-      || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
+      || { drop "commit is not a commit of the source repo"; return; }
   elif [ -L "$cd_/tree" ] || [ -n "$(find "$cd_/tree" -iname .git -print -quit 2>&1)" ]; then
     drop "tree/ is a link, cannot be read, or has a .git inside"; return
   fi
@@ -310,7 +325,7 @@ run_one(){ # <case> <k>
   # The case's extra files, except any named like an output: it could stand in for one the session never left.
   for f in "$cd_"/*; do case "$RESERVED" in *" ${f##*/} "*) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
   if [ -n "$commit" ]; then
-    cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
+    cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { drop "cannot snapshot $commit"; return; }
   else
     # A plain folder, copied as it stands. A link is copied as a link and never
     # followed, and only if it is relative and stays inside the folder (a
@@ -349,7 +364,7 @@ TREE
   ( cd "$repo" && cgit init -q && git config user.email t@t && git config user.name t \
       && { [ -z "$IGNORE" ] || printf '%s\n' "$IGNORE" >> .git/info/exclude; } \
       && cgit add --all >/dev/null 2>&1 && cgit commit -qm snapshot $([ -n "$commit" ] || echo --allow-empty) ) \
-    || { [ -n "$commit" ] && echo "replay: $c: cannot commit the snapshot" >&2 || drop "cannot commit the snapshot"; return; }
+    || { drop "cannot commit the snapshot"; return; }
   # Only the model login, the operator's standing preferences (they shape how a
   # session asks) and the named skills are carried into the sandbox HOME.
   # A candidate takes the place of those preferences: the caller's own are then left behind.
@@ -372,7 +387,7 @@ JSON
   # The instruction files this session should load, each with what it resolves
   # to, both as they stand before the session can change them.
   local expect=(); for f in "$home/.claude/CLAUDE.md" "$repo/CLAUDE.md" "$repo/.claude/CLAUDE.md"; do
-    [ -s "$f" ] && expect+=("$f" "$(readlink -f "$f")"); done
+    [ -f "$f" ] && [ -s "$f" ] && expect+=("$f" "$(readlink -f "$f")"); done   # a file, or a link to one: not a folder of that name
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
@@ -464,7 +479,7 @@ except OSError: pass
 try: said = open(o + "/transcript.jsonl", errors="replace").read()
 except OSError: said = ""
 for f, real in zip(want[0::2], want[1::2]):
-    if f in seen or real in seen or ("Contents of " + f) in said: continue
+    if f in seen or real in seen or ("Contents of " + f) in said or ("Contents of " + real) in said: continue
     print("home/" + f[len(home) + 1:] if f.startswith(home + "/") else "repo/" + f[len(repo) + 1:])
 LOADED
   if [ -s "$o/noload.txt" ]; then echo "$c.$k" >> "$RUN_DIR/failed"; else rm -f "$o/noload.txt"; fi
@@ -616,7 +631,7 @@ LOGIN
 }
 
 n=0
-for c in $CASES; do for k in $(seq 1 "$K"); do
+for c in ${CASES[@]+"${CASES[@]}"}; do for k in $(seq 1 "$K"); do
   run_one "$c" "$k" & n=$((n+1)); [ $((n % JOBS)) -eq 0 ] && wait
 done; done; wait
 
@@ -646,6 +661,6 @@ done | LC_ALL=C tr -cd '[:print:]\n' | tee -a "$OUT/summary.txt"   # session-wri
 # A run without its instructions, or one that was refused, is not a
 # measurement: say so and fail. Only this call's runs count, not older ones in the out dir.
 if [ -s "$RUN_DIR/failed" ]; then
-  echo "replay: not measured (an instruction file did not load: see noload.txt; or the session was refused; or its kept files could not be checked for the login): $(sort -u "$RUN_DIR/failed" | tr '\n' ' ')" >&2; exit 3
+  echo "replay: not measured (an instruction file did not load: see noload.txt; or the session was refused; or the case could not be used; or its kept files could not be checked for the login): $(sort -u "$RUN_DIR/failed" | tr '\n' ' ')" >&2; exit 3
 fi
 exit 0
