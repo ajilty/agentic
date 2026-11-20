@@ -241,14 +241,19 @@ case "$rc:$out" in 3:*'one: lacks ask.md'*) [ ! -e "$o" ] && pass || fail "a cas
 mkdir -p "$o" && echo stale > "$o/result.json"; printf '#!/bin/sh\nexit 1\n' > "$d/bin/tar"; chmod +x "$d/bin/tar"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; rm -f "$d/bin/tar"
 case "$rc:$out" in 3:*'one: cannot snapshot'*) [ ! -e "$o" ] && pass || fail "a case whose snapshot failed leaves no older output behind" ;; *) fail "a case whose snapshot cannot be made fails the call (exit $rc)" ;; esac
-# A folder with nothing of a case in it is not one: it is named and skipped, and fails nothing.
-mkdir -p "$d/plug/set/notes"; echo n > "$d/plug/set/notes/readme.txt"
+# Every folder in a set is a case: one with nothing of a case in it fails the call by name, and the real case still runs.
+mkdir -p "$d/plug/set/notes" "$d/plug/out/notes.1"; echo n > "$d/plug/set/notes/readme.txt"; echo stale > "$d/plug/out/notes.1/result.json"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; rm -rf "$d/plug/set/notes"
-case "$rc:$out" in 0:*'notes is not a case'*) [ -s "$o/result.json" ] && [ ! -e "$d/plug/out/notes.1" ] && pass || fail "a folder that is not a case is skipped and the real case still runs" ;; *) fail "a folder that is not a case does not fail the call (exit $rc)" ;; esac
+case "$rc:$out" in 3:*'notes: lacks ask.md'*) [ -s "$o/result.json" ] && [ ! -e "$d/plug/out/notes.1" ] && pass || fail "a folder that is no case leaves no older output, and the real case still runs" ;; *) fail "a folder in the set that is no case fails the call by name (exit $rc)" ;; esac
 # A case named on the command line is a folder of the set: a name that leads elsewhere runs nothing and removes nothing.
 mkdir -p "$d/plug/victim.1" && echo keep > "$d/plug/victim.1/keep.txt"
 out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" ../victim 2>&1)"; rc=$?
 [ "$rc" = 2 ] && [ -s "$d/plug/victim.1/keep.txt" ] && pass || fail "a case name that leads out of the set is refused before anything is removed (exit $rc)"
+# The same when the name leads to a folder that exists: here the set's own parent's "src".
+mkdir -p "$d/plug/src.1" && echo keep > "$d/plug/src.1/keep.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" ../src 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ -s "$d/plug/src.1/keep.txt" ] && case "$out" in *'not a case folder of the set: ../src'*) true ;; *) false ;; esac && pass || fail "a case name that leads to a real folder outside the set is refused by name, and nothing is removed (exit $rc)"
+rm -rf "$d/plug/src.1"
 out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" nosuch 2>&1)"; rc=$?
 [ "$rc" = 2 ] && pass || fail "a case name that is not a folder of the set is refused (exit $rc)"
 rm -rf "$d/plug/victim.1"

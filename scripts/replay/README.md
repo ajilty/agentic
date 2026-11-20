@@ -113,10 +113,11 @@ compare them, never act on them.
 
 A case refused for lacking `ask.md` or a usable `commit` or `tree/`, or whose
 snapshot could not be made, leaves no `facts.json`, and no older output
-either: the runner names it on stderr and exits 3. A folder in the set with
-none of `ask.md`, `commit` and `tree/` is not a case: it is named on stderr
-and skipped. A case named on the command line must be a folder directly
-inside the set, or the runner exits 2 before running anything.
+either: the runner names it on stderr and exits 3. Every folder in a set is
+a case, so a folder of notes kept inside one fails the call the same way:
+keep such things outside the set. A case named on the command line must be a
+folder directly inside the set, or the runner exits 2 before running or
+removing anything.
 
 ## What keeps a replay safe
 

@@ -18,8 +18,8 @@
 #                    the case, as does a .git anywhere inside. With only such cases,
 #                    <source-repo> may be given as -.
 #   A case that cannot be run (no ask.md, an unusable commit or tree/, a snapshot
-#   that fails) has its older output removed and fails the call with exit 3. A
-#   folder with none of ask.md, commit and tree/ is not a case and is skipped.
+#   that fails) has its older output removed and fails the call with exit 3.
+#   Every folder in the set is a case: keep notes and the like outside it.
 #   <case>/after.md  optional: the follow-up turn in post-compaction mode
 #   anything else    copied to the output as is (a kind, an answer key), unless
 #                    it carries the name of an output file below
@@ -189,9 +189,10 @@ case "$OUT:$SET" in /:*|*:/) echo "replay: the set and the out dir cannot be /" 
 for d in ${PDIR:+"$PDIR"} "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
   echo "replay: the set and the out dir must not contain the plugin, the harness, the CLI or TMPDIR ($d)" >&2; exit 2 ;; esac; done
 [ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
-# A case is a folder directly inside the set: its name is also where its output goes and comes from.
-for c in $CASES; do case "$c" in */*|.|..) c="" ;; esac
-  [ -n "$c" ] && [ -d "$SET/$c" ] || { echo "replay: not a case folder of the set: ${c:-a name with a slash or dots}" >&2; exit 2; }
+# A case named by the caller is a folder directly inside the set: its name is also
+# where its output is removed from and written to.
+for c in "$@"; do case "$c" in */*|.|..|"") d="" ;; *) d="$SET/$c" ;; esac
+  [ -n "$d" ] && [ -d "$d" ] || { echo "replay: not a case folder of the set: $c" >&2; exit 2; }
 done
 
 # Every sandbox nests under one directory made here, in the parent shell, so one
@@ -281,7 +282,6 @@ run_one(){ # <case> <k>
   # A case that cannot be run fails the call and leaves no older output behind
   # to be read as this call's.
   drop(){ echo "replay: $c: $1" >&2; rm -rf "${OUT:?}/$c.$k"; echo "$c.$k" >> "$RUN_DIR/failed"; }
-  [ -e "$cd_/ask.md" ] || [ -e "$cd_/commit" ] || [ -e "$cd_/tree" ] || { echo "replay: $c is not a case (no ask.md, commit or tree/): skipped" >&2; return; }
   [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { drop "lacks ask.md, or a commit or a tree/"; return; }
   if [ -f "$cd_/commit" ] && [ -d "$cd_/tree" ]; then
     drop "has both a commit and a tree/: keep one"; return
