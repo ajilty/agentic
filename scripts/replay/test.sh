@@ -77,14 +77,14 @@ bash -n "$HERE/replay.sh" && pass || fail "replay.sh parses"
 # --- The runner end to end, with a stand-in for the CLI (no model, no cost).
 # One run at a time for a user, among checkouts that have this lock: these tests make and
 # remove /tmp/claude, which every replay on the machine refuses to start beside. A second
-# run waits for the first. The lock sits in a folder only this user can write, is never
-# truncated, and a run that cannot open it goes on without one.
+# run waits for the first. The lock is one file under the user's own cache folder, never
+# truncated; a run that cannot open it goes on without one.
 if command -v flock >/dev/null 2>&1; then
-  lockdir="${XDG_RUNTIME_DIR:-$HOME/.cache}"; mkdir -p "$lockdir" 2>/dev/null
-  if { exec 8>> "$lockdir/replay-test.lock"; } 2>/dev/null; then
-    flock -n 8 || { echo "replay: waiting for another run of these tests ($lockdir/replay-test.lock)" >&2
+  lock="$HOME/.cache/replay-test.lock"; mkdir -p "$HOME/.cache" 2>/dev/null
+  if ( : >> "$lock" ) 2>/dev/null && exec 8>> "$lock"; then
+    flock -n 8 || { echo "replay: waiting for another run of these tests ($lock)" >&2
       flock -w 1800 8 || { echo "replay: FAIL: another run of these tests held the lock for 30 minutes" >&2; exit 1; }; }
-  else echo "replay: no lock ($lockdir/replay-test.lock cannot be opened): another run at the same time may disturb this one" >&2; fi
+  else echo "replay: no lock ($lock cannot be opened): another run at the same time may disturb this one" >&2; fi
 fi
 # Settings left in the caller's shell (a candidate file, a model) must not steer these runs.
 for v in $(compgen -e | grep '^REPLAY_' || true); do unset "$v"; done
