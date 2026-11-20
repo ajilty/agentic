@@ -121,7 +121,7 @@ mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -
 cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > keep/args; ls -A > keep/ls; [ ! -x run.sh ] || : > keep/runnable
 # For the changed-files tests: new files whose names git would quote, and a session that rewrites or removes history.
 touch 'keep/odd "q" é.txt' "keep/ctl\$(printf '\tx')"
-[ ! -e amend ] || { echo more >> a.txt; git -c user.email=t@t -c user.name=t commit -qa --amend -m amended; }
+[ ! -e amend ] || { git mv AGENTS.md RULES.md 2>/dev/null; echo more >> a.txt; git -c user.email=t@t -c user.name=t commit -qa --amend -m amended; }
 [ ! -e wipe ] || rm -rf .git/objects
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
 [ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
@@ -360,21 +360,19 @@ grep -qxF 'keep/odd "q" é.txt' "$o/changed-files.txt" && grep -qxF 'keep/ctl?x'
 # A session that amends the snapshot's commit is still measured against the snapshot.
 ( cd "$d/plug/src" && touch amend && git add amend && git commit -qm amend ) >/dev/null 2>&1; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+grep -qx AGENTS.md "$o/changed-files.txt" && grep -qx RULES.md "$o/changed-files.txt" && pass || fail "a renamed file is listed under its old name and its new one (got: $(grep -v '^keep' "$o/changed-files.txt" | tr '\n' ' '))"
 grep -qx a.txt "$o/changed-files.txt" && grep -qx new.txt "$o/changed-files.txt" && pass || fail "a file changed in an amended first commit is listed (got: $(grep -v '^keep' "$o/changed-files.txt" | tr '\n' ' '))"
 # A session that removes the history cannot be compared: every file is listed, and the runner says so.
 ( cd "$d/plug/src" && git mv amend wipe && git commit -qm wipe ) >/dev/null 2>&1; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
-case "$out" in *'cannot compare the project with its snapshot'*) grep -qx a.txt "$o/changed-files.txt" && grep -qx AGENTS.md "$o/changed-files.txt" && grep -qx new.txt "$o/changed-files.txt" && ! grep -q '^\.git' "$o/changed-files.txt" && pass \
+case "$out" in *'cannot compare the project with its snapshot'*) grep -qx a.txt "$o/changed-files.txt" && grep -qx AGENTS.md "$o/changed-files.txt" && grep -qx new.txt "$o/changed-files.txt" && ! grep -q '^\.git' "$o/changed-files.txt" \
+  && grep -qx keeplink "$o/changed-files.txt" && grep -qxF 'keep/ctl?x' "$o/changed-files.txt" && ! grep -q '^log/' "$o/changed-files.txt" && pass \
   || fail "with the history gone every project file is listed, and nothing of .git (got: $(grep -v '^keep' "$o/changed-files.txt" | tr '\n' ' '))" ;;
   *) fail "a project that cannot be compared with its snapshot is reported (exit $rc)" ;; esac
 ( cd "$d/plug/src" && git rm -q wipe && git commit -qm unwipe ) >/dev/null 2>&1; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
-# Refused before anything runs: a jobs setting that is no number, and an out dir and a set dir one inside the other.
+# Refused before anything runs: a jobs setting that is no number in range.
 echo stale > "$o/say.md"
-for bad in 0 x 1.5; do out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_JOBS="$bad")"; rc=$?
+for bad in 0 x 1.5 01 1000 18446744073709551616; do out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_JOBS="$bad")"; rc=$?
   case "$rc:$out" in 2:*'REPLAY_JOBS must be'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "REPLAY_JOBS=$bad runs nothing" ;; *) fail "REPLAY_JOBS=$bad is refused by that message (exit $rc)" ;; esac; done
-out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/set/outhere" 2>&1)"; rc=$?
-case "$rc:$out" in 2:*'out dir must not be the set dir or inside it'*) [ ! -e "$d/plug/set/outhere" ] && pass || fail "a refused out dir inside the set is not left behind as a folder of the set" ;; *) fail "an out dir inside the set is refused (exit $rc)" ;; esac
-out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug" 2>&1)"; rc=$?
-case "$rc:$out" in 2:*'set dir must not be inside the out dir'*) pass ;; *) fail "a set inside the out dir is refused (exit $rc)" ;; esac
 kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]

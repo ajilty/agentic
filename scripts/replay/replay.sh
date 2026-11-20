@@ -51,10 +51,10 @@
 #   turn1.md result.json say.md   what was sent, the result event, the closing message
 #   guard.jsonl                   every tool call the guard judged, allowed or refused
 #   transcript.jsonl              the session transcript
-#   changed-files.txt             project files that differ from the snapshot, by
-#                                 name, one per line; a control character in a
-#                                 name shows as "?". Every file, if the session
-#                                 left nothing to compare the snapshot with
+#   changed-files.txt             project files that differ from the snapshot, as
+#                                 its own git reports them, one name per line; a
+#                                 control character in a name shows as "?".
+#                                 Every file, if git cannot compare at all
 #   journal.jsonl                 rows added to REPLAY_JOURNAL
 #   post-compaction mode adds compact.result.json, guard.compact.jsonl,
 #   turn2.result.json, turn2.say.md, guard.turn2.jsonl, journal.turn2.jsonl,
@@ -127,6 +127,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 SET="${1:?set dir}"; SRC="${2:?source repo}"; OUT="${3:?out dir}"; shift 3
+case "${REPLAY_JOBS:-4}" in [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;; *) echo "replay: REPLAY_JOBS must be a whole number from 1 to 999, written without a leading zero (got: ${REPLAY_JOBS:-})" >&2; exit 2 ;; esac
 command -v claude >/dev/null 2>&1 || { echo "(skip replay: claude not on PATH)"; exit 0; }
 # Only logins the sandboxed session can be handed: a key, a token, or the credential file.
 [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] \
@@ -156,9 +157,6 @@ TIMEOUT="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || 
 REAL_HOME="$(cd "$HOME" 2>/dev/null && pwd -P)"
 [ -n "$REAL_HOME" ] || { echo "replay: HOME is not a directory" >&2; exit 2; }
 [ -z "$SRC" ] || SRC="$(cd "$SRC" && pwd -P)"; SET="$(cd "$SET" && pwd -P)"; mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd -P)"
-# Output is removed and written by case name: kept apart from the set, a case folder can never be taken for it.
-case "$OUT/" in "$SET"/*) rmdir "$OUT" 2>/dev/null; echo "replay: the out dir must not be the set dir or inside it" >&2; exit 2 ;; esac
-case "$SET/" in "$OUT"/*) echo "replay: the set dir must not be inside the out dir" >&2; exit 2 ;; esac
 [ -n "$OUT" ] || { echo "replay: cannot use the out dir" >&2; exit 2; }
 case "$HERE$OUT" in *\'*|*\"*|*\\*) echo "replay: a quote or backslash in the harness or out dir path is not supported" >&2; exit 2 ;; esac
 # The source repo's whole checkout and its git directory are hidden, not just the
@@ -176,7 +174,6 @@ SRT="${REPLAY_SRT:-$(command -v srt 2>/dev/null || true)}"
 
 MODEL="${REPLAY_MODEL:-opus}"; EFFORT="${REPLAY_EFFORT:-low}"; K="${REPLAY_K:-1}"
 PDIR=""; [ -z "${REPLAY_PLUGIN_DIR:-}" ] || PDIR="$(cd "$REPLAY_PLUGIN_DIR" && pwd -P)" || { echo "replay: cannot enter REPLAY_PLUGIN_DIR ($REPLAY_PLUGIN_DIR)" >&2; exit 2; }; JOBS="${REPLAY_JOBS:-4}"
-case "$JOBS" in ''|*[!0-9]*|0*) echo "replay: REPLAY_JOBS must be a whole number, 1 or more (got: $JOBS)" >&2; exit 2 ;; esac
 PC="${REPLAY_POSTCOMPACT:-}"; [ "$PC" = 0 ] && PC=""
 AFTER_DEFAULT="Continue. What is the state of this work and what is your next step?"
 BUDGET="${REPLAY_BUDGET_USD:-$([ -n "$PC" ] && echo 8 || echo 4)}"; GUARD="$HERE/guard.py"
@@ -424,28 +421,30 @@ JSON
     [ -z "$PC" ] || { [ -n "$t2" ] && emit "$repo" "$journal" | tail -n +"$(( $(num "$t2") + 1 ))"; } > "$o/journal.turn2.jsonl"
   fi
   for f in "$home"/.claude/projects/*/*.jsonl; do emit "$home" "$f"; done > "$o/transcript.jsonl" 2>/dev/null
-  # Everything the session changed since the snapshot, committed or not: the
-  # difference from the snapshot's commit, plus files git does not track. The
-  # repo's git configuration is now the session's, so git runs inside the sandbox.
+  # What the session changed since the snapshot, committed or not, as the
+  # snapshot's own git reports it: what differs from the snapshot's commit (a
+  # renamed file under both names), plus files git neither tracks nor ignores.
+  # The repo's git configuration is now the session's, so git runs inside the
+  # sandbox, and a session that changes what git reports can shorten the list.
   # While the sandbox is up it shows placeholders over paths it protects
   # (.bashrc, .mcp.json), so a new file counts only if it is still there after.
   # Names arrive NUL-ended, each as it is; in the list, a control character in a
-  # name shows as "?". If the comparison cannot be made (the session removed the
-  # snapshot's commit or the repository), every file is listed: too many, never none.
+  # name shows as "?". If git cannot make the comparison at all (the session
+  # removed the snapshot's commit or the repository), every file is listed.
   # The list is taken whole first: the placeholders are gone only once the sandbox has ended.
   rm -f "$cfg/nocompare"
   inbox ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 5 60 sh -c \
-      'git diff --name-only -z "$1" && printf "//\0" && git ls-files -z --others --exclude-standard && printf "/ok\0"' sh "$snap" 2>/dev/null > "$cfg/changed.z"
-  { n=""; ok=""; while IFS= read -r -d '' f; do
+      'git diff --name-only --no-renames -z "$1" && printf "//\0" && git ls-files -z --others --exclude-standard && printf "/ok\0"' sh "$snap" 2>/dev/null > "$cfg/changed.z"
+  { LC_ALL=C; n=""; ok=""; while IFS= read -r -d '' f; do
         [ "$f" = // ] && { n=1; continue; }; [ "$f" = /ok ] && { ok=1; continue; }
         [ -z "$n" ] || [ -e "$repo/$f" ] || [ -L "$repo/$f" ] || continue; [ -z "$f" ] || printf '%s\n' "${f//[[:cntrl:]]/?}"; done
       [ -n "$ok" ] || : > "$cfg/nocompare"; } < "$cfg/changed.z" \
-    | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | sort -u > "$o/changed-files.txt"
+    | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
   if [ -e "$cfg/nocompare" ]; then
     echo "replay: $c.$k: cannot compare the project with its snapshot: changed-files.txt lists every file" >&2
     ( cd "$repo" && find . -name .git -prune -o \( -type f -o -type l \) -print0 ) \
-      | while IFS= read -r -d '' f; do f="${f#./}"; printf '%s\n' "${f//[[:cntrl:]]/?}"; done \
-      | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | sort -u > "$o/changed-files.txt"
+      | { LC_ALL=C; while IFS= read -r -d '' f; do f="${f#./}"; printf '%s\n' "${f//[[:cntrl:]]/?}"; done; } \
+      | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
   fi
   take "$log" "$log/stderr.txt" "$o/stderr.txt"
   # The load hook runs on its own time and may lose a row at session end, so the
@@ -552,8 +551,8 @@ done; done; wait
 # One line per run from what every plugin has: refused = tool calls the guard
 # refused, edits = project files changed, then the cost of the first turn.
 printf '%-28s %-7s %-5s %-5s %-5s %s\n' run refused edits turns secs cost | tee "$OUT/summary.txt"
-for o in "$OUT"/*/ "$OUT"/.[!.]*/; do [ -d "$o" ] || continue; python3 - "${o%/}" <<'PY'
-import json, os, re, sys
+for o in "$OUT"/*/; do [ -d "$o" ] || continue; python3 - "${o%/}" <<'PY'
+import json, os, sys
 o = sys.argv[1]
 def n(p, keep=lambda l: l.strip()):
     try: return sum(1 for l in open(p) if keep(l))
@@ -563,7 +562,7 @@ except Exception: r = {}
 def f(k, fmt, scale=1):   # the session may have written this file: a field is a number or a dash
     v = r.get(k) if isinstance(r, dict) else None
     return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) and -1e12 < v < 1e12 else "-"
-print("%-28s %-7d %-5d %-5s %-5s %s%s" % (re.sub(r"[\x00-\x1f\x7f]", "?", os.path.basename(o)), n(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
+print("%-28s %-7d %-5d %-5s %-5s %s%s" % (os.path.basename(o), n(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
       n(o + "/changed-files.txt"), f("num_turns", "%d"), f("duration_ms", "%d", 1000), f("total_cost_usd", "%.2f"),
       "  noload" if os.path.exists(o + "/noload.txt") else ""))
 PY
