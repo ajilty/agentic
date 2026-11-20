@@ -16,8 +16,7 @@
 #                    links, never followed. A link must be relative and stay
 #                    inside tree/; one that is absolute or leads out refuses
 #                    the case, as does a .git anywhere inside. With only such cases,
-#                    <source-repo> may be given as -. A case with tree/ that
-#                    cannot be run is removed from the out dir and fails the call.
+#                    <source-repo> may be given as -.
 #   <case>/after.md  optional: the follow-up turn in post-compaction mode
 #   anything else    copied to the output as is (a kind, an answer key), unless
 #                    it carries the name of an output file below
@@ -43,6 +42,10 @@
 # followed), REPLAY_SRT (the sandbox runtime to use; default `srt` on PATH).
 #
 # An existing <out-dir>/<case>.<k> is replaced, never added to.
+# A case that cannot be run (no ask.md, an unusable commit or tree/, a snapshot
+# that fails) has its older output removed and fails the call with exit 3.
+# Every folder of the set whose name does not start with a dot is a case: keep
+# notes and the like outside it, or under such a name.
 #
 # Post-compaction mode, REPLAY_POSTCOMPACT=1: one process runs three turns
 # (turns.py): the ask, then `/compact`, then after.md (default below).
@@ -63,6 +66,14 @@
 #   loaded.jsonl                  one row per instruction file the session loaded
 #   facts.json                    what the runner knows about the run, for a
 #                                 program to read: see README.md. No verdict.
+#   login-removed.txt             only when the last step changed what was kept:
+#                                 the files the model login, or text shaped like
+#                                 one, was cut from, and any it removed (named
+#                                 after the login, not a regular file, or not
+#                                 readable or rewritable) ("login-removed" in
+#                                 the summary); or that the step did not finish
+#                                 ("login-unchecked"; a call that runs to its
+#                                 end then exits 3)
 #   noload.txt                    only when an instruction file that should have
 #                                 loaded did not: its name. The run is marked
 #                                 "noload" in the summary and the runner exits 3.
@@ -131,6 +142,12 @@ command -v claude >/dev/null 2>&1 || { echo "(skip replay: claude not on PATH)";
 # Only logins the sandboxed session can be handed: a key, a token, or the credential file.
 [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] \
   || { echo "(skip replay: no live auth)"; exit 0; }
+# A key or token in the environment is the whole login: the credential file,
+# which can do more than ask a model, is then left behind. With neither, the
+# file is the only login there is, and the session can read its copy.
+UNCHECKED="unchecked: this run stopped before its kept files were checked for the model login; treat them as holding it"
+LOGIN_VAR=""; [ -z "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || LOGIN_VAR=1
+[ -n "$LOGIN_VAR" ] || echo "replay: no login variable is set, so each session gets a copy of the full login file and can read it, and only what is shaped like a key is cut from what a run keeps; a model-only token (claude setup-token) in CLAUDE_CODE_OAUTH_TOKEN avoids both" >&2
 command -v python3 >/dev/null 2>&1 || { echo "(skip replay: python3 absent)"; exit 0; }
 [ "$(df -Pk "${TMPDIR:-/tmp}" | awk 'NR==2{print $4}')" -ge 1048576 ] || { echo "(skip replay: low tmp space)"; exit 0; }
 case "${REPLAY_JOBS:-4}" in [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;; *) echo "replay: REPLAY_JOBS must be a whole number from 1 to 999, written without a leading zero (got: ${REPLAY_JOBS:-})" >&2; exit 2 ;; esac
@@ -190,7 +207,19 @@ done < <([ -z "$PDIR" ] || find "$PDIR" -maxdepth 3 -type l 2>/dev/null)
 case "$OUT:$SET" in /:*|*:/) echo "replay: the set and the out dir cannot be /" >&2; exit 2 ;; esac
 for d in ${PDIR:+"$PDIR"} "$HERE" "$CLAUDE_BIN" "$(cd "${TMPDIR:-/tmp}" && pwd -P)"; do case "$d/" in "$OUT"/*|"$SET"/*)
   echo "replay: the set and the out dir must not contain the plugin, the harness, the CLI or TMPDIR ($d)" >&2; exit 2 ;; esac; done
-[ $# -gt 0 ] && CASES="$*" || CASES="$(cd "$SET" && ls -d */ 2>/dev/null | tr -d /)"
+case "$K" in ''|*[!0-9]*|0*) echo "replay: REPLAY_K must be a whole number, 1 or more (got: $K)" >&2; exit 2 ;; esac
+# The cases, kept as a list so a name is never split or matched against other
+# files. A case named by the caller is a folder (or a link to one) directly
+# inside the set, named once: its name is also where its output is removed from
+# and written to. With none named: every folder of the set whose name does not
+# start with a dot.
+CASES=()
+for c in "$@"; do case "$c" in */*|.|..|"") d="" ;; *) d="$SET/$c" ;; esac
+  [ -n "$d" ] && [ -d "$d" ] || { echo "replay: not a case folder of the set: $c" >&2; exit 2; }
+  for d in ${CASES[@]+"${CASES[@]}"}; do [ "$d" != "$c" ] || { echo "replay: case named twice: $c" >&2; exit 2; }; done
+  CASES+=("$c")
+done
+[ $# -gt 0 ] || for d in "$SET"/*/; do [ -d "$d" ] || continue; d="${d%/}"; CASES+=("${d##*/}"); done
 
 # Every sandbox nests under one directory made here, in the parent shell, so one
 # trap removes them all whichever subshell made them.
@@ -270,23 +299,23 @@ fi
   echo "replay: no usable sandbox runtime, so no sandbox boundary (npm install -g @anthropic-ai/sandbox-runtime; Linux also needs bubblewrap, socat and ripgrep); set REPLAY_UNCONFINED=1 to run without one (see the header)" >&2; exit 2; }
 [ -n "$SRT" ] || echo "replay: UNCONFINED: no sandbox boundary, only a scrubbed environment and a best-effort guard" >&2
 
-RESERVED=" commit after.md turn1.md result.json say.md guard.jsonl transcript.jsonl changed-files.txt journal.jsonl settings.json stderr.txt compact.result.json guard.compact.jsonl turn2.result.json turn2.say.md guard.turn2.jsonl journal.turn2.jsonl turn.stream.jsonl compact.md loaded.jsonl noload.txt facts.json "
+RESERVED=" commit after.md turn1.md result.json say.md guard.jsonl transcript.jsonl changed-files.txt journal.jsonl settings.json stderr.txt compact.result.json guard.compact.jsonl turn2.result.json turn2.say.md guard.turn2.jsonl journal.turn2.jsonl turn.stream.jsonl compact.md loaded.jsonl noload.txt facts.json login-removed.txt "
 for d in ${REPLAY_KEEP:-}; do d="${d%/}"; RESERVED+="${d##*/} "; done
 
 run_one(){ # <case> <k>
   local c="$1" k="$2" cd_="$SET/$1" o="$OUT/$1.$2" home repo log cfg commit="" s f d n t1="" t2=""
   # The project comes from a commit of the source repo, or from the case's own tree/.
-  # A tree/ case, or any case with no source repo to look in, that cannot be run
-  # fails the call and leaves no older output behind to be read as this call's.
+  # A case that cannot be run fails the call and leaves no older output behind
+  # to be read as this call's.
   drop(){ echo "replay: $c: $1" >&2; rm -rf "${OUT:?}/$c.$k"; echo "$c.$k" >> "$RUN_DIR/failed"; }
-  [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { echo "replay: $c lacks ask.md, or a commit or a tree/" >&2; return; }
+  [ -f "$cd_/ask.md" ] && { [ -f "$cd_/commit" ] || [ -d "$cd_/tree" ]; } || { drop "lacks ask.md, or a commit or a tree/"; return; }
   if [ -f "$cd_/commit" ] && [ -d "$cd_/tree" ]; then
     drop "has both a commit and a tree/: keep one"; return
   elif [ -f "$cd_/commit" ] && [ -z "$SRC" ]; then
     drop "commit is not a commit of the source repo"; return
   elif [ -f "$cd_/commit" ]; then
     commit="$(cgit -C "$SRC" rev-parse --verify --quiet --end-of-options "$(tr -d ' \n' < "$cd_/commit")^{commit}")" \
-      || { echo "replay: $c: commit is not a commit of the source repo" >&2; return; }
+      || { drop "commit is not a commit of the source repo"; return; }
   elif [ -L "$cd_/tree" ] || [ -n "$(find "$cd_/tree" -iname .git -print -quit 2>&1)" ]; then
     drop "tree/ is a link, cannot be read, or has a .git inside"; return
   fi
@@ -300,7 +329,7 @@ run_one(){ # <case> <k>
   # The case's extra files, except any named like an output: it could stand in for one the session never left.
   for f in "$cd_"/*; do case "$RESERVED" in *" ${f##*/} "*) ;; *) [ -f "$f" ] && cp "$f" "$o/" ;; esac; done
   if [ -n "$commit" ]; then
-    cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { echo "replay: $c: cannot snapshot $commit" >&2; return; }
+    cgit -C "$SRC" archive "$commit" | tar -x -C "$repo" || { drop "cannot snapshot $commit"; return; }
   else
     # A plain folder, copied as it stands. A link is copied as a link and never
     # followed, and only if it is relative and stays inside the folder (a
@@ -339,7 +368,7 @@ TREE
   ( cd "$repo" && cgit init -q && git config user.email t@t && git config user.name t \
       && { [ -z "$IGNORE" ] || printf '%s\n' "$IGNORE" >> .git/info/exclude; } \
       && cgit add --all >/dev/null 2>&1 && cgit commit -qm snapshot $([ -n "$commit" ] || echo --allow-empty) ) \
-    || { [ -n "$commit" ] && echo "replay: $c: cannot commit the snapshot" >&2 || drop "cannot commit the snapshot"; return; }
+    || { drop "cannot commit the snapshot"; return; }
   # The snapshot's own commit, remembered now: what the session changed is measured against it,
   # whatever the session does to the history afterwards.
   local snap; snap="$(cd "$repo" && cgit rev-parse --verify --quiet HEAD)"
@@ -348,6 +377,7 @@ TREE
   # A candidate takes the place of those preferences: the caller's own are then left behind.
   for f in .credentials.json CLAUDE.md; do
     [ "$f" = CLAUDE.md ] && [ -n "$CAND" ] && continue
+    [ "$f" = .credentials.json ] && [ -n "$LOGIN_VAR" ] && continue
     [ -f "$HOME/.claude/$f" ] && cp -L "$HOME/.claude/$f" "$home/.claude/$f" 2>/dev/null
   done
   [ -z "$CAND" ] || cp "$CAND" "$home/.claude/CLAUDE.md" || { echo "replay: $c.$k not run: cannot place the candidate" >&2; echo "$c.$k" >> "$RUN_DIR/failed"; return; }
@@ -364,7 +394,7 @@ JSON
   # The instruction files this session should load, each with what it resolves
   # to, both as they stand before the session can change them.
   local expect=(); for f in "$home/.claude/CLAUDE.md" "$repo/CLAUDE.md" "$repo/.claude/CLAUDE.md"; do
-    [ -s "$f" ] && expect+=("$f" "$(readlink -f "$f")"); done
+    [ -f "$f" ] && [ -s "$f" ] && expect+=("$f" "$(readlink -f "$f")"); done   # a file, or a link to one: not a folder of that name
   # The snapshot may carry a tracked copy of the journal; keep only what this run adds.
   local journal="${JOURNAL:+$repo/$JOURNAL}" base=0
   [ -n "$journal" ] && [ -f "$journal" ] && base="$(num "$(wc -l < "$journal" | tr -d ' ')")"
@@ -387,6 +417,9 @@ JSON
       cd "$repo" && /usr/bin/env -i HOME="$home" PATH="$CLEAN_PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" \
       TMPDIR="${sk:-$home/tmp}" "$@" ); }
   local tmp=(/usr/bin/env TMPDIR="$home/tmp" CLAUDE_CODE_TMPDIR="$home/tmp")
+  # Not set: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB. It would keep the login from the
+  # commands a session runs, but with it every Bash call fails inside the
+  # sandbox runtime ("Sandbox is required but failed to initialize", CLI 2.1.328).
   session(){ inbox ENABLE_CLAUDEAI_MCP_SERVERS=false \
       ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
       ${CLAUDE_CODE_OAUTH_TOKEN:+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"} \
@@ -394,6 +427,10 @@ JSON
       REPLAY_ALLOW_AGENTS="${REPLAY_ALLOW_AGENTS:-}" REPLAY_LOG="$log/guard.jsonl" REPLAY_ROOTS="$repo:$home${PDIR:+:$PDIR}" \
       ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 10 "$1" "${@:2}"; }
   { printf '%s' "${REPLAY_PREFIX:-}"; cat "$cd_/ask.md"; } > "$log/turn1.md"; cp "$log/turn1.md" "$o/turn1.md"
+  # From here the session can put its login into what is kept. This mark stands
+  # until the last step has checked every kept file, so a run that was stopped
+  # before then says so itself.
+  echo "$UNCHECKED" > "$o/login-removed.txt"
   if [ -z "$PC" ]; then
     session "$LIMIT" "$CLAUDE_BIN" "${cargs[@]}" --output-format json < "$o/turn1.md" 2> "$log/stderr.txt" | head -c 268435456 > "$o/result.json"
     take "$log" "$log/guard.jsonl" "$o/guard.jsonl"
@@ -466,7 +503,7 @@ except OSError: pass
 try: said = open(o + "/transcript.jsonl", errors="replace").read()
 except OSError: said = ""
 for f, real in zip(want[0::2], want[1::2]):
-    if f in seen or real in seen or ("Contents of " + f) in said: continue
+    if f in seen or real in seen or ("Contents of " + f) in said or ("Contents of " + real) in said: continue
     print("home/" + f[len(home) + 1:] if f.startswith(home + "/") else "repo/" + f[len(repo) + 1:])
 LOADED
   if [ -s "$o/noload.txt" ]; then echo "$c.$k" >> "$RUN_DIR/failed"; else rm -f "$o/noload.txt"; fi
@@ -483,6 +520,7 @@ def ok(p):   # a regular file whose real path is itself: no link in any componen
 for rel in sys.argv[3:]:
     src = os.path.normpath(os.path.join(repo, rel)); dst = os.path.join(out, os.path.basename(src))
     if not src.startswith(repo + os.sep) or os.path.realpath(src) != src: continue
+    if os.path.basename(src) == "login-removed.txt": continue   # the runner's own mark
     if ok(src):
         try: shutil.copyfile(src, dst, follow_symlinks=False)
         except OSError: pass
@@ -539,13 +577,85 @@ json.dump({
     "cost_usd": num("total_cost_usd"), "turns": num("num_turns"), "seconds": num("duration_ms", 1000),
     "refused": count(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
     "changed_files": count(o + "/changed-files.txt"),
+    "login_in_kept_files": None,   # set by the last step: true when it had to cut the login out
 }, sys.stdout, indent=1, allow_nan=False)
 FACTS
   [ -s "$o/facts.json" ] || { rm -f "$o/facts.json"; echo "replay: $c.$k: could not write facts.json" >&2; }
+  # Last, over everything kept: the key or token this session held must not
+  # stay in a kept file, however it got there. Overwritten in place, same
+  # length: the key or token (one of 20 characters or more), and anything
+  # shaped like an Anthropic key, example text included. A kept file or folder
+  # whose name holds one is not kept, nor is a file that is not a regular file
+  # or could not be read or rewritten; a read-only file that held one is left
+  # writable by its owner. When the credential file was the login, only what in it is
+  # shaped like a key is caught. Not caught on any route: a login written in
+  # another encoding or in pieces. The key or token reaches this step in the
+  # runner's own environment, never on its command line.
+  python3 - "$o" <<'LOGIN' || echo "$UNCHECKED" > "$o/login-removed.txt"   # failed at any point: unchecked
+import json, mmap, os, re, shutil, stat, sys
+o = sys.argv[1]; note = os.path.join(o, "login-removed.txt")
+secrets = sorted({v.encode() for v in map(os.environ.get, ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"))
+                  if v and len(v) >= 20}, key=len, reverse=True)   # long enough that cutting it cannot cut ordinary text
+shape = re.compile(rb"sk-ant-[A-Za-z0-9_-]{20,}")
+fill = lambda n: (b"[login removed]" + b"#" * n)[:n]
+def spans(buf):   # one at a time: a caller may overwrite each before asking for the next
+    for s in secrets:
+        i = buf.find(s)
+        while i >= 0: yield i, i + len(s); i = buf.find(s, i + len(s))
+    for m in shape.finditer(buf): yield m.span()
+def cut(b):
+    b = bytearray(b)
+    for a, z in spans(bytes(b)): b[a:z] = fill(z - a)
+    return bytes(b)
+name = lambda n: os.fsdecode(cut(os.fsencode(n)))   # a path made safe to print
+def clean(p):   # True when the file held a login, now overwritten
+    hit = None
+    with open(p, "rb") as fh, mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+        for a, z in spans(mm):
+            if hit is None:
+                os.chmod(p, stat.S_IMODE(os.stat(p).st_mode) | stat.S_IWUSR); hit = os.open(p, os.O_WRONLY)
+            os.pwrite(hit, fill(z - a), a)
+    if hit is not None: os.close(hit)
+    return hit is not None
+def stop(e): raise e
+def check():
+    found = []
+    for top, dirs, files in os.walk(o, topdown=False, followlinks=False, onerror=stop):
+        for f in sorted(files):
+            p = os.path.join(top, f); rel = os.path.relpath(p, o)
+            if p == note or (top == o and f == "facts.json"): continue
+            if name(f) != f: os.remove(p); found.append(name(rel) + "  (its name held the login: not kept)"); continue
+            if os.path.islink(p) or not os.path.isfile(p): os.remove(p); found.append(name(rel) + "  (not a regular file: not kept)"); continue
+            if os.path.getsize(p) == 0: continue
+            try:
+                if clean(p): found.append(name(rel))
+            except Exception:
+                os.remove(p); found.append(name(rel) + "  (could not be read or rewritten: not kept)")
+        for d in sorted(dirs):
+            if name(d) != d:
+                shutil.rmtree(os.path.join(top, d))
+                found.append(name(os.path.relpath(os.path.join(top, d), o)) + "/  (its name held the login: not kept)")
+    # facts.json is the runner's own text: its one field is set, and it is cut like the rest.
+    fp = os.path.join(o, "facts.json")
+    if os.path.exists(fp):
+        facts = json.load(open(fp)); text = json.dumps(facts, indent=1, allow_nan=False).encode()
+        if cut(text) != text: found.append("facts.json")
+        facts["login_in_kept_files"] = bool(found)
+        text = cut(json.dumps(facts, indent=1, allow_nan=False).encode()); json.loads(text)
+        open(fp, "wb").write(text)
+    if found: open(note, "w", errors="backslashreplace").write("\n".join(found) + "\n")   # a name need not be text
+    else: os.remove(note)
+try: check()
+except BaseException: sys.exit(1)   # the mark stays: unchecked. No error text: a path in it could spell the login
+LOGIN
+  if [ ! -e "$o/login-removed.txt" ]; then :
+  elif [ "$(head -n 1 "$o/login-removed.txt")" = "$UNCHECKED" ]; then
+    echo "replay: $c.$k: could not check the kept files for the model login: treat them as holding it" >&2; echo "$c.$k" >> "$RUN_DIR/failed"
+  else echo "replay: $c.$k: text that is or looks like a model login was in kept files and was cut out, or a kept file could not be checked and was removed (see login-removed.txt)" >&2; fi
 }
 
 n=0
-for c in $CASES; do for k in $(seq 1 "$K"); do
+for c in ${CASES[@]+"${CASES[@]}"}; do for k in $(seq 1 "$K"); do
   run_one "$c" "$k" & n=$((n+1)); [ $((n % JOBS)) -eq 0 ] && wait
 done; done; wait
 
@@ -560,17 +670,21 @@ def n(p, keep=lambda l: l.strip()):
     except Exception: return 0
 try: r = json.load(open(o + "/result.json"))
 except Exception: r = {}
+def login(o):   # the runner's own file: absent when the kept files were checked and clean
+    try: first = open(o + "/login-removed.txt").readline()
+    except OSError: return ""
+    return "  login-unchecked" if first.startswith("unchecked:") else "  login-removed"
 def f(k, fmt, scale=1):   # the session may have written this file: a field is a number or a dash
     v = r.get(k) if isinstance(r, dict) else None
     return fmt % (v / scale) if isinstance(v, (int, float)) and not isinstance(v, bool) and -1e12 < v < 1e12 else "-"
 print("%-28s %-7d %-5d %-5s %-5s %s%s" % (os.path.basename(o), n(o + "/guard.jsonl", lambda l: '"decision": "deny"' in l),
       n(o + "/changed-files.txt"), f("num_turns", "%d"), f("duration_ms", "%d", 1000), f("total_cost_usd", "%.2f"),
-      "  noload" if os.path.exists(o + "/noload.txt") else ""))
+      ("  noload" if os.path.exists(o + "/noload.txt") else "") + login(o)))
 PY
 done | LC_ALL=C tr -cd '[:print:]\n' | tee -a "$OUT/summary.txt"   # session-written text never reaches the terminal raw
 # A run without its instructions, or one that was refused, is not a
 # measurement: say so and fail. Only this call's runs count, not older ones in the out dir.
 if [ -s "$RUN_DIR/failed" ]; then
-  echo "replay: not measured (an instruction file did not load: see noload.txt; or the session was refused): $(sort -u "$RUN_DIR/failed" | tr '\n' ' ')" >&2; exit 3
+  echo "replay: not measured (an instruction file did not load: see noload.txt; or the session was refused; or the case could not be used; or its kept files could not be checked for the login): $(sort -u "$RUN_DIR/failed" | tr '\n' ' ')" >&2; exit 3
 fi
 exit 0

@@ -75,8 +75,20 @@ grep -q '"matcher":"\.\*"' "$HERE/replay.sh" && pass || fail "every tool call go
 bash -n "$HERE/replay.sh" && pass || fail "replay.sh parses"
 
 # --- The runner end to end, with a stand-in for the CLI (no model, no cost).
+# One run at a time for a user, among checkouts that have this lock: these tests make and
+# remove /tmp/claude, which every replay on the machine refuses to start beside. A second
+# run waits for the first. The lock is one file under the user's own cache folder, never
+# truncated; a run that cannot open it goes on without one.
+if command -v flock >/dev/null 2>&1; then
+  lock="$HOME/.cache/replay-test.lock"; mkdir -p "$HOME/.cache" 2>/dev/null
+  if ( : >> "$lock" ) 2>/dev/null && exec 8>> "$lock"; then
+    flock -n 8 || { echo "replay: waiting for another run of these tests ($lock)" >&2
+      flock -w 1800 8 || { echo "replay: FAIL: another run of these tests held the lock for 30 minutes" >&2; exit 1; }; }
+  else echo "replay: no lock ($lock cannot be opened): another run at the same time may disturb this one" >&2; fi
+fi
 # Settings left in the caller's shell (a candidate file, a model) must not steer these runs.
 for v in $(compgen -e | grep '^REPLAY_' || true); do unset "$v"; done
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN   # nor a login of the caller's: each test names the one it means
 # The stand-in behaves like a session that tries to get out: it looks for the
 # caller's home and environment, writes outside, plants a command in the
 # snapshot's git configuration, and leaves a link where the runner reads a log.
@@ -89,12 +101,15 @@ mkdir -p "$d/bin" "$d/plug/src" "$d/plug/set/one" "$d/plug"
 real="$(command -v claude 2>/dev/null || true)"
 command -v rg >/dev/null 2>&1 || [ -z "$real" ] || { printf '#!/usr/bin/env bash\nexec -a rg %q "$@"\n' "$real" > "$d/bin/rg"; chmod +x "$d/bin/rg"; }
 # A service of this machine, listening on its loopback address: the session must not reach it.
-python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(8); open(sys.argv[1],"w").write(str(s.getsockname()[1])); time.sleep(300)' "$d/port" & lp=$!
+python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(8); open(sys.argv[1],"w").write(str(s.getsockname()[1])); time.sleep(300)' "$d/port" 8>&- & lp=$!   # not the lock: a listener left behind must not hold it
 i=0; until [ -s "$d/port" ] || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done; port="$(cat "$d/port")"
 knock(){ python3 -c 'import socket,sys
 try: socket.create_connection(("127.0.0.1", int(sys.argv[1])), 2); print("open")
 except OSError: print("closed")' "$1"; }
 [ "$(knock "$port")" = open ] && pass || fail "the control: the listener answers on this machine"
+# The stand-in's long sleep is told apart by this run's own number, so two checkouts
+# testing at once do not count each other's sleeping sessions.
+nap="31.$$"
 cat > "$d/bin/claude" <<FAKE
 #!/usr/bin/env bash
 [ "\${1:-}" = --version ] && { echo "2.1.999 (Claude Code)"; exit 0; }
@@ -104,12 +119,12 @@ hookcmd=\$(python3 -c 'import json,sys
 a=sys.argv[1:]; print(json.load(open(a[a.index("--settings")+1]))["hooks"]["InstructionsLoaded"][0]["hooks"][0]["command"])' "\$@" 2>/dev/null)
 loaded(){ printf '{"hook_event_name": "InstructionsLoaded",\n "file_path": "%s"}\n' "\$1" | sh -c "\$hookcmd"; }
 if [ -e viatranscript ]; then mkdir -p "\$HOME/.claude/projects/p"
-  printf '{"a":"Contents of %s"}\n{"a":"Contents of %s"}\n' "\$HOME/.claude/CLAUDE.md" "\$PWD/CLAUDE.md" > "\$HOME/.claude/projects/p/t.jsonl"
+  printf '{"a":"Contents of %s"}\n{"a":"Contents of %s"}\n' "\$HOME/.claude/CLAUDE.md" "\$([ -s viatranscript ] && readlink -f CLAUDE.md || echo "\$PWD/CLAUDE.md")" > "\$HOME/.claude/projects/p/t.jsonl"
 elif [ ! -e noload ]; then loaded "\$HOME/.claude/CLAUDE.md"; loaded "\$(readlink -f CLAUDE.md)"; fi
 # Post-compaction mode: answer each turn, and after the first, rewrite the turn
 # record the runner reads a line count from, with text a shell would evaluate.
 case " \$* " in *" --input-format "*) n=0
-  mkdir -p log; echo '{"event":"pc"}' >> log/journal.jsonl; [ -e hang ] && sleep 31.4159
+  mkdir -p log; echo '{"event":"pc"}' >> log/journal.jsonl; [ -e hang ] && sleep $nap
   while IFS= read -r line; do n=\$((n+1))
     [ \$n = 2 ] && printf '{"_lines":{"j":"HOME[\$(touch %s)]"},"result":"r"}' "$d/escaped-arith" > "\$(dirname "\$REPLAY_LOG")/turn.1.json"
     echo '{"type":"result","result":"r"}'
@@ -119,12 +134,17 @@ echo change > new.txt; mkdir -p log; echo '{"event":"x"}' >> log/journal.jsonl
 mkdir -p keep/sub; echo kept > keep/sub/a.txt; ln -s "$d/victim" keep/link; ln -s "$d" keep/dirlink; ln -s "$d/victim" keeplink
 # For the tests of what the session was given: its user-level file, its arguments, its project's top level.
 cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > keep/args; ls -A > keep/ls; [ ! -x run.sh ] || : > keep/runnable
+# For the login tests: which login the session was handed, and a session that writes all of it down.
+[ ! -e "\$HOME/.claude/.credentials.json" ] || : > keep/credfile
+printf 'key=%s token=%s file=%s\n' "\${ANTHROPIC_API_KEY:-}" "\${CLAUDE_CODE_OAUTH_TOKEN:-}" "\$(cat "\$HOME/.claude/.credentials.json" 2>/dev/null)" | tee keep/spill >&2
+echo forged > keep/login-removed.txt
+[ -z "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { mkdir -p "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN"; echo in > "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN/inner"; echo n > "keep/n-\$CLAUDE_CODE_OAUTH_TOKEN"; printf '%s' "\$CLAUDE_CODE_OAUTH_TOKEN" > "keep/odd\$(printf '\377')name"; }
 # For the changed-files tests: new files whose names git would quote, and a session that rewrites or removes history.
 touch 'keep/odd "q" é.txt' "keep/ctl\$(printf '\tx')" "keep/s\$(printf '\377')x" "keep/s\$(printf '\376')x"
 [ ! -e amend ] || { git mv AGENTS.md RULES.md 2>/dev/null; echo more >> a.txt; git -c user.email=t@t -c user.name=t commit -qa --amend -m amended; }
 [ ! -e wipe ] || rm -rf .git/objects
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
-[ -e hang ] && { sleep 31.4159 & sleep 31.4159; }
+[ -e hang ] && { sleep $nap & sleep $nap; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
 # The set, the source repo and the out dir all sit inside the plugin directory, which the session may read.
 home=\$([ -e "$fh/secret" ] || [ -e "$d/plug/set/one/ask.md" ] || [ -e "$d/plug/src/a.txt" ] || [ -e "$d/plug/out/one.1/turn1.md" ] && echo seen || echo hidden)
@@ -167,13 +187,14 @@ case "$first" in *'no usable sandbox runtime'*) conf=(REPLAY_UNCONFINED=1)
   git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
   rp env REPLAY_TIMEOUT=2 >/dev/null; sleep 1
   [ "$(cat "$o/say.md" 2>/dev/null)" = "(no result)" ] && pass || fail "the hung session was ended by the time limit (got: $(cat "$o/say.md" 2>/dev/null))"
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && fail "a timed-out session leaves processes running" || pass
   # An interrupted runner takes its sessions with it.
   rp env >/dev/null & rpid=$!; i=0
-  until pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && pass || fail "the session to interrupt started"
+  until pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && pass || fail "the session to interrupt started"
   pkill -TERM -f "replay.sh $d/plug/set" 2>/dev/null; wait "$rpid" 2>/dev/null; sleep 1
-  pgrep -f 'sleep 31\.4159' >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
+  pgrep -f "sleep 31\\.$$\$" >/dev/null 2>&1 && fail "an interrupted runner leaves its sessions running" || pass
+  case "$(head -n 1 "$o/login-removed.txt" 2>/dev/null)" in unchecked:*) pass ;; *) fail "a run that was interrupted says its kept files were not checked for the login" ;; esac
   # Cut short in its first turn, a post-compaction run still shows what that turn journaled.
   rp env REPLAY_POSTCOMPACT=1 REPLAY_TIMEOUT=2 >/dev/null
   [ "$(cat "$o/journal.jsonl" 2>/dev/null)" = '{"event":"pc"}' ] && [ ! -s "$o/journal.turn2.jsonl" ] && pass \
@@ -223,6 +244,74 @@ out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
 [ "$rc" = 0 ] && [ ! -s "$o/loaded.jsonl" ] && [ ! -e "$o/noload.txt" ] && pass || fail "a file the transcript shows as loaded counts when the hook left no row (exit $rc)"
+# So does the mark when it names what a linked file resolves to, as the hook's own rows do.
+( cd "$d/plug/src" && echo resolved > viatranscript && git add viatranscript && git commit -qm resolved ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ ! -s "$o/loaded.jsonl" ] && [ ! -e "$o/noload.txt" ] && pass || fail "the transcript's mark counts when it names the file a linked instruction file resolves to (exit $rc; missing: $(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null))"
+# A folder that only has an instruction file's name is not one, and is not waited for.
+( cd "$d/plug/src" && mkdir -p .claude/CLAUDE.md && echo x > .claude/CLAUDE.md/note && git add .claude/CLAUDE.md/note && git commit -qm folder ) >/dev/null 2>&1
+git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$o/noload.txt" ] && pass || fail "a folder named like an instruction file is not expected to load (exit $rc; missing: $(tr '\n' ' ' < "$o/noload.txt" 2>/dev/null))"
+# A commit case that cannot be used fails the call and leaves no older output to be scored as this call's.
+echo 0000000000000000000000000000000000000000 > "$d/plug/set/one/commit"; [ -s "$o/result.json" ] || fail "the control: an earlier call left output for the case"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+case "$rc:$out" in 3:*'one: commit is not a commit of the source repo'*) [ ! -e "$o" ] && pass || fail "a case with a bad commit leaves no older output behind" ;;
+  *) fail "a case whose commit the source repo does not have fails the call (exit $rc)" ;; esac
+mkdir -p "$o" && echo stale > "$o/result.json"; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"; mv "$d/plug/set/one/ask.md" "$d/plug/set/one/ask.off"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; mv "$d/plug/set/one/ask.off" "$d/plug/set/one/ask.md"
+case "$rc:$out" in 3:*'one: lacks ask.md'*) [ ! -e "$o" ] && pass || fail "a case with no ask leaves no older output behind" ;; *) fail "a case with no ask fails the call (exit $rc)" ;; esac
+# So does a snapshot that cannot be made: here the archive cannot be unpacked.
+mkdir -p "$o" && echo stale > "$o/result.json"; printf '#!/bin/sh\nexit 1\n' > "$d/bin/tar"; chmod +x "$d/bin/tar"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; rm -f "$d/bin/tar"
+case "$rc:$out" in 3:*'one: cannot snapshot'*) [ ! -e "$o" ] && pass || fail "a case whose snapshot failed leaves no older output behind" ;; *) fail "a case whose snapshot cannot be made fails the call (exit $rc)" ;; esac
+# Every folder in a set is a case: one with nothing of a case in it fails the call by name, and the real case still runs.
+mkdir -p "$d/plug/set/notes" "$d/plug/out/notes.1"; echo n > "$d/plug/set/notes/readme.txt"; echo stale > "$d/plug/out/notes.1/result.json"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?; rm -rf "$d/plug/set/notes"
+case "$rc:$out" in 3:*'notes: lacks ask.md'*) [ -s "$o/result.json" ] && [ ! -e "$d/plug/out/notes.1" ] && pass || fail "a folder that is no case leaves no older output, and the real case still runs" ;; *) fail "a folder in the set that is no case fails the call by name (exit $rc)" ;; esac
+# A case named on the command line is a folder of the set: a name that leads elsewhere runs nothing and removes nothing.
+mkdir -p "$d/plug/victim.1" && echo keep > "$d/plug/victim.1/keep.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" ../victim 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ -s "$d/plug/victim.1/keep.txt" ] && pass || fail "a case name that leads out of the set is refused before anything is removed (exit $rc)"
+# The same when the name leads to a folder that exists: here the set's own parent's "src".
+mkdir -p "$d/plug/src.1" && echo keep > "$d/plug/src.1/keep.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" ../src 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ -s "$d/plug/src.1/keep.txt" ] && case "$out" in *'not a case folder of the set: ../src'*) true ;; *) false ;; esac && pass || fail "a case name that leads to a real folder outside the set is refused by name, and nothing is removed (exit $rc)"
+rm -rf "$d/plug/src.1"
+# A name is one case, never split at a space or matched against other files: a folder "a b" that is
+# no case fails by its whole name, and the older output of "a", "b" and of a file's name stays.
+mkdir -p "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1"; here="$PWD"; cd "$d" && : > xfile || fail "the control: the test stands where a file matches the wildcard name"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+case "$rc:$out" in 3:*'a b: lacks ask.md'*) case "$out" in *'x*: lacks ask.md'*) [ -d "$d/plug/out/a.1" ] && [ -d "$d/plug/out/b.1" ] && [ -d "$d/plug/out/xfile.1" ] && [ -s "$o/result.json" ] && pass \
+  || fail "a case name with a space or a wildcard touches no other name's output, and the real case still runs" ;; *) fail "a folder named with a wildcard is one case by that name" ;; esac ;;
+  *) fail "a folder named with a space is one case by that name (exit $rc)" ;; esac
+# The same when the caller gives those names.
+rpn(){ HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" "$@" 2>&1; }
+out="$(rpn "a b" 'x*')"; rc=$?; cd "$here"
+case "$rc:$out" in 3:*'a b: lacks ask.md'*) case "$out" in *'x*: lacks ask.md'*) [ -d "$d/plug/out/a.1" ] && [ -d "$d/plug/out/b.1" ] && [ -d "$d/plug/out/xfile.1" ] && pass \
+  || fail "a named case with a space or a wildcard touches no other name's output" ;; *) fail "a named case with a wildcard is one case by that name" ;; esac ;;
+  *) fail "a named case with a space is one case by that name (exit $rc)" ;; esac
+rm -rf "$d/plug/set/a b" "$d/plug/set/x*" "$d/plug/out/a.1" "$d/plug/out/b.1" "$d/plug/out/xfile.1" "$d/xfile"
+# A set with no folders has no cases: nothing runs and nothing fails.
+mkdir -p "$d/plug/noset"; echo f > "$d/plug/noset/file.txt"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/noset" "$d/plug/src" "$d/plug/out-none" 2>&1)"; rc=$?
+case "$rc:$out" in 0:*lacks*) fail "a set with no folders has no case to refuse" ;; 0:*) pass ;; *) fail "a set with no folders runs nothing and fails nothing (exit $rc)" ;; esac
+# Refused before anything runs: an empty name, a name given twice, a runs-per-case number that is not one.
+echo stale > "$o/say.md"
+out="$(rpn '' one)"; rc=$?
+case "$rc:$out" in 2:*'not a case folder of the set'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "an empty case name runs nothing" ;; *) fail "an empty case name is refused by that message (exit $rc)" ;; esac
+out="$(rpn one one)"; rc=$?
+case "$rc:$out" in 2:*'case named twice: one'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "a case named twice runs nothing" ;; *) fail "a case named twice is refused by that message (exit $rc)" ;; esac
+for bad in abc 0 1.5 007; do
+  out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_K="$bad")"; rc=$?
+  case "$rc:$out" in 2:*'REPLAY_K must be'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "REPLAY_K=$bad runs nothing" ;; *) fail "REPLAY_K=$bad is refused by that message (exit $rc)" ;; esac
+done
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_K=)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$o/say.md")" != stale ] && pass || fail "an empty REPLAY_K means one run (exit $rc)"
+out="$(HOME="$fh" ANTHROPIC_API_KEY=x PATH="$d/bin:$PATH" REPLAY_PLUGIN_DIR="$d/plug" env ${conf[@]+"${conf[@]}"} bash "$HERE/replay.sh" "$d/plug/set" "$d/plug/src" "$d/plug/out" nosuch 2>&1)"; rc=$?
+[ "$rc" = 2 ] && pass || fail "a case name that is not a folder of the set is refused (exit $rc)"
+rm -rf "$d/plug/victim.1"
 # In neither: the run is marked, each missing file is named, and the call fails.
 ( cd "$d/plug/src" && git mv viatranscript noload && git commit -qm noload ) >/dev/null 2>&1
 git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
@@ -352,6 +441,56 @@ grep -q '^eight\.1 ' "$o3/summary.txt" && pass || fail "a run with an impossible
 # In post-compaction mode a run leaves its facts too.
 out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_POSTCOMPACT=1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(fact "$o" postcompact)" = true ] && [ "$(fact "$o" noload)" = false ] && pass || fail "a post-compaction run leaves facts.json (exit $rc)"
+# --- The model login. A key or token in the environment is the whole login: the
+# credential file, which can do more, stays behind even when the caller has one.
+ftok=FILE-ACCESS-0123456789abcdefghij; shaped=sk-ant-api03-ZZZZZZZZZZZZZZZZZZZZZZZZ; vtok=VAR-TOKEN-0123456789abcdefghijklmn; exact=abcdefghijklmnopqrst
+printf '{"claudeAiOauth":{"accessToken":"%s","scopes":["user:inference"]},"note":"%s"}\n' "$ftok" "$shaped" > "$fh/.claude/.credentials.json"
+short=abcdefghijklmnopqrs   # one character under the length a login is taken to have
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY="$short")"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$o/keep/credfile" ] && pass || fail "with a key in the environment the credential file is not carried into the session (exit $rc)"
+case "$out" in *'no login variable'*) fail "no warning about the login file when a key is set" ;; *) pass ;; esac
+[ ! -e "$o/login-removed.txt" ] && grep -q "key=$short " "$o/keep/spill" && ! grep -q 'login-' "$d/plug/out/summary.txt" && [ "$(fact "$o" login_in_kept_files)" = false ] && pass \
+  || fail "a value too short to be a login is not cut from kept files, and the run is not marked (got: $(cat "$o/login-removed.txt" 2>/dev/null))"
+[ "$(cat "$o/keep/login-removed.txt" 2>/dev/null)" = forged ] && pass || fail "a file the session named like the runner's mark, inside a kept folder, is just a kept file"
+# A session that writes its token down: no kept file holds it afterwards, and the run says so.
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY= CLAUDE_CODE_OAUTH_TOKEN="$vtok" REPLAY_PREFIX="$shaped $ftok ")"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$o/keep/credfile" ] && grep -q 'token=\[login removed\]#* file=' "$o/keep/spill" && pass \
+  || fail "with a token in the environment the file stays behind and the token the session wrote is cut (exit $rc)"
+grep -rqF "$vtok" "$d/plug/out" && fail "the token is in no kept file" || pass
+[ -z "$(find "$d/plug/out" -name "*$vtok*" 2>/dev/null)" ] && [ -e "$o/keep/sub/a.txt" ] && grep -q '^keep/odd.*name$' "$o/login-removed.txt" && [ "$(grep -c 'its name held the login: not kept' "$o/login-removed.txt" 2>/dev/null)" = 2 ] && pass \
+  || fail "a file or folder the session named after its token is not kept, and the listing does not spell the token (got: $(tr '\n' ' ' < "$o/login-removed.txt" 2>/dev/null))"
+grep -rqF "$shaped" "$d/plug/out" && fail "text shaped like a key is cut wherever it is kept, the ask included" || pass
+grep -qF "$ftok" "$o/turn1.md" && pass || fail "the credential file's own strings are not looked for"
+[ "$(fact "$o" login_in_kept_files)" = true ] && [ "$(wc -c < "$o/keep/spill")" = "$(printf 'key= token=%s file=\n' "$vtok" | wc -c)" ] && pass \
+  || fail "facts.json says the login was found, and the cut keeps a file's length"
+grep -qx keep/spill "$o/login-removed.txt" 2>/dev/null && grep -qx stderr.txt "$o/login-removed.txt" && grep -q '^one\.1 .*login-removed' "$d/plug/out/summary.txt" \
+  && case "$out" in *'was in kept files and was cut out'*) true ;; *) false ;; esac && pass \
+  || fail "a run whose kept files held the login names them and is marked in the summary (got: $(tr '\n' ' ' < "$o/login-removed.txt" 2>/dev/null))"
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY="$exact")"
+grep -rqF "$exact" "$d/plug/out" && fail "a key of exactly 20 characters is cut" || pass
+# A kept file the runner may not write is left alone when clean, and still cut when it holds the key.
+echo "answers $exact" > "$d/plug/set/one/key.md"; echo "plain answers" > "$d/plug/set/one/key2.md"; chmod 0444 "$d/plug/set/one/key.md" "$d/plug/set/one/key2.md"
+out="$(rp env ${conf[@]+"${conf[@]}"} ANTHROPIC_API_KEY="$exact")"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$o/key2.md" 2>/dev/null)" = "plain answers" ] && ! grep -q key2 "$o/login-removed.txt" && grep -q '^answers \[login removed\]' "$o/key.md" && pass \
+  || fail "a read-only kept file is kept as it is when clean and cut when it holds the key (exit $rc)"
+rm -f "$d/plug/set/one/key.md" "$d/plug/set/one/key2.md"
+# With no key and no token the file is the only login: it is carried and the caller is
+# told. Of what is in it, only text shaped like a key is cut from what is kept.
+out="$(rp env -u ANTHROPIC_API_KEY ${conf[@]+"${conf[@]}"})"; rc=$?
+[ "$rc" = 0 ] && [ -e "$o/keep/credfile" ] && case "$out" in *'no login variable'*) true ;; *) false ;; esac && pass \
+  || fail "with no key or token the credential file is carried and the caller is warned (exit $rc)"
+grep -rqF "$shaped" "$d/plug/out" && fail "on the credential-file route, text shaped like a key is in no kept file" || pass
+grep -qF "$ftok" "$o/keep/spill" && grep -qx keep/spill "$o/login-removed.txt" 2>/dev/null && pass || fail "on the credential-file route only key-shaped text is cut, as the warning says"
+rm -f "$fh/.claude/.credentials.json"
+# The last step failing as a whole: the mark stands, even against a kept path of the same name, and the call fails.
+realpy="$(command -v python3)"
+# The stand-in for python3 fails that step alone, late: after the step emptied the runner's mark.
+printf '#!/usr/bin/env bash\ns="$(cat)"; case "$s" in *"login removed"*) : > "$2/login-removed.txt"; exit 1 ;; esac\nexec %q "$@" <<<"$s"\n' "$realpy" > "$d/bin/python3"; chmod +x "$d/bin/python3"
+out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_KEEP="keep keep/login-removed.txt")"; rc=$?; rm -f "$d/bin/python3"
+[ "$rc" = 3 ] && grep -q '^one\.1 .*login-unchecked' "$d/plug/out/summary.txt" && [ "$(fact "$o" login_in_kept_files)" = null ] \
+  && case "$(head -n 1 "$o/login-removed.txt" 2>/dev/null)" in unchecked:*) true ;; *) false ;; esac \
+  && case "$out" in *'could not check the kept files'*) true ;; *) false ;; esac && pass \
+  || fail "a run whose kept files could not be checked keeps the runner's mark, says so in the summary and facts.json, and fails the call (exit $rc; mark: $(head -n 1 "$o/login-removed.txt" 2>/dev/null))"
 # --- What the session changed. A new file is listed under its own name, whatever git would do to quote it;
 # a control character in a name shows as "?".
 out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?

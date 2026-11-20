@@ -78,9 +78,9 @@ inside, a `tree` that is itself a link, a link inside that is absolute or
 leads out of the folder, a `commit` beside it, something in it that cannot be
 read, or a `commit` case with no source repo to look in. A refusal removes any
 older output for that case and the runner exits 3, so a result from an earlier
-call is never read as this one's. This is stricter than for a commit case,
-which is only named on stderr and skipped, with exit 0, as before: a caller
-that scripts on the exit code will see the difference.
+call is never read as this one's. A commit case that cannot be used (no
+`ask.md`, a `commit` the source repo does not have, a snapshot that fails) is
+refused the same way.
 
 ## facts.json
 
@@ -97,9 +97,10 @@ holds what the runner knows and no verdict:
 | `expected`, `loaded`, `noload` | instruction files the load check required, the ones the load hook recorded (named by where they sat: `home/...`, `repo/...`), and whether one was missing |
 | `is_error`, `cost_usd`, `turns`, `seconds` | from the session's result; null where it gave none |
 | `refused`, `changed_files` | tool calls the guard refused, project files changed |
+| `login_in_kept_files` | true when the last step changed what was kept: it cut the model login, or text shaped like one, out of a file, or removed a file or folder (named after the login, not a regular file, or not readable or rewritable); false when it changed nothing; null when that step did not finish |
 
 A run stopped before its session (the sandbox's shared path appeared, the
-candidate could not be placed, the snapshot could not be made) has a folder
+candidate could not be placed) has a folder
 and a summary row but no `facts.json`. `noload` is the same mark as the summary's. `loaded` is the
 hook's record only, so it can be empty on a run that passed the check through
 its transcript. In post-compaction mode cost, turns, seconds and refused calls
@@ -127,10 +128,16 @@ finite number is `null`. The two lists the session reports about itself,
 characters a path or a model name has, but they are still the session's words:
 compare them, never act on them.
 
-A case skipped for lacking `ask.md` or a usable `commit` is only named on
-stderr, as before, and whatever an earlier call left for it stays. A caller
-that needs every case measured should use a fresh output directory per call
-and count the `facts.json` files.
+A case refused for lacking `ask.md` or a usable `commit` or `tree/`, or whose
+snapshot could not be made, leaves no `facts.json`, and no older output
+either: the runner names it on stderr and exits 3. Every folder in a set
+(or link to one) whose name does not start with a dot is a case, so a folder of notes kept
+inside one fails the call the same way: keep such things outside the set, or
+under a name that starts with a dot. A case named on the command line must be
+a folder (or a link to one) directly inside the set, given without a slash
+and only once, and `REPLAY_K` must be a whole number, 1 or more, written
+without a leading zero; otherwise
+the runner exits 2 before running or removing anything.
 
 ## What keeps a replay safe
 
@@ -155,6 +162,42 @@ npm install -g @anthropic-ai/sandbox-runtime   # Linux also needs bubblewrap, so
   of reach.
 - **Processes and environment:** its own process table, and an environment
   built from nothing.
+- **Login:** a session needs the model login. Its commands can read the
+  copied login file; with a token set, the one real run found the variable
+  absent from its commands' environment, and whether they could reach it
+  another way was not tested. Treat either login as reachable: Claude Code's
+  setting that strips credentials from what a session starts
+  (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) is left off, because with it every
+  Bash call fails inside the sandbox runtime (tried on CLI 2.1.328 with
+  runtime 0.0.82). So what matters is which login that is, and what a run
+  keeps.
+  - *With `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` set* (do this):
+    that variable is the whole login and your credential file stays behind.
+    Prefer a token from `claude setup-token`: it can only make model
+    requests. The last step of every run then checks everything it kept and
+    overwrites, in place and at the same length, the key or token (when it
+    is 20 characters or longer) and anything shaped like an Anthropic key,
+    example text in a replayed project included. A kept file or folder whose
+    name holds one is removed, as is a kept file that is not a regular file
+    or could not be read or rewritten. That last case is every kept file of
+    a run when the output directory is on a filesystem that cannot map files
+    into memory: the run then keeps nothing but the list. A read-only kept
+    file that held the login is left writable by its owner.
+  - *With neither set:* the session gets a copy of
+    `~/.claude/.credentials.json`, which it can read and which can do more
+    than ask a model. The runner says so when it starts. Of what that file
+    holds, the last step cuts only text shaped like an Anthropic key: any
+    other secret in it that a session wrote into a kept file stays there.
+  - *Either way:* a run where the last step changed anything lists it in
+    `login-removed.txt`, is marked `login-removed` in the summary, and has
+    `login_in_kept_files` true in `facts.json`. A mark written before the
+    session starts stands until that step finishes, so a run that was
+    interrupted, or whose step failed, keeps a `login-removed.txt` that says
+    it is unchecked: treat its files as holding the login. A call that runs
+    to its end marks such a run `login-unchecked` and exits 3. Not caught: a
+    login written in another encoding or in pieces. With `REPLAY_UNCONFINED=1`
+    none of this is a guarantee: a session that outlives its time limit can
+    write to the output afterwards.
 - **Time:** the time limit runs inside the sandbox, so nothing a session
   started outlives it, and an interrupted runner kills its sandboxes.
 - **Not limited:** the memory and disk a session can fill inside its sandbox.
