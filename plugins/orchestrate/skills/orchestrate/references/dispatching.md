@@ -8,7 +8,8 @@ its craft guide; add none.
 - **Isolate writers.** Several implementers may run at once, each in its own
   tree. Without native
   isolation, run `git worktree add -b orchestrate/<ticket>
-  .agents/worktrees/<ticket> origin/<base>` yourself so reground sees it.
+  .agents/worktrees/<ticket> origin/<base>` yourself so reground sees it (a
+  re-dispatch: `orchestrate/<ticket>-r<n>` and the same suffix on the path).
   Prefer disjoint tasks; landing and the verifier catch coupling.
 - **A re-dispatch names the round it replaces.** Every implementer you
   dispatch again on the same task (a `REJECTED` retry, a `NEEDS_CONTEXT` or
@@ -16,8 +17,8 @@ its craft guide; add none.
   from the base, so it starts without the earlier round's commits. When that
   round left a branch (its result file names it; for a round that died, the
   branch of its tree in `git worktree list`), put the branch in the dispatch
-  and add `"replaces":"<branch>"` to the `dispatched` row. The writer starts
-  from that branch; the row is the only thing that lets `retire` remove the
+  and add `"replaces":"<branch>"` to the `dispatched` row. The writer merges
+  that branch in first; the row is the only thing that lets `retire` remove the
   earlier round's tree once the ticket is closed, since it never infers one
   from names or order. One row replaces one branch.
 - **Hand over only the artifact:** the work item or spec task, the paths it

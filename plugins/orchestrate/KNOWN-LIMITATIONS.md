@@ -225,30 +225,33 @@ What it does not do, on purpose:
 - Remove a tree that holds an untracked file or a change to a tracked file. It
   names the files. A tree whose only leftovers are git-ignored (build output,
   files a `.worktreeinclude` copied in) is kept too, until the router runs
-  `retire --ignored` with the operator's agreement; then they go with the tree
-  and are named. The one thing it moves is a writer's result left in a tree by
+  `retire --ignored <tree>` for that tree with the operator's agreement; then
+  they go with the tree and are named. Never when an ignored folder holds a
+  repository or worktree of its own. The one thing it moves is a writer's result left in a tree by
   a version before 0.9.8, which it carries to the primary checkout when that
   has no such file or an equal one.
 - Release a lock. Claude Code locks an agent's tree and does not always
   release it when the agent finishes; `retire` names the lock and leaves the
   tree for the operator.
-- Recognise every merged change. A branch counts as on the base when merging
-  it would be clean and change nothing, or when one commit on the base since
-  the fork carries exactly its text changes (a squash merge). A pull request
-  edited before it merged, a squash onto a base that had moved under the same
-  lines, or a squash of binary files does not match: the tree is named `LEFT`
-  and stays. It asks no forge.
+- Recognise every merged change. A branch counts as on the base when every
+  path it changed is, on the base, exactly the branch's version, or when one
+  commit on the base since the fork is its change and left those paths at
+  the branch's version (a squash merge the base has since edited). A pull
+  request edited before it merged, or a squash onto a base that had already
+  moved under the same files, does not match: the tree is named `LEFT` and
+  stays. It asks no forge and runs no merge. A squash the base later reverted
+  still counts: the branch is deleted, and its content stays in that commit.
 - Judge against a base it could not refresh. With an `origin` it fetches the
   base first (bounded to 20 seconds where `timeout` or `gtimeout` exists) and
   judges nothing when that fails; `--dry-run` judges against the last fetch.
   With no `origin` the base is the local branch.
 - Reuse a tree across retries. Each re-dispatch is a fresh writer in a fresh
-  tree that starts from the earlier round's branch; the earlier tree goes once
+  tree that merges the earlier round's branch in first; the earlier tree goes once
   the ticket is closed and the re-dispatch's row names the branch it replaced.
   One row names one branch, so a re-dispatch that takes over two tasks leaves
   one tree for a later hand removal. Sending the retry back to the same writer
   would hold one tree per ticket, but needs the writer kept alive after it
   returns, its id on the board, and a rule for escalating to a stronger
   model; not done.
-- Run without git 2.38 or later, which it needs to compare a branch with the
-  base without a checkout.
+- Run without git 2.36 or later, which it needs to list worktrees whose
+  paths hold unusual characters.

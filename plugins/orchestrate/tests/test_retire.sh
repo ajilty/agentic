@@ -81,7 +81,7 @@ here p1 "a closed ticket's unmerged task keeps its tree"; here p2 "and so does i
 has "LEFT    $W/p1 (orchestrate/P-t1) ticket=P -> not all of it is on main" "parallel tasks of a closed ticket are named as left, not replaced"
 has "KEPT    $W/a4 (orchestrate/L4) ticket=L4 landed -> it holds files: ?? left.txt;" "a landed tree with an untracked file is kept and the file named"
 [ -f "$W/a4/left.txt" ] && pass || fail "an untracked file is never removed"
-has "KEPT    $W/a4i (orchestrate/L4i) ticket=L4i landed -> only 1 git-ignored entries (prod.plan) remain: when the operator agrees they can go, run retire --ignored" "a landed tree with only an ignored file is kept and the file named"
+has "KEPT    $W/a4i (orchestrate/L4i) ticket=L4i landed -> only 1 git-ignored entries (prod.plan) remain: when the operator agrees they can go, run retire --ignored $W/a4i" "a landed tree with only an ignored file is kept and the file named"
 [ -f "$W/a4i/prod.plan" ] && pass || fail "an ignored file is never removed"
 here a5 "an in-flight lane keeps its tree even when its change is on the base"; hasnt "$W/a5 " "and is not mentioned"
 has "KEPT    $W/a6 (orchestrate/L6) ticket=L6 landed -> locked claude agent a6 (pid 1): retire never unlocks" "a locked tree is kept and its lock named"
@@ -102,9 +102,15 @@ has "KEPT    $W/a14 (orchestrate/L14) ticket=L14 landed -> it holds files: ?? .a
 # With nothing new to do it says so in one line, and names only what still needs someone.
 out="$(bash "$R" retire 2>&1)"; has "RETIRE: 0 removed, 4 kept" "a second run removes nothing and names the four that hold a file or a lock"
 # Ignored files go with a tree only when the caller says they may, and are named when they do.
-out="$(bash "$R" retire --ignored 2>&1)"
-has "RETIRED $W/a4i (orchestrate/L4i) ticket=L4i landed; 1 git-ignored entries (prod.plan) went with it" "with --ignored a tree holding only ignored files goes, and they are named"
-has "KEPT    $W/a4 (orchestrate/L4) ticket=L4 landed -> it holds files: ?? left.txt;" "--ignored still keeps a tree with an untracked file"
+out="$(bash "$R" retire --ignored 2>&1)"; rc=$?; assert_eq "$rc" "64" "--ignored without a tree is refused"
+out="$(bash "$R" retire --ignored "$W/a4" 2>&1)"
+has "KEPT    $W/a4i (orchestrate/L4i) ticket=L4i landed -> only 1 git-ignored" "--ignored for one tree does not reach another"
+has "KEPT    $W/a4 (orchestrate/L4) ticket=L4 landed -> it holds files: ?? left.txt;" "and still keeps a tree with an untracked file"
+mkdir -p "$W/a4i/build/inner"; git init -q "$W/a4i/build/inner"; printf 'build/\n' >> "$d/.git/info/exclude"
+out="$(bash "$R" retire --ignored "$W/a4i" 2>&1)"
+has "KEPT    $W/a4i (orchestrate/L4i) ticket=L4i landed -> one of its git-ignored folders holds a repository" "a repository inside an ignored folder keeps the tree even with --ignored"
+rm -rf "$W/a4i/build"; out="$(bash "$R" retire --ignored "$W/a4i" 2>&1)"
+has "RETIRED $W/a4i (orchestrate/L4i) ticket=L4i landed; 1 git-ignored entries (prod.plan) went with it" "with --ignored its tree holding only ignored files goes, and they are named"
 out="$(bash "$R" retire --force 2>&1)"; rc=$?; assert_eq "$rc" "64" "an unknown option is refused"
 # The count stays while copies do, and a board with no open lanes still says so.
 out="$(bash "$R" reground 2>&1)"; has "LANE WORKTREES ON DISK: " "the count stays while copies do"
@@ -166,6 +172,16 @@ row '{"ticket":"R1","event":"dispatched","persona":"implementer","dispatch_id":"
 row '{"ticket":"R1","event":"returned","persona":"implementer","status":"DONE","branch":"orchestrate/R1-r2"}'; bash "$R" done R1 2>/dev/null
 # A tracked file changed and not committed in a landed tree.
 lane M1 orchestrate/M1 m1; land orchestrate/M1; echo edit >> "$W/m1/m1.txt"
+# The base makes the branch's very edit somewhere else: two identical stanzas, the branch
+# changes the first, an unrelated base commit changes the second. Same patch, different place.
+printf 'a {\n  size = small\n}\nx\ny\nz\nw\nv\nu\nb {\n  size = small\n}\n' > twin.txt; git add twin.txt; git commit -qm twin; git push -q origin main
+lane Q1 orchestrate/Q1 q1; ( cd "$W/q1" && sed -i.bak '2s/small/large/' twin.txt && rm -f twin.txt.bak && git commit -qam "first stanza large" )
+sed -i.bak '11s/small/large/' twin.txt && rm -f twin.txt.bak; git commit -qam "second stanza large"; git push -q origin main
+# A round that died before returning: no row names its branch but the retry's "replaces".
+tree worktree-agent-dead dead; row '{"ticket":"D1","event":"dispatched","persona":"implementer","dispatch_id":"dead"}'
+git worktree add -q -b orchestrate/D1-r2 "$W/d1b" worktree-agent-dead
+row '{"ticket":"D1","event":"dispatched","persona":"implementer","dispatch_id":"d1b","replaces":"worktree-agent-dead"}'
+row '{"ticket":"D1","event":"returned","persona":"implementer","status":"DONE","branch":"orchestrate/D1-r2"}'; bash "$R" done D1 2>/dev/null
 # Landed locally but never pushed: origin's base does not hold it.
 lane U1 orchestrate/U1 u1; squash orchestrate/U1
 out="$(bash "$R" retire 2>&1)"
@@ -175,6 +191,9 @@ has "RETIRED $W/s1 (orchestrate/S1) ticket=S1 landed" "a squash merge the base l
 has "RETIRED $W/r1 (orchestrate/R1) ticket=R1 replaced; branch deleted, its commits are on orchestrate/R1-r2" "a replaced round whose commits live on in the retry loses its branch too"
 here r1b "the retry's own tree waits for its merge"
 has "KEPT    $W/m1 (orchestrate/M1) ticket=M1 landed -> it holds files:  M m1.txt;" "a landed tree with an uncommitted change is kept and the file named"
+has "LEFT    $W/q1 (orchestrate/Q1) ticket=Q1 -> its lane is open" "the same edit made elsewhere on the base is not this branch landing"
+git rev-parse -q --verify orchestrate/Q1 >/dev/null && pass || fail "and its branch stays"
+has "RETIRED $W/dead (worktree-agent-dead) ticket=D1 replaced; branch deleted, its commits are on orchestrate/D1-r2" "a round that died is removed once the retry that replaces it is closed"
 has "LEFT    $W/u1 (orchestrate/U1) ticket=U1" "a change on the local base that origin does not hold is not landed"
 # A fetch that fails judges nothing; a base that is not a branch name, or is the lane's own branch, removes nothing.
 git remote set-url origin "$o/missing.git"; out="$(bash "$R" retire 2>&1)"
