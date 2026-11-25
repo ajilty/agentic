@@ -23,8 +23,11 @@ python3 scripts/litmus/litmus.py compare \
   the edit was never asked about. A case left out with `--only` or `--exclude`
   covers nothing. A heading the edit removes or renames away needs no case;
   its new name does. The summary file lists the headings touched and those
-  without a case. Coverage is by heading: a case that names a heading is not
-  proof that it exercises every sentence under it.
+  without a case, also when no case at all was selected (`inconclusive`, with
+  nothing asked and nothing spent, and `reason` saying so). Such a run still
+  has to be able to start: without the CLI, or while another run holds the
+  state folder, it returns 3 like any other. Coverage is by heading: a case
+  that names a heading is not proof that it exercises every sentence under it.
 - `--without "<sentence>"` in place of `--new`: does that sentence earn its place.
 - `--same` in place of `--new`: the file against itself.
 - `--scope project|user|rules`: how the file is delivered (default `project`).

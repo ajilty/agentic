@@ -460,6 +460,32 @@ class Compare(WithStandIn):
         code, out = self.run_cli(*both(), "--label", "all-covered")
         self.assertEqual((code, self.summary()["verdict"], self.summary()["sections_without_a_case"]), (0, "pass", []), out)
 
+    def test_a_run_that_selects_no_case_still_leaves_its_record(self):
+        shutil.rmtree(self.cases / "beta")                           # the edit touches only Section B, which nothing asks about
+        code, out = self.run_cli("compare", "--old", self.file("old.md", 1, 1.0), "--new", self.file("new.md", 1, 0.5), "--cases", str(self.cases))
+        s = self.summary()
+        self.assertEqual((code, s["verdict"], s["rows"], s["new_sessions"], s["cost_usd"]), (2, "inconclusive", [], 0, 0), out)
+        self.assertEqual((s["sections_touched"], s["sections_without_a_case"], s["reason"]),
+                         (["Section B"], ["Section B"], "no case selected: nothing was tested"))
+        self.assertIn("verdict: inconclusive (no case selected", out)
+        self.assertFalse((self.state / "ledger.jsonl").exists(), "nothing was spent")
+        # every case left out by name: the same, and the section it would have covered is listed
+        case(self.cases, "beta", "Section B")
+        code, out = self.compare(0.1, 0.95, "--exclude", "alpha", "--label", "left-out")
+        s = empty = self.summary()
+        self.assertEqual((code, s["verdict"], s["rows"], s["sections_without_a_case"]), (2, "inconclusive", [], ["Section A"]), out)
+        # whichever way no case is left, the record is written
+        for n, more in enumerate((("--new", self.file("new.md", 0.95), "--all", "--exclude", "alpha,beta"), ("--same", "--only", "nobody"),
+                                  ("--new", self.file("new.md", 0.95), "--only", "nobody"))):
+            code, out = self.run_cli("compare", "--old", self.file("old.md", 0.1), "--cases", str(self.cases), "--label", f"none{n}", *more)
+            s = self.summary()
+            self.assertEqual((code, s["verdict"], s["rows"], s["label"]), (2, "inconclusive", [], f"none{n}"), (more, out))
+        # and it holds what any run's record holds
+        code, out = self.compare(0.1, 0.95, "--label", "with-cases")
+        full = self.summary()
+        self.assertEqual((code, sorted(empty), [type(empty[k]) for k in sorted(empty)]), (0, sorted(full), [type(full[k]) for k in sorted(full)]))
+        self.assertEqual((len(empty["old"]), empty["rules"], empty["reuse_old"]), (len(full["old"]), full["rules"], False))
+
     def test_a_renamed_heading_needs_a_case_under_its_new_name_only(self):
         shutil.rmtree(self.cases / "beta")
         case(self.cases, "gamma", "Section C")

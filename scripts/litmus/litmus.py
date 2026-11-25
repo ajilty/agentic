@@ -452,15 +452,19 @@ def cmd_compare(a):
         print("sections the edit touches:", ", ".join(sorted(hit)) or "(none)")
         if bare:
             print("no case in this run covers:", ", ".join(bare))
-    if not cases:
-        print("no cases selected: nothing was tested")
-        return EXIT["inconclusive"]
     rules = judge.Rules(alpha=a.alpha, margin=a.margin, first=a.first, step=a.step, cap=a.cap)
     # --same keeps the two sides' answers apart by name. With --reuse-old it becomes the drift check: the
     # answers an earlier run stored at each position against answers asked now, same file, same option order.
     slot = lambda side, i: ((f"{i}-again" if side == "new" else str(i)) if a.reuse_old
                             else (f"{i}-old" if side == "old" else str(i))) if a.same else str(i)
     with Run(a, "compare") as run:
+        if not cases:                        # nothing to ask: no verdict on the edit, and the run's record says why
+            print("\nverdict: inconclusive (no case selected: nothing was tested)")
+            run.finish({"verdict": "inconclusive", "reason": "no case selected: nothing was tested", "old": sha(old), "new": sha(new),
+                        "rows": [], "sections_touched": sorted(hit), "sections_without_a_case": bare,
+                        "rules": dataclasses.asdict(rules), "reuse_old": bool(a.reuse_old), "pairs_from_two_runs": 0,
+                        "pairs_dropped_for_mixed_models": 0})
+            return EXIT["inconclusive"]
         if a.reuse_old and not any(run.has(slot("old", i), old, c) for c in cases for i in range(rules.cap)):
             print(f"--reuse-old: nothing stored matches this old file, these cases, scope, draw, model, effort and CLI version "
                   f"({run.cli_version}); everything will be asked now")
