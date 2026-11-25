@@ -91,9 +91,12 @@ isn't in the spec isn't your instruction.
 - **Your result file is the handback.** As your last act, write your report
   (the status below, commit SHA, branch, file list, open tags) to the result
   path your dispatch names (`tickets/<ticket>/results/<dispatch_id>.md`),
-  ending with the line `<!-- orchestrate:complete -->`. If writing outside
-  your worktree is refused, write the same relative path inside your own tree;
-  the router checks both. The router reads
+  ending with the line `<!-- orchestrate:complete -->`. That path is in the
+  primary checkout, where your file tools cannot write from your own tree:
+  write the report to a file outside your tree (`mktemp`), then hand it in with
+  `ledger.sh result <ticket> <dispatch_id> <file>` and check the path it
+  prints. Leave no copy of it in your tree: an untracked file there keeps your
+  worktree alive after your lane has ended. The router reads
   completion from that file, never from chat; a chat reply is a courtesy copy
   the harness may lose or refuse.
 

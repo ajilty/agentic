@@ -105,6 +105,18 @@ every line it prints:
      dispatching. Harness-named `worktree-*` trees stay in `OTHER WORKTREES`.
    - `TELEMETRY RESIDUE`: a tree dirty only with `board.jsonl`, in any
      worktree; reported, safe to discard.
+   - `LANE WORKTREES ON DISK: <n> whose lane is not in flight`: copies of
+     lanes that have returned or closed. Run `ledger.sh retire`. It removes
+     `RETIRED` each tree whose change is on the base (a squash commit, a
+     merge, or a merged pull request by the branch's name) or that a later
+     branch of a closed ticket superseded, and each hand-made detached copy
+     of a closed ticket; it deletes a landed branch and keeps a superseded
+     one. `KEPT` lines name what it left and why: a tree with uncommitted or
+     untracked files (salvage them first), a locked tree (unlock it yourself
+     only when its holder has ended), and a closed lane's last branch whose
+     change is not on the base yet (waiting for its merge, or handed over).
+     A tree of an open lane with no evidence of landing is left without a
+     line. `retire --dry-run` shows what would go and changes nothing.
 
 The run-level `goal` line is printed last, so a clean board never reads as
 finished while the plan is open. Reground runs under macOS `/bin/bash` 3.2.

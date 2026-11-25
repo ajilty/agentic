@@ -16,9 +16,15 @@ list (`herdr agent list`, or the harness's own). If any is non-empty or
 unknown, treat the checkout as shared. Integrating onto the base yourself
 also needs a checkout that is not shared and a HEAD that already is the
 journaled base; never switch branches or move
-HEAD to make that true. Remove a lane's worktree and branch only after its
-change has landed (merged, or its pull request merged); on the hand-over path
-keep both and tell the operator where they are. Fix a stale base by recreating
+HEAD to make that true. A lane's worktree and branch go only after its
+change has landed (merged, or its pull request merged), and you do not remove
+them by hand: `ledger.sh retire` does, at landing and at every re-entry after,
+since most pull requests merge in a later turn. It checks each of this run's
+trees against the base, removes the ones whose change is there or that a
+later round of a closed ticket replaced, and keeps and names any that holds
+uncommitted or untracked files or a lock; salvage what such a tree holds, or
+release a lock whose holder has ended, and run it again. On the hand-over
+path it keeps both, and you tell the operator where they are. Fix a stale base by recreating
 the worktree, never by `reset --hard`. Treat a worktree you did not create as
 the operator's; the floor does not cover it.
 

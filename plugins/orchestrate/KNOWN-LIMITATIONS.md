@@ -206,3 +206,30 @@ and every other rule are prose in the briefs.
 
 `docs/notes/codex-support.md` records the earlier Codex enforcement work that
 ADR-0040 removed.
+
+## A writer's worktree outlives its lane until `retire` removes it (Claude Code)
+
+Claude Code keeps a subagent's worktree whenever git shows changed files,
+untracked files or new commits there, and a writer that did its job has
+committed. Its periodic sweep skips a tree with unpushed commits, which a
+squash merge that deletes the branch leaves forever. So nothing in the harness
+removes a finished lane's tree. `ledger.sh retire` does: reground counts the
+copies of lanes no longer in flight, and the router runs `retire` then and at
+landing. It removes a tree only when the lane's change is on the base or a
+later round of a closed ticket replaced it, and never one that holds
+uncommitted or untracked files or a lock.
+
+What it does not do:
+
+- Release a lock. Claude Code locks an agent's tree and does not always
+  release it when the agent finishes; `retire` names the lock and leaves the
+  tree. Unlock it yourself when its holder has ended.
+- Judge a tree this run did not create, or one from before the board named
+  its branch.
+- See a merge it cannot reach: with no `gh` and a base whose commit differs
+  from the lane's whole change (a pull request edited before merging), the
+  tree stays until the ticket is closed and a later branch replaces it, or
+  someone removes it.
+- Keep a resumed builder's tree for certain: that a resumed subagent works on
+  in the tree it had is how Claude Code behaves today, not something its docs
+  state.
