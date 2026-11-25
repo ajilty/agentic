@@ -23,8 +23,11 @@ python3 scripts/litmus/litmus.py compare \
   the edit was never asked about. A case left out with `--only` or `--exclude`
   covers nothing. A heading the edit removes or renames away needs no case;
   its new name does. The summary file lists the headings touched and those
-  without a case. Coverage is by heading: a case that names a heading is not
-  proof that it exercises every sentence under it.
+  without a case, also when no case at all was selected (`inconclusive`, with
+  nothing asked and nothing spent, and `reason` saying so). Such a run still
+  has to be able to start: without the CLI, or while another run holds the
+  state folder, it returns 3 like any other. Coverage is by heading: a case
+  that names a heading is not proof that it exercises every sentence under it.
 - `--without "<sentence>"` in place of `--new`: does that sentence earn its place.
 - `--same` in place of `--new`: the file against itself.
 - `--scope project|user|rules`: how the file is delivered (default `project`).
@@ -107,16 +110,19 @@ reads it.
 - **An outage is not a verdict.** Sessions that error or time out are counted;
   five stop the run with no verdict.
 - **Spend is capped per model.** Every session's list-price cost goes into a
-  ledger under `.agents/runs/litmus/`; a run stops with no verdict at
-  `--ceiling-usd`. A ledger that cannot be read refuses the run. A session that
-  reports no cost (one killed for running too long, one that failed before it
-  could say) is booked at `--session-budget`, which must be above zero and no
-  more than the ceiling. Three limits: the ceiling is checked before each
-  session starts, so a run can pass it by what the sessions then in flight
-  spend, about three times `--session-budget` (the CLI can itself pass its
-  per-session limit by a little); if `litmus` is killed outright, the sessions
-  then in flight are not booked; and the ledger is kept per model name as
-  typed, so `opus` and `claude-opus-5-5` are counted apart.
+  ledger under `.agents/runs/litmus/`. A ledger that cannot be read refuses
+  the run. A session that reports no cost (one killed for running too long,
+  one that failed before it could say) is booked at `--session-budget`, which
+  must be above zero and no more than the ceiling. `--ceiling-usd` is a wall
+  for what sessions are allowed to spend: a session starts only if its budget
+  still fits under the ceiling beside the budgets of the sessions already
+  running. If it does not, it waits for one of them to end; when none is
+  running, the run stops with no verdict. So a run stops once less than one
+  `--session-budget` of room is left: set that budget near what a session
+  really costs. Three limits: the CLI can itself pass its per-session limit
+  by a little, and that little can pass the ceiling; if `litmus` is killed
+  outright, the sessions then running are not booked; and the ledger is kept
+  per model name as typed, so `opus` and `claude-opus-5-5` are counted apart.
 - **One run at a time, at most three sessions.** A second invocation on the
   same state folder is refused.
 - **An interrupt stops cleanly.** Sessions not yet started are dropped; the

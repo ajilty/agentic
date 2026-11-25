@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -400,14 +401,121 @@ class Compare(WithStandIn):
         self.assertIn("401", s["reason"])
 
     def test_the_spend_ceiling_stops_the_run_spans_invocations_and_is_per_model(self):
-        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.01", "--jobs", "1")
+        tight = ("--ceiling-usd", "0.01", "--session-budget", "0.002")       # the stand-in's sessions cost exactly their limit
+        code, out = self.compare(1, 0, *tight, "--jobs", "1")
         s = self.summary()
         self.assertEqual((code, s["verdict"], s["new_sessions"]), (3, "invalid", 5), out)
         self.assertIn("spend ceiling", s["reason"])
-        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.01", "--label", "second")    # the ledger remembers
+        self.assertAlmostEqual(s["ledger_usd"], 0.01, msg="spent up to the ceiling, not past it")
+        code, out = self.compare(1, 0, *tight, "--label", "second")          # the ledger remembers
         self.assertEqual((code, self.summary()["new_sessions"]), (3, 0), out)
-        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.01", "--jobs", "1", model="sonnet")
+        code, out = self.compare(1, 0, *tight, "--jobs", "1", model="sonnet")
         self.assertEqual(self.summary()["new_sessions"], 5, "another model has its own ceiling")
+
+    def test_the_ceiling_is_never_passed_however_many_sessions_run_at_once(self):
+        # A session may spend up to its limit, so one starts only if that limit fits beside the limits of those
+        # running. Here a session really costs 0.002 against a limit of 0.004, three may run at once, the ceiling is 0.01.
+        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.004", "--jobs", "3")
+        s = self.summary()
+        self.assertEqual((code, s["verdict"]), (3, "invalid"), out)
+        self.assertEqual(s["new_sessions"], 4, "two at a time, then one, then one: it waited for room instead of stopping early")
+        self.assertLessEqual(s["ledger_usd"], 0.01)
+        self.assertIn("ceiling of $0.01 for haiku leaves no room for another session of up to $0.004 (ledger $0.008)", s["reason"])
+        self.assertEqual([litmus.usd(x) for x in (0, 0.002, 0.25, 0.0004, 12.5, 208, 0.00004)],
+                         ["$0.00", "$0.002", "$0.25", "$0.0004", "$12.50", "$208.00", "$0.00"])
+        # sessions that never say what they spent are booked at their limit, and the wall still holds
+        self.control.write_text(json.dumps({"crash": True}))
+        code, out = self.compare(1, 0, "--ceiling-usd", "0.01", "--session-budget", "0.004", "--jobs", "3", "--draw", "2", model="sonnet")
+        s = self.summary()
+        self.assertEqual((s["new_sessions"], round(s["ledger_usd"], 6)), (2, 0.008), out)
+        # a run that is stopped for another reason while a session waits for room ends too
+        self.control.write_text(json.dumps({"fail": True, "fail_cost": 0.001}))
+        code, out = self.compare(1, 0, "--ceiling-usd", "0.02", "--session-budget", "0.01", "--jobs", "3", "--draw", "3", model="opus")
+        s = self.summary()
+        self.assertEqual((code, s["failed_sessions"]), (3, 5), out)
+        self.assertIn("sessions failed", s["reason"])
+
+    def test_a_session_waiting_for_room_is_woken_when_another_ends_or_never_ran(self):
+        # Room for two sessions at once (two limits of 0.01 under 0.025), three workers: the third waits, and as the
+        # ledger fills, the second does too. The engine is stood in for, to hold sessions
+        # open and to fail on demand; the run goes on a thread of its own so that a wait that never ends fails the test.
+        real, lock, state = engine.run_session, threading.Lock(), {"now": 0, "most": 0, "calls": 0}
+        self.addCleanup(setattr, engine, "run_session", real)
+
+        def stand_in(fail_first):
+            def run_session(**kw):
+                with lock:
+                    state["calls"] += 1
+                    n = state["calls"]
+                    state["now"] += 1
+                    state["most"] = max(state["most"], state["now"])
+                try:
+                    if fail_first and n == 1:
+                        time.sleep(0.3)                  # long enough for a third session to be waiting
+                        raise OSError("the engine could not start this one")
+                    time.sleep(0.05)
+                    return real(**kw)
+                finally:
+                    with lock:
+                        state["now"] -= 1
+            return run_session
+
+        def probe(label, model, ceiling):                    # each run on a model of its own, so on a ledger of its own
+            out = {}
+            t = threading.Thread(target=lambda: out.update(zip(("code", "text"), self.run_cli(
+                "probe", "--repeats", "1", "--session-budget", "0.01", "--ceiling-usd", ceiling, "--jobs", "3", "--label", label,
+                model=model))), daemon=True)
+            t.start()
+            t.join(120)
+            self.assertFalse(t.is_alive(), f"{label}: a session waiting for room was never woken")
+            return out["code"], out["text"]
+        engine.run_session = stand_in(fail_first=False)
+        code, out = probe("ends", "haiku", "0.025")
+        self.assertEqual((code, state["most"]), (0, 2), out)             # every arm ran, never more than two at once
+        state.update(now=0, most=0, calls=0)
+        # Room for one at a time, and the first never runs: nothing else is running to wake the two that wait, so its
+        # place has to be given back, with the word passed on, and given back once: never two at once afterwards.
+        engine.run_session = stand_in(fail_first=True)
+        code, out = probe("never-ran", "sonnet", "0.018")
+        self.assertEqual((code, state["most"]), (3, 1), out)
+        self.assertGreater(state["calls"], 2, "the sessions that waited went on to run")
+
+    def test_a_place_given_back_wakes_whoever_waits_with_nothing_else_running(self):
+        # Room for one session. The first holds the place and then never runs; a second waits for it. No other
+        # session will end and pass the word on, so giving the place back has to do it. The run is driven by hand,
+        # in place of the probe command, to have exactly these two sessions and nothing queued behind them.
+        real_engine, seen = engine.run_session, {}
+        self.addCleanup(setattr, engine, "run_session", real_engine)
+        self.addCleanup(setattr, litmus, "cmd_probe", litmus.cmd_probe)
+
+        def never_ran(**kw):
+            time.sleep(0.3)
+            raise OSError("the engine could not start this one")
+
+        def two_sessions(a):
+            with litmus.Run(a, "probe") as run:
+                failed, got = [], []
+                def first():
+                    try:
+                        run.session("first", litmus.PROBE_TEXT, litmus.PROBE_ASK, "project")
+                    except OSError as e:
+                        failed.append(e)
+                engine.run_session = never_ran
+                t1 = threading.Thread(target=first, daemon=True)
+                t1.start()
+                time.sleep(0.1)                              # the first is inside the engine now, holding the only place
+                engine.run_session = real_engine
+                t2 = threading.Thread(target=lambda: got.append(run.session("second", litmus.PROBE_TEXT, litmus.PROBE_ASK, "project")), daemon=True)
+                t2.start()
+                t2.join(30)
+                seen.update(woken=not t2.is_alive(), ran=bool(got and got[0]), first_failed=bool(failed), still_counted=run.flying)
+                run.invalid("the test is over")              # lets a session that never woke end
+                t1.join(5)
+                t2.join(5)
+            return 0
+        litmus.cmd_probe = two_sessions
+        code, out = self.run_cli("probe", "--session-budget", "0.01", "--ceiling-usd", "0.015", "--jobs", "2")
+        self.assertEqual(seen, {"woken": True, "ran": True, "first_failed": True, "still_counted": 0}, out)
 
     def test_a_session_that_reports_no_cost_is_booked_at_its_limit(self):
         def booked(control, *more, label):
@@ -459,6 +567,32 @@ class Compare(WithStandIn):
         self.assertEqual((code, self.summary()["sections_without_a_case"]), (2, ["Section B"]), out)
         code, out = self.run_cli(*both(), "--label", "all-covered")
         self.assertEqual((code, self.summary()["verdict"], self.summary()["sections_without_a_case"]), (0, "pass", []), out)
+
+    def test_a_run_that_selects_no_case_still_leaves_its_record(self):
+        shutil.rmtree(self.cases / "beta")                           # the edit touches only Section B, which nothing asks about
+        code, out = self.run_cli("compare", "--old", self.file("old.md", 1, 1.0), "--new", self.file("new.md", 1, 0.5), "--cases", str(self.cases))
+        s = self.summary()
+        self.assertEqual((code, s["verdict"], s["rows"], s["new_sessions"], s["cost_usd"]), (2, "inconclusive", [], 0, 0), out)
+        self.assertEqual((s["sections_touched"], s["sections_without_a_case"], s["reason"]),
+                         (["Section B"], ["Section B"], "no case selected: nothing was tested"))
+        self.assertIn("verdict: inconclusive (no case selected", out)
+        self.assertFalse((self.state / "ledger.jsonl").exists(), "nothing was spent")
+        # every case left out by name: the same, and the section it would have covered is listed
+        case(self.cases, "beta", "Section B")
+        code, out = self.compare(0.1, 0.95, "--exclude", "alpha", "--label", "left-out")
+        s = empty = self.summary()
+        self.assertEqual((code, s["verdict"], s["rows"], s["sections_without_a_case"]), (2, "inconclusive", [], ["Section A"]), out)
+        # whichever way no case is left, the record is written
+        for n, more in enumerate((("--new", self.file("new.md", 0.95), "--all", "--exclude", "alpha,beta"), ("--same", "--only", "nobody"),
+                                  ("--new", self.file("new.md", 0.95), "--only", "nobody"))):
+            code, out = self.run_cli("compare", "--old", self.file("old.md", 0.1), "--cases", str(self.cases), "--label", f"none{n}", *more)
+            s = self.summary()
+            self.assertEqual((code, s["verdict"], s["rows"], s["label"]), (2, "inconclusive", [], f"none{n}"), (more, out))
+        # and it holds what any run's record holds
+        code, out = self.compare(0.1, 0.95, "--label", "with-cases")
+        full = self.summary()
+        self.assertEqual((code, sorted(empty), [type(empty[k]) for k in sorted(empty)]), (0, sorted(full), [type(full[k]) for k in sorted(full)]))
+        self.assertEqual((len(empty["old"]), empty["rules"], empty["reuse_old"]), (len(full["old"]), full["rules"], False))
 
     def test_a_renamed_heading_needs_a_case_under_its_new_name_only(self):
         shutil.rmtree(self.cases / "beta")

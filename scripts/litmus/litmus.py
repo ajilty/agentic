@@ -114,6 +114,12 @@ def sha(s):
     return hashlib.sha256(s.encode()).hexdigest()[:16]
 
 
+def usd(x):
+    """A sum as dollars: cents when that says it, up to a hundredth of a cent when it would not ($0.002, not $0.00)."""
+    whole, _, rest = f"{x:.4f}".partition(".")
+    return f"${whole}.{rest.rstrip('0').ljust(2, '0')}"
+
+
 def words(t):
     return " ".join(re.sub(r"[^a-z0-9 ]", "", t.lower()).split())
 
@@ -264,6 +270,7 @@ class Run:
         self.out, self.root = self.state / "out" / self.id, pathlib.Path(root) / self.id
         self.out.mkdir(parents=True)
         self.lock, self.halt, self.reason = threading.Lock(), threading.Event(), ""
+        self.landed, self.flying = threading.Condition(self.lock), 0      # sessions now running, and the word that one has ended
         self.spent, self.calls, self.cached, self.load_misses, self.failures, self.tool_runs = 0.0, 0, 0, 0, 0, 0
         self.tokens = dict.fromkeys(TOKENS, 0)
         self.wrote, self.unsound = [], False
@@ -293,28 +300,45 @@ class Run:
                 self.reason = why
                 self.halt.set()
             self.unsound |= unsound
+            self.landed.notify_all()         # a session waiting for room has nothing left to wait for
 
     def session(self, name, text, prompt, scope=None, sabotage=None):
         """One engine session, counted against the ledger. None once the run has been stopped."""
         a = self.a
         with self.lock:
-            if self.halt.is_set():
-                return None
-            if self.before + self.spent >= a.ceiling_usd:
-                self.reason = (f"the spend ceiling of ${a.ceiling_usd:.2f} for {a.model} is reached "
-                               f"(ledger ${self.before + self.spent:.2f})")
-                self.halt.set()
-                return None
+            # The ceiling is a wall: a session starts only if its limit still fits under it beside the limits of
+            # the sessions already running. While others run, it waits for one to end and say what it spent;
+            # when none is running and there is still no room, the run is over.
+            while True:
+                if self.halt.is_set():
+                    return None
+                ledger = self.before + self.spent
+                if ledger + (self.flying + 1) * a.session_budget <= a.ceiling_usd + 1e-9:     # sums of cents are floats
+                    break
+                if not self.flying:
+                    self.reason = (f"the spend ceiling of {usd(a.ceiling_usd)} for {a.model} leaves no room for another "
+                                   f"session of up to {usd(a.session_budget)} (ledger {usd(ledger)})")
+                    self.halt.set()
+                    self.landed.notify_all()
+                    return None
+                self.landed.wait()
             if self.calls >= a.call_cap:
                 self.reason = f"the cap of {a.call_cap} new sessions is reached"
                 self.halt.set()
+                self.landed.notify_all()
                 return None
             self.calls += 1
+            self.flying += 1
         try:
             f = engine.run_session(cli=self.cli, run_root=self.root, name=name, text=text, scope=scope or a.scope,
                                    prompt=prompt, model=a.model, effort=a.effort, sabotage=sabotage or a.sabotage,
                                    session_budget=a.session_budget, timeout=a.timeout, keep=a.keep)
-        except engine.EngineError as e:
+        except BaseException as e:               # it never ran, or we cannot know: its place is given back either way
+            with self.lock:
+                self.flying -= 1
+                self.landed.notify_all()
+            if not isinstance(e, engine.EngineError):
+                raise
             self.invalid(str(e))
             return None
         # A session that was killed, or failed before it could say, reports no cost, yet it may have spent up to
@@ -322,10 +346,17 @@ class Run:
         untold = not f.get("cost_known")
         cost = f["booked_usd"] = a.session_budget if untold else f["cost_usd"]
         with self.lock:
-            self.spent += cost
+            self.spent += cost                   # booked and its place given back in one step: no one sees room that is not there
+            self.flying -= 1
+            self.landed.notify_all()
             self.tool_runs += bool(f["tool_attempts"])
             self.failures += f["failed"]
-            over = f["failed"] and self.failures >= a.error_limit
+            if f["failed"] and self.failures >= a.error_limit and not self.halt.is_set():
+                # stopped here, in the same step that frees this session's place: a session waiting for room must
+                # find the run over, not start one more
+                self.reason = (f"{self.failures} sessions failed (an outage, a bad login or a rate limit); the last said: "
+                               + ((f["result"] or f["stderr"]).strip()[:160] or "nothing"))
+                self.halt.set()
             used = count_tokens(f.get("tokens"))     # cannot raise: the dollar row below must always be written
             for k in TOKENS:
                 self.tokens[k] += used[k]
@@ -335,9 +366,6 @@ class Run:
                                     | ({"cost_untold": True} if untold else {})) + "\n")
             with (self.out / "runs.jsonl").open("a") as fh:
                 fh.write(json.dumps({"name": name} | f) + "\n")
-        if over:
-            self.invalid(f"{self.failures} sessions failed (an outage, a bad login or a rate limit); the last said: "
-                         + ((f["result"] or f["stderr"]).strip()[:160] or "nothing"))
         return f
 
     def key(self, slot, text, case):
@@ -452,15 +480,19 @@ def cmd_compare(a):
         print("sections the edit touches:", ", ".join(sorted(hit)) or "(none)")
         if bare:
             print("no case in this run covers:", ", ".join(bare))
-    if not cases:
-        print("no cases selected: nothing was tested")
-        return EXIT["inconclusive"]
     rules = judge.Rules(alpha=a.alpha, margin=a.margin, first=a.first, step=a.step, cap=a.cap)
     # --same keeps the two sides' answers apart by name. With --reuse-old it becomes the drift check: the
     # answers an earlier run stored at each position against answers asked now, same file, same option order.
     slot = lambda side, i: ((f"{i}-again" if side == "new" else str(i)) if a.reuse_old
                             else (f"{i}-old" if side == "old" else str(i))) if a.same else str(i)
     with Run(a, "compare") as run:
+        if not cases:                        # nothing to ask: no verdict on the edit, and the run's record says why
+            print("\nverdict: inconclusive (no case selected: nothing was tested)")
+            run.finish({"verdict": "inconclusive", "reason": "no case selected: nothing was tested", "old": sha(old), "new": sha(new),
+                        "rows": [], "sections_touched": sorted(hit), "sections_without_a_case": bare,
+                        "rules": dataclasses.asdict(rules), "reuse_old": bool(a.reuse_old), "pairs_from_two_runs": 0,
+                        "pairs_dropped_for_mixed_models": 0})
+            return EXIT["inconclusive"]
         if a.reuse_old and not any(run.has(slot("old", i), old, c) for c in cases for i in range(rules.cap)):
             print(f"--reuse-old: nothing stored matches this old file, these cases, scope, draw, model, effort and CLI version "
                   f"({run.cli_version}); everything will be asked now")
