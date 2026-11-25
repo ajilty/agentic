@@ -10,12 +10,11 @@ its craft guide; add none.
   isolation, run `git worktree add -b orchestrate/<ticket>
   .agents/worktrees/<ticket> origin/<base>` yourself so reground sees it.
   Prefer disjoint tasks; landing and the verifier catch coupling.
-- **A retry goes back to the builder that built it.** Resume that implementer
-  by its agent id; it keeps its context and works on in its own tree, so one
-  ticket holds one tree however many rounds it takes. Dispatch a fresh
-  implementer only when the first cannot be resumed (it was stopped, or its
-  transcript is gone), and say so in the `dispatched` row's note; `retire`
-  removes the tree it replaces once the ticket is closed.
+- **A retry names the round it replaces.** A retried implementer is a fresh
+  dispatch in a fresh tree; add `"replaces":"<branch>"` to its `dispatched`
+  row, the branch from the `returned` row of the round it takes over from.
+  That row is the only thing that lets `retire` remove the earlier round's
+  tree once the ticket is closed: it never infers one from names or order.
 - **Hand over only the artifact:** the work item or spec task, the paths it
   needs, its result path; on a retry, the verdict file; on a plan revision,
   the prior verdict and its pin; on a plan re-review, those two plus the
@@ -36,8 +35,11 @@ its craft guide; add none.
   under the primary checkout's run dir from inside any worktree and leaves no
   copy in the writer's tree: a result left there is untracked work that keeps
   the tree alive after the lane ends. Read it at the path under the primary
-  checkout; for a writer dispatched before 0.9.8, also check the same relative
-  path inside its tree before treating the file as absent. The
+  checkout. Two fallbacks before treating it as absent: a writer whose
+  hand-in failed puts its whole report in its reply and says so, so store
+  that with `ledger.sh result` yourself; and a writer dispatched before
+  0.9.8 may have left the file at the same relative path inside its tree.
+  The
   `returned` you append carries `branch` and SHA from that file, cross-checked
   with `git worktree list`.
 - **Batch by tier:** never bundle a mechanical item with a hard one.

@@ -213,23 +213,31 @@ Claude Code keeps a subagent's worktree whenever git shows changed files,
 untracked files or new commits there, and a writer that did its job has
 committed. Its periodic sweep skips a tree with unpushed commits, which a
 squash merge that deletes the branch leaves forever. So nothing in the harness
-removes a finished lane's tree. `ledger.sh retire` does: reground counts the
-copies of lanes no longer in flight, and the router runs `retire` then and at
-landing. It removes a tree only when the lane's change is on the base or a
-later round of a closed ticket replaced it, and never one that holds
-uncommitted or untracked files or a lock.
+removes a finished lane's tree. `ledger.sh retire` does, when the router runs
+it: at landing, and whenever reground counts lane worktrees on disk.
 
-What it does not do:
+What it does not do, on purpose:
 
+- Judge a tree by its name, a detached copy, or any tree whose branch no board
+  row names. A hand-made plan or apply copy is the router's to remove, and a
+  tree from before the board recorded its branch stays until someone removes
+  it.
+- Remove a tree that holds any file git does not track, ignored files
+  included, or a change to a tracked file. It names the files. The one thing
+  it moves is a writer's result left in a tree by a version before 0.9.8,
+  which it carries to the primary checkout when that has no such file or an
+  equal one.
 - Release a lock. Claude Code locks an agent's tree and does not always
   release it when the agent finishes; `retire` names the lock and leaves the
-  tree. Unlock it yourself when its holder has ended.
-- Judge a tree this run did not create, or one from before the board named
-  its branch.
-- See a merge it cannot reach: with no `gh` and a base whose commit differs
-  from the lane's whole change (a pull request edited before merging), the
-  tree stays until the ticket is closed and a later branch replaces it, or
-  someone removes it.
-- Keep a resumed builder's tree for certain: that a resumed subagent works on
-  in the tree it had is how Claude Code behaves today, not something its docs
-  state.
+  tree for the operator.
+- See a change that reached the base in another form: a pull request edited
+  before it merged leaves a branch whose content is not all on the base, and
+  that tree stays. It asks no forge; it fetches the base once, for at most 20
+  seconds, and judges against the last fetch when that fails.
+- Reuse a tree across retries. Each retry is a fresh writer in a fresh tree,
+  removed once the ticket is closed and the retry's row names the branch it
+  replaced. Sending the retry back to the same writer would hold one tree per
+  ticket, but needs the writer kept alive after it returns, its id on the
+  board, and a rule for escalating to a stronger model; not done.
+- Run without git 2.38 or later, which it needs to compare a branch with the
+  base without a checkout.

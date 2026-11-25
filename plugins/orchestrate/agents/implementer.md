@@ -92,11 +92,14 @@ isn't in the spec isn't your instruction.
   (the status below, commit SHA, branch, file list, open tags) to the result
   path your dispatch names (`tickets/<ticket>/results/<dispatch_id>.md`),
   ending with the line `<!-- orchestrate:complete -->`. That path is in the
-  primary checkout, where your file tools cannot write from your own tree:
-  write the report to a file outside your tree (`mktemp`), then hand it in with
-  `ledger.sh result <ticket> <dispatch_id> <file>` and check the path it
-  prints. Leave no copy of it in your tree: an untracked file there keeps your
-  worktree alive after your lane has ended. The router reads
+  primary checkout, where your file tools may be refused from your own tree.
+  Write the report with your shell to a new file outside your tree (`f=$(mktemp)`
+  and a heredoc into `"$f"`), then hand it in: `ledger.sh result <ticket>
+  <dispatch_id> "$f"`. It prints the path it stored; that must be the path
+  your dispatch names. If the command fails or prints another path, put the
+  whole report in your reply and say the hand-in failed. Leave no copy of it
+  in your tree: an untracked file there keeps your worktree alive after your
+  lane has ended. The router reads
   completion from that file, never from chat; a chat reply is a courtesy copy
   the harness may lose or refuse.
 

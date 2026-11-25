@@ -324,7 +324,8 @@ case "$cmd" in
         fi
         [ -n "$kt" ] || { other=$((other + 1)); continue; }
         # A lane that is no longer in flight and still has its copy on disk: counted here, judged by `retire`.
-        case "$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $4 }')" in dispatched) ;; *) ondisk=$((ondisk + 1)) ;; esac
+        case "$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $4 }')" in dispatched) ;;
+          *) [ -z "$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b')" ] || ondisk=$((ondisk + 1)) ;; esac
         [ -n "$dirt" ] || continue
         printed=1
         if [ "$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $3 }')" = 1 ]; then
@@ -335,7 +336,7 @@ case "$cmd" in
       done < <(git worktree list --porcelain 2>/dev/null | awk '
         /^worktree /{ sub(/^worktree /, ""); p = $0; n++ } /^branch /{ b = $2; sub("refs/heads/", "", b); if (n > 1) print p "|" b }')
       [ "$other" -gt 0 ] && echo "OTHER WORKTREES (not this run): $other"
-      [ "$ondisk" -gt 0 ] && { echo "LANE WORKTREES ON DISK: $ondisk whose lane is not in flight -> run: ledger.sh retire (removes each whose change has landed or was superseded; keeps the rest and says why)"; printed=1; }
+      [ "$ondisk" -gt 0 ] && echo "LANE WORKTREES ON DISK: $ondisk whose lane is not in flight -> run: ledger.sh retire (removes each whose change is on the base or that a later round replaced; leaves the rest)"
     fi
     # Run-level anchor (ADR-0020): the latest `goal` event carries the north star + a
     # pointer to where the plan durably lives (spec/ADR). Surface it so a clean board
@@ -380,115 +381,123 @@ case "$cmd" in
               # worktree cannot write there with its file tools, and a result left inside its tree
               # is untracked work that keeps the tree alive after the lane ends (measured
               # 2026-11-21: 36 of 51 leftover trees, 5 holding the only copy of a result).
+              # Fails loudly, and removes the writer's copy only once the stored one is proven equal.
     tk="${1:?ticket}"; did="${2:?dispatch_id}"; src="${3:?file}"
     case "$tk$did" in */*|*..*) echo "ledger.sh result: ticket and dispatch_id are names, not paths" >&2; exit 2 ;; esac
-    [ -f "$src" ] || { echo "ledger.sh result: no such file: $src" >&2; exit 2; }
-    dst="$ROOT/tickets/$tk/results/$did.md"; mkdir -p "${dst%/*}"
-    if [ "$(cd "$(dirname "$src")" && pwd -P)/$(basename "$src")" != "$(cd "${dst%/*}" && pwd -P)/$did.md" ]; then
-      cp "$src" "$dst.tmp" && mv "$dst.tmp" "$dst"
-      # The copy the writer made is now a duplicate: gone, so it cannot keep a tree alive. Only a
-      # file git does not track is removed; a tracked one is the project's.
-      if git -C "$(dirname "$src")" rev-parse --git-dir >/dev/null 2>&1 \
-         && [ -z "$(git -C "$(dirname "$src")" ls-files -- "$(basename "$src")" 2>/dev/null)" ]; then rm -f "$src"; fi
+    [ -f "$src" ] && [ ! -L "$src" ] || { echo "ledger.sh result: not a regular file: $src" >&2; exit 2; }
+    # Inside a git checkout whose primary this helper cannot find (a worktree of a bare
+    # repository), the run dir would resolve inside the caller's own tree: refuse.
+    if [ -z "$_base" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+      echo "ledger.sh result: cannot find the primary checkout from here; nothing stored" >&2; exit 1
+    fi
+    dst="$ROOT/tickets/$tk/results/$did.md"
+    mkdir -p "${dst%/*}" 2>/dev/null || { echo "ledger.sh result: cannot create ${dst%/*}; nothing stored" >&2; exit 1; }
+    sdir="$(cd "$(dirname "$src")" && pwd -P)"
+    if [ "$sdir/$(basename "$src")" != "$(cd "${dst%/*}" && pwd -P)/$did.md" ]; then
+      if ! { cp "$src" "$dst.tmp" 2>/dev/null && cmp -s "$src" "$dst.tmp" && mv "$dst.tmp" "$dst"; }; then
+        rm -f "${dst:?}.tmp" 2>/dev/null || true
+        echo "ledger.sh result: could not store $dst; your file is untouched at $src" >&2; exit 1
+      fi
+      # The writer's copy is now a duplicate. It is removed only when it sits in a linked
+      # worktree (a writer's own tree) and git does not track it there; anywhere else it stays.
+      gd="$(git -C "$sdir" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+      gc="$(git -C "$sdir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+      if [ -n "$gd" ] && [ "$gd" != "$gc" ] && [ -z "$(git -C "$sdir" ls-files -- "$(basename "$src")" 2>/dev/null)" ]; then rm -f "${src:?}"; fi
     fi
     tail -n 1 "$dst" | grep -q 'orchestrate:complete' || echo "ledger.sh result: WARNING $dst does not end with the completion sentinel; the router will read it as unfinished" >&2
     echo "$dst" ;;
   retire)     # remove the copies of lanes whose work has ended: `ledger.sh retire [--dry-run]`.
-              # Judges only this run's worktrees (as reground scopes them) whose lane is not in
-              # flight. LANDED: the branch's whole change is on the base as one commit (a squash
-              # merge), or `gh` says a pull request from it merged; or, once the lane is closed,
-              # the branch holds nothing the base lacks. SUPERSEDED: the ticket is closed and a
-              # later branch of the same ticket took its place. A detached copy (plan, apply,
-              # proof) goes when its lane closes. Removes the tree, never with --force, so a tree with
-              # uncommitted or untracked files, or a lock, is kept and named; a landed branch is
-              # deleted, a superseded one is kept (its commits are nowhere else). The last branch
-              # of a closed ticket that has not landed is kept: it is waiting for its merge, or
-              # was handed over.
+              # Judges only a worktree whose branch a board row names, exactly, for one ticket,
+              # and whose lane is not in flight. Never a name match, never a detached copy,
+              # never another session's tree.
+              # LANDED: merging the branch into the base would change nothing, so everything it
+              #   holds is already there (a squash merge, a merge, or no commits of its own; the
+              #   last only once the lane is closed, since an open lane's builder may yet
+              #   commit). The tree goes and the branch is deleted.
+              # REPLACED: the ticket is closed and a later `dispatched` row of it says
+              #   "replaces":"<this branch>". The tree goes; the branch stays, since its
+              #   commits are nowhere else.
+              # A tree holding any file git does not track, ignored ones included, or a change
+              # to a tracked file, is kept and the files named; so is a locked tree. One
+              # exception: a writer's result left in the tree by an older version is first
+              # carried to the primary checkout's run dir (if absent there, or equal), then
+              # counts as gone. Never --force, never an unlock.
     dry=""; [ "${1:-}" = --dry-run ] && dry=1
     git rev-parse --git-dir >/dev/null 2>&1 || { echo "RETIRE: not a git checkout"; exit 0; }
     gline=""; [ -f "$LEDGER" ] && gline="$(grep '"event":"goal"' "$LEDGER" 2>/dev/null | tail -1 || true)"
     base="$(val "$gline" base)"
     [ -n "$base" ] || base="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
     [ -n "$base" ] || { echo "RETIRE: no base branch known (no goal row names one, and origin/HEAD is not set): nothing judged"; exit 0; }
-    [ -n "$dry" ] || git fetch -q origin "$base" 2>/dev/null || true
+    if [ -z "$dry" ]; then   # one bounded fetch, never a prompt; without it the base is as fresh as the last fetch
+      _to="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
+      GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}" ${_to:+"$_to" 20} git fetch -q origin "$base" </dev/null >/dev/null 2>&1 || true
+    fi
     baseref="origin/$base"; git rev-parse --verify -q "$baseref" >/dev/null 2>&1 || baseref="$base"
-    git rev-parse --verify -q "$baseref" >/dev/null 2>&1 || { echo "RETIRE: base $base is not a branch here: nothing judged"; exit 0; }
-    # One pass over the board: per ticket its last event and state; per branch its ticket, in
-    # the order the board first named it (the last one named is the ticket's current branch).
+    basetree="$(git rev-parse --verify -q "$baseref^{tree}" 2>/dev/null)" || { echo "RETIRE: base $base is not a branch here: nothing judged"; exit 0; }
+    [ "$(git merge-tree --write-tree "$baseref" "$baseref" 2>/dev/null | head -n 1)" = "$basetree" ] \
+      || { echo "RETIRE: this git cannot merge without a checkout (needs git 2.38 or later): nothing judged"; exit 0; }
+    # One pass over the board. T: a ticket's last event and state. B: a branch and the ticket
+    # that named it. R: a branch a later dispatch of that ticket says it replaces.
     rows=""
     [ -f "$LEDGER" ] && rows="$(awk '
       function f(k,   m) { if (match($0, "\"" k "\":\"[^\"]*\"")) { m = substr($0, RSTART, RLENGTH); sub("^\"" k "\":\"", "", m); sub("\"$", "", m); return m } return "" }
       {
         t = f("ticket"); e = f("event"); if (t == "" || e == "") next
         if (e !~ /^(intake|clarify|dispatched|returned|verdict|fork|decision|lane|done)$/) next
-        b = f("branch"); if (b != "" && e ~ /^(dispatched|returned|lane)$/) { print "B|" b "|" t; cur[t] = b }
+        b = f("branch"); if (b != "" && e ~ /^(dispatched|returned|lane)$/) print "B|" b "|" t
+        r = f("replaces"); if (r != "" && e == "dispatched") print "R|" r "|" t
         if (!(t in seen)) { seen[t] = 1; order[++n] = t }
         last[t] = e "|" f("state")
       }
-      END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" last[t] "|" cur[t] } }' "$LEDGER")"
-    tickets="$(printf '%s\n' "$rows" | awk -F'|' '$1 == "T" { print $2 }')"
-    landed() {   # <branch>, with commits the base lacks: is its whole change on the base all the same?
-      local b="$1" mb pid c n=0
-      mb="$(git merge-base "$baseref" "$b" 2>/dev/null)" || return 1
-      pid="$(git diff "$mb" "$b" 2>/dev/null | git patch-id --stable 2>/dev/null | cut -d' ' -f1)"
-      if [ -n "$pid" ]; then
-        for c in $(git rev-list --no-merges "$mb..$baseref" 2>/dev/null); do
-          n=$((n + 1)); [ "$n" -le 400 ] || break
-          [ "$(git show "$c" 2>/dev/null | git patch-id --stable 2>/dev/null | cut -d' ' -f1)" = "$pid" ] && return 0
-        done
-      fi
-      [ -z "$dry" ] && command -v gh >/dev/null 2>&1 \
-        && [ -n "$(gh pr list --head "$b" --state merged --json number -q '.[0].number' 2>/dev/null)" ] && return 0
-      return 1
-    }
+      END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" last[t] } }' "$LEDGER")"
     removed=0; kept=0; here="$(pwd -P)"
     while IFS='|' read -r wt br locked; do
-      [ -n "$wt" ] || continue
-      kt=""; [ -z "$br" ] || kt="$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b { t = $3 } END { print t }')"
-      if [ -z "$kt" ]; then
-        case "$wt" in
-          */.claude/worktrees/*|*/.agents/worktrees/*)
-            nb="-$(printf '%s' "${br:-${wt##*/}}" | tr '/_.' '---')-"
-            for t in $tickets; do
-              [ "$t" = intake ] && continue
-              case "$nb" in *"-$(printf '%s' "$t" | tr '/_.' '---')-"*) kt="$t"; break ;; esac
-            done ;;
-        esac
-      fi
-      [ -n "$kt" ] || continue                                   # another session's: never judged
-      ts="$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $3 "|" $4 "|" $5 }')"
-      ev="${ts%%|*}"; rest="${ts#*|}"; st="${rest%%|*}"; cur="${rest#*|}"
-      [ "$ev" = dispatched ] && continue                         # in flight
+      [ -n "$wt" ] && [ -n "$br" ] || continue                 # a detached copy is its maker's to remove
+      kt="$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b && !($3 in s) { s[$3] = 1; n++; t = $3 } END { if (n == 1) print t }')"
+      [ -n "$kt" ] || continue                                  # no row names it, or two tickets do
+      ts="$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $3 "|" $4 }')"
+      ev="${ts%%|*}"; st="${ts#*|}"
+      [ "$ev" = dispatched ] && continue                        # in flight
       closed=""; case "$ev" in done) closed=1 ;; lane) [ "$st" = closed ] && closed=1 ;; esac
-      # A tree with nothing the base lacks (merged, or never committed to) and a detached one
-      # (a plan, apply or proof copy) go when their lane closes, not before: an open lane may
-      # still send its builder back into the first, and the second may hold a saved plan.
-      why=""; anc=""; git merge-base --is-ancestor "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" "$baseref" 2>/dev/null && anc=1
-      if [ -n "$br" ] && [ -z "$anc" ] && landed "$br"; then why=landed
-      elif [ -n "$closed" ] && [ -n "$anc" ]; then why="$([ -n "$br" ] && echo landed || echo "lane closed")"
-      elif [ -n "$closed" ] && [ -n "$br" ] && [ -n "$cur" ] && [ "$br" != "$cur" ]; then why=superseded
-      elif [ -n "$closed" ] && [ -z "$br" ]; then why="lane closed"
+      tag="$wt ($br) ticket=$kt"
+      tip="$(git rev-parse --verify -q "refs/heads/$br" 2>/dev/null || true)"
+      [ -n "$tip" ] && [ -d "$wt" ] || { echo "KEPT    $tag -> its folder or branch is gone: git worktree prune, by hand"; kept=$((kept + 1)); continue; }
+      why=""
+      if git merge-base --is-ancestor "$tip" "$baseref" 2>/dev/null; then [ -z "$closed" ] || why=landed
+      elif [ "$(git merge-tree --write-tree "$baseref" "$tip" 2>/dev/null | head -n 1)" = "$basetree" ]; then why=landed
+      elif [ -n "$closed" ] && [ -n "$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" -v t="$kt" '$1 == "R" && $2 == b && $3 == t')" ]; then why=replaced
       fi
-      if [ -z "$why" ]; then
-        [ -z "$closed" ] || { echo "KEPT    $wt (${br:-detached}) ticket=$kt -> lane closed, change not on $base yet: waiting for its merge, or handed over"; kept=$((kept + 1)); }
-        continue
-      fi
-      dirt="$(git -C "$wt" status --porcelain 2>/dev/null || echo '?? unreadable')"
-      if [ -n "$dirt" ]; then echo "KEPT    $wt (${br:-detached}) ticket=$kt $why -> uncommitted or untracked files: $(printf '%s\n' "$dirt" | head -n 3 | tr '\n' ';')"; kept=$((kept + 1)); continue; fi
-      if [ -n "$locked" ]; then echo "KEPT    $wt (${br:-detached}) ticket=$kt $why -> locked${locked#locked}: unlock it yourself if its holder has ended (git worktree unlock)"; kept=$((kept + 1)); continue; fi
-      case "$here/" in "$wt"/*) echo "KEPT    $wt (${br:-detached}) ticket=$kt $why -> you are standing in it"; kept=$((kept + 1)); continue ;; esac
-      if [ -n "$dry" ]; then echo "WOULD RETIRE $wt (${br:-detached}) ticket=$kt $why"; removed=$((removed + 1)); continue; fi
+      [ -n "$why" ] || continue                                 # an open lane, a merge still to come, a hand-over
+      # What the tree holds beyond its commits. Old in-tree results are carried home first.
+      hold="$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null | head -n 3 | tr '\n' ';')"
+      nfile=0
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        home=""; case "$f" in .agents/runs/orchestrate/tickets/*/results/*) home="$ROOT/${f#.agents/runs/orchestrate/}" ;; esac
+        if [ -n "$home" ] && [ -f "$wt/$f" ] && [ ! -L "$wt/$f" ] && { [ ! -e "$home" ] || cmp -s "$wt/$f" "$home"; }; then
+          if [ -n "$dry" ]; then echo "WOULD CARRY HOME $f from $wt"; continue; fi
+          if [ -e "$home" ] || { mkdir -p "${home%/*}" && cp "$wt/$f" "$home.tmp" && cmp -s "$wt/$f" "$home.tmp" && mv "$home.tmp" "$home"; }; then
+            rm -f "${wt:?}/${f:?}"; echo "CARRIED HOME $f from $wt"; continue
+          fi
+          rm -f "${home:?}.tmp" 2>/dev/null || true
+        fi
+        nfile=$((nfile + 1)); [ "$nfile" -le 3 ] && hold="$hold?? $f;"
+      done < <(git -C "$wt" ls-files --others 2>/dev/null | head -n 500)
+      if [ -n "$hold" ]; then echo "KEPT    $tag $why -> it holds files: $hold$([ "$nfile" -gt 3 ] && echo " and $((nfile - 3)) more") move what matters out, then run retire again"; kept=$((kept + 1)); continue; fi
+      if [ -n "$locked" ]; then echo "KEPT    $tag $why -> locked${locked#locked}: retire never unlocks; tell the operator"; kept=$((kept + 1)); continue; fi
+      case "$here/" in "$wt"/*) echo "KEPT    $tag $why -> you are standing in it"; kept=$((kept + 1)); continue ;; esac
+      if [ -n "$dry" ]; then echo "WOULD RETIRE $tag $why"; removed=$((removed + 1)); continue; fi
       if git worktree remove "$wt" 2>/dev/null; then
-        [ "$why" = landed ] && [ -n "$br" ] && git branch -q -D "$br" 2>/dev/null || true
-        echo "RETIRED $wt (${br:-detached}) ticket=$kt $why$([ "$why" = superseded ] && echo "; branch kept")"; removed=$((removed + 1))
-      else echo "KEPT    $wt (${br:-detached}) ticket=$kt $why -> git would not remove it"; kept=$((kept + 1)); fi
+        [ "$why" = landed ] && git branch -q -D "$br" 2>/dev/null || true
+        echo "RETIRED $tag $why$([ "$why" = replaced ] && echo "; branch kept")"; removed=$((removed + 1))
+      else echo "KEPT    $tag $why -> git would not remove it (a submodule, or something changed under it)"; kept=$((kept + 1)); fi
     done < <(git worktree list --porcelain 2>/dev/null | awk '
       function out() { if (n > 1 && p != "") print p "|" b "|" l }
       /^worktree /{ out(); sub(/^worktree /, ""); p = $0; b = ""; l = ""; n++ }
       /^branch /{ b = $2; sub("refs/heads/", "", b) }
       /^locked/{ l = $0 }
       END { out() }')
-    echo "RETIRE: $removed $([ -n "$dry" ] && echo "would be removed" || echo removed), $kept kept" ;;
+    echo "RETIRE: $removed $([ -n "$dry" ] && echo "would be removed" || echo removed), $kept kept$([ -n "$dry" ] && echo " (the base was not fetched: a dry run judges against the last fetch)")" ;;
   done)       # close a lane. Verification is guidance, not a gate: a non-T0 lane with no
               # verdict still closes, with a stderr warning; verify_coverage in `metrics`
               # is the retrospective signal. T0 (the oracle is the check) never warns.

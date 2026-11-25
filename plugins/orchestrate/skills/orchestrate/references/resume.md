@@ -29,7 +29,7 @@ can't run). ADR numbers below are orchestrate's own, not the target repo's.
 ```text
 {"ts","event":"goal","note","spec","base","main_model"}                 # run-level north star, NO ticket: note = the goal text (reground reads "note"), spec = where the plan lives, base = the integration branch lanes land on, main_model = the router's own model (the ceiling for personas). reground surfaces the latest, so a clean board still carries the goal (orchestrate ADR-0020)
 {"ts","ticket","event":"intake","tier","note"}                          # work item recorded + right-sized; tier = T0/T1/T2; note names the task's shared targets
-{"ts","ticket","event":"dispatched","persona","dispatch_id","slug","lens","model","effort"}   # BEFORE the persona runs. persona: one of researcher|planner|implementer|verifier|actuator (a troubleshooter journals as researcher). dispatch_id: EVERY dispatch (orchestrate ADR-0014). slug: researchers only, ticket-unique topic (RAW -> findings/_quarantine/<slug>.<dispatch_id>.md, promoted -> findings/<slug>.md). lens: act|fit|break for an instructions verifier. model/effort: optional, the horsepower actually bound
+{"ts","ticket","event":"dispatched","persona","dispatch_id","slug","lens","model","effort","replaces"}   # BEFORE the persona runs. persona: one of researcher|planner|implementer|verifier|actuator (a troubleshooter journals as researcher). dispatch_id: EVERY dispatch (orchestrate ADR-0014). slug: researchers only, ticket-unique topic (RAW -> findings/_quarantine/<slug>.<dispatch_id>.md, promoted -> findings/<slug>.md). lens: act|fit|break for an instructions verifier. model/effort: optional, the horsepower actually bound
 {"ts","ticket","event":"returned","persona","status","artifact","branch"}   # artifact: the PROMOTED findings path (researcher). branch: implementer only, the worktree branch from its report, confirmed with git worktree list
 {"ts","ticket","event":"verdict","verdict","mode","round","artifact"}   # APPROVED|REJECTED|INCONSISTENT_ORACLE. mode: "plan" for a plan-mode verdict on the spec (spends no implementer retry, not verify coverage); the spec as reviewed is pinned beside it at verdicts/<ticket>.<dispatch_id>.spec.md so a re-review diffs instead of re-reading. An instructions lane journals ONE row per round of lens verifiers (REJECTED if any lens rejects), round = N, artifact = verdicts/<ticket>.round<N>.md, the merged findings the router writes
 {"ts","ticket","event":"clarify","skill"}                               # intake clarification; ticket="intake" if pre-ticket
@@ -71,7 +71,7 @@ every line it prints:
    - `OPEN WRITER ... persona=implementer branch=unknown`: dispatched, no
      `returned`; in flight or crashed. **Check the writer's result file first**:
      `tickets/<ticket>/results/<dispatch_id>.md` ending with the completion
-     sentinel (in the run dir, else the same path inside the lane's worktree)
+     sentinel (in the run dir; `dispatching.md` names the two fallbacks)
      means the work finished and only the journal is behind — journal `returned`
      from it and route. Only with no result file, match each
      unclaimed worktree by this ticket's id in its commit subjects (`git -C
@@ -105,18 +105,14 @@ every line it prints:
      dispatching. Harness-named `worktree-*` trees stay in `OTHER WORKTREES`.
    - `TELEMETRY RESIDUE`: a tree dirty only with `board.jsonl`, in any
      worktree; reported, safe to discard.
-   - `LANE WORKTREES ON DISK: <n> whose lane is not in flight`: copies of
-     lanes that have returned or closed. Run `ledger.sh retire`. It removes
-     `RETIRED` each tree whose change is on the base (a squash commit, a
-     merge, or a merged pull request by the branch's name) or that a later
-     branch of a closed ticket superseded, and each hand-made detached copy
-     of a closed ticket; it deletes a landed branch and keeps a superseded
-     one. `KEPT` lines name what it left and why: a tree with uncommitted or
-     untracked files (salvage them first), a locked tree (unlock it yourself
-     only when its holder has ended), and a closed lane's last branch whose
-     change is not on the base yet (waiting for its merge, or handed over).
-     A tree of an open lane with no evidence of landing is left without a
-     line. `retire --dry-run` shows what would go and changes nothing.
+   - `LANE WORKTREES ON DISK: <n> whose lane is not in flight`: writers'
+     trees, each on a branch a board row names, whose lane has returned or
+     closed. Run `ledger.sh retire`; `landing.md` says what it
+     removes. `RETIRED` and `CARRIED HOME` lines are done. A `KEPT` line needs
+     someone: files in the tree (move what matters out, run it again), or a
+     lock (the operator's to release). A tree it leaves without a line is
+     waiting for its merge, handed over, or still open; the count stays until
+     it goes. `retire --dry-run` changes nothing and does not fetch.
 
 The run-level `goal` line is printed last, so a clean board never reads as
 finished while the plan is open. Reground runs under macOS `/bin/bash` 3.2.

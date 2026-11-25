@@ -39,14 +39,14 @@ worktree for it at the exact approved commit (the landed integration-base
 commit, or the lane's approved commit while its pull request is still open),
 `git worktree add --detach .agents/worktrees/<ticket>-apply <sha>`, dispatch it
 with that path and SHA. The tree lives from the plan dispatch through the apply
-dispatch (the saved plan file stays in it between them). Every tree you make
-by hand is yours to remove: in the turn the apply returns or the operator
-declines, read what the tree still holds, then `git worktree remove` it by the
-path you recorded; a declined prod-ack also releases the target for the next
-lane. The same goes for a proof or landing copy: remove it in the turn its
-purpose ends. `ledger.sh retire` is the backstop for one you missed: it
-removes a hand-made copy under `.agents/worktrees/` once its ticket is closed
-and nothing in it is uncommitted or untracked. The core's
+dispatch (the saved plan file stays in it between them). A tree you make by
+hand is yours alone to remove; `ledger.sh retire` never touches one. In the
+turn the apply returns or the operator declines, delete the saved plan file
+(its output is in the result), check `git -C <path> status --porcelain
+--ignored` shows nothing else you need, then `git worktree remove` the path
+you recorded; a declined prod-ack also releases the target for the next
+lane. Any other copy you make by hand (to land, or to prove something) goes
+the same way, in the turn its purpose ends. The core's
 confirmation applies at a `consequence: prod` target (untagged reads as
 `prod`): show the operator the target, the commit, and the plan output, with
 your recommendation and the risk relative to today, and journal the answer

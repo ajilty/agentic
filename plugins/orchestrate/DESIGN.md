@@ -420,8 +420,9 @@ empty ledger means a fresh start; open lanes mean a resume. The numbered loop in
    artifact, read its result from disk, journal `returned`/`verdict`, route per
    §5, counting the retry budget from the ledger.
 6. **Verify** every T1 and T2 change.
-7. **Land** onto the journaled base (or open a pull request), remove the lane's
-   worktree, and `ledger.sh done`.
+7. **Land** onto the journaled base (or open a pull request) and `ledger.sh
+   done`; `ledger.sh retire` removes the lane's worktree once its change is on
+   the base.
 8. **Feedback.** Write the run review and a rating row when the goal closes.
 
 There is no config file at any step. Repo specifics are discovered, defaulted, or

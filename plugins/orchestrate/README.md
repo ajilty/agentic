@@ -142,7 +142,8 @@ much context pre-exists:
   decisions; the judgment memory). These travel with the repo.
 - **Gitignored, machine state:** `.agents/` (the board ledger, the per-ticket
   bus, run reviews and feedback). One `.gitignore` entry. Writer worktrees are
-  managed by the harness.
+  made by the harness and removed by `ledger.sh retire` once their change is
+  on the base (`KNOWN-LIMITATIONS.md` says what it leaves).
 
 ## Safety model (what's guaranteed vs guidance)
 

@@ -128,8 +128,8 @@ Run these in order on every invocation:
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. A change
    to instructions (a skill, a persona brief, a hook message, an agent
    definition, operator preferences) takes three lens verifiers. A `REJECTED`
-   goes back to the same implementer once, resumed in its own tree, with the
-   verdict file's path (`ledger.sh retries <ticket>`), then to the operator. The lens split,
+   goes back to the implementer once, with the verdict file's path
+   (`ledger.sh retries <ticket>`), then to the operator. The lens split,
    the merged round file and the next-round rules are in
    `references/review-rounds.md`; read it before the first verifier dispatch.
 7. **Land** on `APPROVED`, then `ledger.sh done <ticket>`. Push the lane's
