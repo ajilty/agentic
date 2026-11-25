@@ -39,9 +39,12 @@ worktree for it at the exact approved commit (the landed integration-base
 commit, or the lane's approved commit while its pull request is still open),
 `git worktree add --detach .agents/worktrees/<ticket>-apply <sha>`, dispatch it
 with that path and SHA. The tree lives from the plan dispatch through the apply
-dispatch (the saved plan file stays in it between them). A tree you make by
-hand is yours alone to remove; `ledger.sh retire` never touches one. In the
-turn the apply returns or the operator declines, delete the saved plan file
+dispatch (the saved plan file stays in it between them). A detached copy you
+make by hand is yours alone to remove; `ledger.sh retire` never touches
+one, and reground only counts them (`HAND-MADE COPIES`). In the turn its
+purpose ends (the apply returns, the operator declines, the plan comes
+back blocked or is replaced by one at a new commit, or the lane is
+abandoned), delete the saved plan file
 (its output is in the result), check `git -C <path> status --porcelain
 --ignored` shows nothing else you need, then `git worktree remove` the path
 you recorded; a declined prod-ack also releases the target for the next

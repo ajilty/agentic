@@ -219,25 +219,36 @@ it: at landing, and whenever reground counts lane worktrees on disk.
 What it does not do, on purpose:
 
 - Judge a tree by its name, a detached copy, or any tree whose branch no board
-  row names. A hand-made plan or apply copy is the router's to remove, and a
-  tree from before the board recorded its branch stays until someone removes
-  it.
-- Remove a tree that holds any file git does not track, ignored files
-  included, or a change to a tracked file. It names the files. The one thing
-  it moves is a writer's result left in a tree by a version before 0.9.8,
-  which it carries to the primary checkout when that has no such file or an
-  equal one.
+  row names. A hand-made plan or apply copy is the router's to remove
+  (reground counts them), and a tree from before the board recorded its
+  branch stays until someone removes it.
+- Remove a tree that holds an untracked file or a change to a tracked file. It
+  names the files. A tree whose only leftovers are git-ignored (build output,
+  files a `.worktreeinclude` copied in) is kept too, until the router runs
+  `retire --ignored` with the operator's agreement; then they go with the tree
+  and are named. The one thing it moves is a writer's result left in a tree by
+  a version before 0.9.8, which it carries to the primary checkout when that
+  has no such file or an equal one.
 - Release a lock. Claude Code locks an agent's tree and does not always
   release it when the agent finishes; `retire` names the lock and leaves the
   tree for the operator.
-- See a change that reached the base in another form: a pull request edited
-  before it merged leaves a branch whose content is not all on the base, and
-  that tree stays. It asks no forge; it fetches the base once, for at most 20
-  seconds, and judges against the last fetch when that fails.
-- Reuse a tree across retries. Each retry is a fresh writer in a fresh tree,
-  removed once the ticket is closed and the retry's row names the branch it
-  replaced. Sending the retry back to the same writer would hold one tree per
-  ticket, but needs the writer kept alive after it returns, its id on the
-  board, and a rule for escalating to a stronger model; not done.
+- Recognise every merged change. A branch counts as on the base when merging
+  it would be clean and change nothing, or when one commit on the base since
+  the fork carries exactly its text changes (a squash merge). A pull request
+  edited before it merged, a squash onto a base that had moved under the same
+  lines, or a squash of binary files does not match: the tree is named `LEFT`
+  and stays. It asks no forge.
+- Judge against a base it could not refresh. With an `origin` it fetches the
+  base first (bounded to 20 seconds where `timeout` or `gtimeout` exists) and
+  judges nothing when that fails; `--dry-run` judges against the last fetch.
+  With no `origin` the base is the local branch.
+- Reuse a tree across retries. Each re-dispatch is a fresh writer in a fresh
+  tree that starts from the earlier round's branch; the earlier tree goes once
+  the ticket is closed and the re-dispatch's row names the branch it replaced.
+  One row names one branch, so a re-dispatch that takes over two tasks leaves
+  one tree for a later hand removal. Sending the retry back to the same writer
+  would hold one tree per ticket, but needs the writer kept alive after it
+  returns, its id on the board, and a rule for escalating to a stronger
+  model; not done.
 - Run without git 2.38 or later, which it needs to compare a branch with the
   base without a checkout.

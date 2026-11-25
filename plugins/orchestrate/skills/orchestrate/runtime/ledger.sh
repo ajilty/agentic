@@ -6,10 +6,10 @@
 #   ledger.sh append '<json-object>'   # one event line (write-ahead before dispatch)
 #   ledger.sh retries <ticket>         # COUNT of outcome REJECTED verdict rows (one per round; no-loop budget, derived)
 #   ledger.sh reground                 # reconstruct open lanes; reconcile vs this run's git worktrees
-#   ledger.sh retire [--dry-run]       # remove the copies of lanes whose change landed or was superseded
-#   ledger.sh result <t> <id> <file>   # store a writer's handback in the primary checkout's run dir
 #                                       # first archives run-state files no current version reads (0.8.x leases/, active-writer.json)
 #                                       # exit 0 = report (act on it), exit 3 = lane worktree the board lost -> HALT
+#   ledger.sh retire [--dry-run] [--ignored]  # remove the trees of lanes whose change is on the base or that a later round replaced
+#   ledger.sh result <t> <id> <file>   # store a writer's handback in the primary checkout's run dir
 #   ledger.sh goal <note> [spec] [base] [main_model]  # journal the run-level goal (ADR-0020)
 # Runs under bash 3.2 (macOS /bin/bash): no associative arrays.
 set -euo pipefail
@@ -337,6 +337,8 @@ case "$cmd" in
         /^worktree /{ sub(/^worktree /, ""); p = $0; n++ } /^branch /{ b = $2; sub("refs/heads/", "", b); if (n > 1) print p "|" b }')
       [ "$other" -gt 0 ] && echo "OTHER WORKTREES (not this run): $other"
       [ "$ondisk" -gt 0 ] && echo "LANE WORKTREES ON DISK: $ondisk whose lane is not in flight -> run: ledger.sh retire (removes each whose change is on the base or that a later round replaced; leaves the rest)"
+      made="$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{ p = $0 } /^detached/{ if (index(p, "/.agents/worktrees/")) n++ } END { print n + 0 }')"
+      [ "$made" -gt 0 ] && echo "HAND-MADE COPIES: $made detached under .agents/worktrees -> yours to remove once the plan, apply or proof each was made for has ended"
     fi
     # Run-level anchor (ADR-0020): the latest `goal` event carries the north star + a
     # pointer to where the plan durably lives (spec/ADR). Surface it so a clean board
@@ -381,7 +383,8 @@ case "$cmd" in
               # worktree cannot write there with its file tools, and a result left inside its tree
               # is untracked work that keeps the tree alive after the lane ends (measured
               # 2026-11-21: 36 of 51 leftover trees, 5 holding the only copy of a result).
-              # Fails loudly, and removes the writer's copy only once the stored one is proven equal.
+              # Never replaces a stored result that differs, and removes the writer's copy only
+              # once the stored one is proven equal.
     tk="${1:?ticket}"; did="${2:?dispatch_id}"; src="${3:?file}"
     case "$tk$did" in */*|*..*) echo "ledger.sh result: ticket and dispatch_id are names, not paths" >&2; exit 2 ;; esac
     [ -f "$src" ] && [ ! -L "$src" ] || { echo "ledger.sh result: not a regular file: $src" >&2; exit 2; }
@@ -392,11 +395,21 @@ case "$cmd" in
     fi
     dst="$ROOT/tickets/$tk/results/$did.md"
     mkdir -p "${dst%/*}" 2>/dev/null || { echo "ledger.sh result: cannot create ${dst%/*}; nothing stored" >&2; exit 1; }
+    if [ -L "$dst" ] || { [ -e "$dst" ] && [ ! -f "$dst" ]; }; then
+      echo "ledger.sh result: $dst exists and is not a plain file; nothing stored, your file is untouched at $src" >&2; exit 1
+    fi
     sdir="$(cd "$(dirname "$src")" && pwd -P)"
     if [ "$sdir/$(basename "$src")" != "$(cd "${dst%/*}" && pwd -P)/$did.md" ]; then
-      if ! { cp "$src" "$dst.tmp" 2>/dev/null && cmp -s "$src" "$dst.tmp" && mv "$dst.tmp" "$dst"; }; then
-        rm -f "${dst:?}.tmp" 2>/dev/null || true
-        echo "ledger.sh result: could not store $dst; your file is untouched at $src" >&2; exit 1
+      if [ -e "$dst" ]; then
+        cmp -s "$src" "$dst" || { echo "ledger.sh result: a different result is already stored at $dst; nothing replaced, your file is untouched at $src" >&2; exit 1; }
+      else
+        tmp="$(mktemp "${dst%/*}/.handin.XXXXXX" 2>/dev/null)" || { echo "ledger.sh result: could not store $dst; your file is untouched at $src" >&2; exit 1; }
+        # ln refuses an existing name, so two hand-ins of one id cannot replace each other.
+        if cp "$src" "$tmp" 2>/dev/null && cmp -s "$src" "$tmp" && ln "$tmp" "$dst" 2>/dev/null; then rm -f "${tmp:?}"
+        else
+          rm -f "${tmp:?}" 2>/dev/null || true
+          { [ -f "$dst" ] && cmp -s "$src" "$dst"; } || { echo "ledger.sh result: could not store $dst; your file is untouched at $src" >&2; exit 1; }
+        fi
       fi
       # The writer's copy is now a duplicate. It is removed only when it sits in a linked
       # worktree (a writer's own tree) and git does not track it there; anywhere else it stays.
@@ -406,36 +419,62 @@ case "$cmd" in
     fi
     tail -n 1 "$dst" | grep -q 'orchestrate:complete' || echo "ledger.sh result: WARNING $dst does not end with the completion sentinel; the router will read it as unfinished" >&2
     echo "$dst" ;;
-  retire)     # remove the copies of lanes whose work has ended: `ledger.sh retire [--dry-run]`.
+  retire)     # remove the copies of lanes whose work has ended: `ledger.sh retire [--dry-run] [--ignored]`.
               # Judges only a worktree whose branch a board row names, exactly, for one ticket,
               # and whose lane is not in flight. Never a name match, never a detached copy,
-              # never another session's tree.
-              # LANDED: merging the branch into the base would change nothing, so everything it
-              #   holds is already there (a squash merge, a merge, or no commits of its own; the
-              #   last only once the lane is closed, since an open lane's builder may yet
-              #   commit). The tree goes and the branch is deleted.
+              # never another session's tree, never the base branch itself.
+              # LANDED: everything the branch holds is on the base: its tip is an ancestor (only
+              #   once the lane is closed, since an open lane's builder may yet commit), or
+              #   merging it into the base is clean and changes nothing, or one commit on the
+              #   base since the fork is the branch's whole change (a squash merge the base has
+              #   since edited). The tree goes and the branch is deleted.
               # REPLACED: the ticket is closed and a later `dispatched` row of it says
-              #   "replaces":"<this branch>". The tree goes; the branch stays, since its
-              #   commits are nowhere else.
-              # A tree holding any file git does not track, ignored ones included, or a change
-              # to a tracked file, is kept and the files named; so is a locked tree. One
+              #   "replaces":"<this branch>". The tree goes; the branch goes too only when
+              #   another branch holds its commits.
+              # A tree holding an untracked file or a change to a tracked file is kept and the
+              # files named; so is a locked tree. A tree whose only leftovers are git-ignored is
+              # kept and they are named, unless --ignored says they may go with it. One
               # exception: a writer's result left in the tree by an older version is first
               # carried to the primary checkout's run dir (if absent there, or equal), then
-              # counts as gone. Never --force, never an unlock.
-    dry=""; [ "${1:-}" = --dry-run ] && dry=1
+              # counts as gone. Never --force, never an unlock. The base is origin's when there
+              # is an origin, fetched first; a failed fetch judges nothing.
+    dry=""; ign=""
+    for a in "$@"; do case "$a" in --dry-run) dry=1 ;; --ignored) ign=1 ;; *) echo "usage: ledger.sh retire [--dry-run] [--ignored]" >&2; exit 64 ;; esac; done
     git rev-parse --git-dir >/dev/null 2>&1 || { echo "RETIRE: not a git checkout"; exit 0; }
     gline=""; [ -f "$LEDGER" ] && gline="$(grep '"event":"goal"' "$LEDGER" 2>/dev/null | tail -1 || true)"
     base="$(val "$gline" base)"
     [ -n "$base" ] || base="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
     [ -n "$base" ] || { echo "RETIRE: no base branch known (no goal row names one, and origin/HEAD is not set): nothing judged"; exit 0; }
-    if [ -z "$dry" ]; then   # one bounded fetch, never a prompt; without it the base is as fresh as the last fetch
-      _to="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
-      GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}" ${_to:+"$_to" 20} git fetch -q origin "$base" </dev/null >/dev/null 2>&1 || true
-    fi
-    baseref="origin/$base"; git rev-parse --verify -q "$baseref" >/dev/null 2>&1 || baseref="$base"
+    case "$base" in -*) base_ok="" ;; *) base_ok=1 ;; esac
+    { [ -n "$base_ok" ] && git check-ref-format --branch "$base" >/dev/null 2>&1; } || { echo "RETIRE: the base on the board is not a branch name: nothing judged"; exit 0; }
+    if git remote get-url origin >/dev/null 2>&1; then
+      baseref="refs/remotes/origin/$base"
+      if [ -z "$dry" ]; then   # one fetch, never a prompt, bounded where `timeout` exists
+        _to="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
+        ( [ -n "${GIT_SSH_COMMAND:-}" ] || [ -n "$(git config core.sshCommand 2>/dev/null || true)" ] || { GIT_SSH_COMMAND='ssh -o BatchMode=yes'; export GIT_SSH_COMMAND; }
+          GIT_TERMINAL_PROMPT=0 ${_to:+"$_to" 20} git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" </dev/null >/dev/null 2>&1 ) \
+          || { echo "RETIRE: could not fetch $base from origin: nothing judged (retire --dry-run shows what the last fetch says)"; exit 0; }
+      fi
+    else baseref="refs/heads/$base"; fi
     basetree="$(git rev-parse --verify -q "$baseref^{tree}" 2>/dev/null)" || { echo "RETIRE: base $base is not a branch here: nothing judged"; exit 0; }
-    [ "$(git merge-tree --write-tree "$baseref" "$baseref" 2>/dev/null | head -n 1)" = "$basetree" ] \
+    { mt="$(git merge-tree --write-tree "$baseref" "$baseref" 2>/dev/null)" && [ "$mt" = "$basetree" ]; } \
       || { echo "RETIRE: this git cannot merge without a checkout (needs git 2.38 or later): nothing judged"; exit 0; }
+    # One commit on the base since the fork is the branch's whole change (a squash merge).
+    # Text changes only: a binary change has no patch text to compare.
+    squashed() {
+      local mb pid pids
+      mb="$(git merge-base "$baseref" "$1" 2>/dev/null)" || return 1
+      [ -z "$(git diff --numstat "$mb" "$1" 2>/dev/null | awk '$1 == "-"')" ] || return 1
+      pid="$(git diff "$mb" "$1" 2>/dev/null | git patch-id --stable 2>/dev/null | awk '{ print $1 }' || true)"
+      [ -n "$pid" ] || return 1
+      pids="$(git log -p --no-merges --max-count=5000 "$mb..$baseref" 2>/dev/null | git patch-id --stable 2>/dev/null | awk '{ print $1 }' || true)"
+      case "
+$pids
+" in *"
+$pid
+"*) return 0 ;; esac
+      return 1
+    }
     # One pass over the board. T: a ticket's last event and state. B: a branch and the ticket
     # that named it. R: a branch a later dispatch of that ticket says it replaces.
     rows=""
@@ -450,11 +489,13 @@ case "$cmd" in
         last[t] = e "|" f("state")
       }
       END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" last[t] } }' "$LEDGER")"
-    removed=0; kept=0; here="$(pwd -P)"
+    removed=0; kept=0; here="$(pwd -P)"; tix=.agents/runs/orchestrate/tickets
     while IFS='|' read -r wt br locked; do
       [ -n "$wt" ] && [ -n "$br" ] || continue                 # a detached copy is its maker's to remove
-      kt="$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b && !($3 in s) { s[$3] = 1; n++; t = $3 } END { if (n == 1) print t }')"
-      [ -n "$kt" ] || continue                                  # no row names it, or two tickets do
+      [ "$br" != "$base" ] || continue                          # the base is nobody's lane
+      kt="$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b && !($3 in s) { s[$3] = 1; n++; t = $3 } END { if (n == 1) print t; else if (n > 1) print "|" }')"
+      [ -n "$kt" ] || continue                                  # no row names it
+      [ "$kt" != "|" ] || { echo "LEFT    $wt ($br) -> more than one ticket names its branch"; continue; }
       ts="$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $3 "|" $4 }')"
       ev="${ts%%|*}"; st="${ts#*|}"
       [ "$ev" = dispatched ] && continue                        # in flight
@@ -464,34 +505,63 @@ case "$cmd" in
       [ -n "$tip" ] && [ -d "$wt" ] || { echo "KEPT    $tag -> its folder or branch is gone: git worktree prune, by hand"; kept=$((kept + 1)); continue; }
       why=""
       if git merge-base --is-ancestor "$tip" "$baseref" 2>/dev/null; then [ -z "$closed" ] || why=landed
-      elif [ "$(git merge-tree --write-tree "$baseref" "$tip" 2>/dev/null | head -n 1)" = "$basetree" ]; then why=landed
+      elif mt="$(git merge-tree --write-tree "$baseref" "$tip" 2>/dev/null)" && [ "$mt" = "$basetree" ]; then why=landed
+      elif squashed "$tip"; then why=landed
       elif [ -n "$closed" ] && [ -n "$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" -v t="$kt" '$1 == "R" && $2 == b && $3 == t')" ]; then why=replaced
       fi
-      [ -n "$why" ] || continue                                 # an open lane, a merge still to come, a hand-over
+      if [ -z "$why" ]; then
+        if [ -n "$closed" ]; then echo "LEFT    $tag -> not all of it is on $base: waiting for its merge, handed over, or merged in another form"
+        else echo "LEFT    $tag -> its lane is open and its change is not on $base"; fi
+        continue
+      fi
       # What the tree holds beyond its commits. Old in-tree results are carried home first.
-      hold="$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null | head -n 3 | tr '\n' ';')"
+      sts="$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null || true)"
+      hold=""; [ -z "$sts" ] || hold="$(printf '%s\n' "$sts" | sed -n '1,3p' | tr '\n' ';')"
+      hid="$(git -C "$wt" ls-files -v 2>/dev/null | grep -c '^[a-zS] ' || true)"
+      [ "${hid:-0}" = 0 ] || hold="$hold$hid tracked files are marked skip-worktree or assume-unchanged, so a change to them would not show;"
       nfile=0
       while IFS= read -r f; do
         [ -n "$f" ] || continue
-        home=""; case "$f" in .agents/runs/orchestrate/tickets/*/results/*) home="$ROOT/${f#.agents/runs/orchestrate/}" ;; esac
-        if [ -n "$home" ] && [ -f "$wt/$f" ] && [ ! -L "$wt/$f" ] && { [ ! -e "$home" ] || cmp -s "$wt/$f" "$home"; }; then
+        home="$ROOT/${f#.agents/runs/orchestrate/}"; inres=""; case "$f" in "$tix"/*/results/*) inres=1 ;; esac
+        if [ -n "$inres" ] && [ -f "$wt/$f" ] && [ ! -L "$wt/$f" ] && [ ! -L "$home" ] && { [ ! -e "$home" ] || { [ -f "$home" ] && cmp -s "$wt/$f" "$home"; }; }; then
           if [ -n "$dry" ]; then echo "WOULD CARRY HOME $f from $wt"; continue; fi
-          if [ -e "$home" ] || { mkdir -p "${home%/*}" && cp "$wt/$f" "$home.tmp" && cmp -s "$wt/$f" "$home.tmp" && mv "$home.tmp" "$home"; }; then
-            rm -f "${wt:?}/${f:?}"; echo "CARRIED HOME $f from $wt"; continue
+          if [ ! -e "$home" ]; then
+            mkdir -p "${home%/*}" 2>/dev/null || true
+            tmp="$(mktemp "${home%/*}/.carry.XXXXXX" 2>/dev/null || true)"
+            if [ -n "$tmp" ]; then
+              { cp "$wt/$f" "$tmp" 2>/dev/null && cmp -s "$wt/$f" "$tmp" && ln "$tmp" "$home" 2>/dev/null; } || true
+              rm -f "${tmp:?}" 2>/dev/null || true
+            fi
           fi
-          rm -f "${home:?}.tmp" 2>/dev/null || true
+          if [ -f "$home" ] && [ ! -L "$home" ] && cmp -s "$wt/$f" "$home"; then rm -f "${wt:?}/${f:?}"; echo "CARRIED HOME $f from $wt"; continue; fi
         fi
         nfile=$((nfile + 1)); [ "$nfile" -le 3 ] && hold="$hold?? $f;"
-      done < <(git -C "$wt" ls-files --others 2>/dev/null | head -n 500)
-      if [ -n "$hold" ]; then echo "KEPT    $tag $why -> it holds files: $hold$([ "$nfile" -gt 3 ] && echo " and $((nfile - 3)) more") move what matters out, then run retire again"; kept=$((kept + 1)); continue; fi
+      done < <(git -C "$wt" ls-files --others -- "$tix" 2>/dev/null || true)
+      unt="$(git -C "$wt" ls-files --others --exclude-standard --directory --no-empty-directory -- . ":(exclude)$tix" 2>/dev/null || true)"
+      if [ -n "$unt" ]; then
+        hold="$hold$(printf '%s\n' "$unt" | sed -n '1,3p' | sed 's/^/?? /' | tr '\n' ';')"; nfile=$((nfile + $(printf '%s\n' "$unt" | wc -l)))
+      fi
+      if [ -n "$hold" ]; then echo "KEPT    $tag $why -> it holds files: $hold$([ "$nfile" -gt 3 ] && echo " and $((nfile - 3)) more;") move what matters out, then run retire again"; kept=$((kept + 1)); continue; fi
+      igs="$(git -C "$wt" ls-files --others --ignored --exclude-standard --directory --no-empty-directory -- . ":(exclude)$tix" 2>/dev/null || true)"
+      ignote=""
+      if [ -n "$igs" ]; then
+        nig="$(printf '%s\n' "$igs" | wc -l | tr -d ' ')"; more=""; [ "$nig" -le 3 ] || more=" ..."
+        ignote="$nig git-ignored entries ($(printf '%s\n' "$igs" | sed -n '1,3p' | tr '\n' ' ' | sed 's/ $//')$more)"
+        if [ -z "$ign" ]; then echo "KEPT    $tag $why -> only $ignote remain: when the operator agrees they can go, run retire --ignored"; kept=$((kept + 1)); continue; fi
+      fi
       if [ -n "$locked" ]; then echo "KEPT    $tag $why -> locked${locked#locked}: retire never unlocks; tell the operator"; kept=$((kept + 1)); continue; fi
       case "$here/" in "$wt"/*) echo "KEPT    $tag $why -> you are standing in it"; kept=$((kept + 1)); continue ;; esac
-      if [ -n "$dry" ]; then echo "WOULD RETIRE $tag $why"; removed=$((removed + 1)); continue; fi
+      if [ -n "$dry" ]; then echo "WOULD RETIRE $tag $why${ignote:+; $ignote would go with it}"; removed=$((removed + 1)); continue; fi
       if git worktree remove "$wt" 2>/dev/null; then
-        [ "$why" = landed ] && git branch -q -D "$br" 2>/dev/null || true
-        echo "RETIRED $tag $why$([ "$why" = replaced ] && echo "; branch kept")"; removed=$((removed + 1))
+        bnote=""
+        if [ "$why" = landed ]; then git branch -q -D "$br" 2>/dev/null || true
+        else
+          on="$(git for-each-ref --format='%(refname:short)' --contains "$tip" refs/heads refs/remotes 2>/dev/null | grep -vxF "$br" | sed -n '1p' || true)"
+          if [ -n "$on" ]; then git branch -q -D "$br" 2>/dev/null || true; bnote="; branch deleted, its commits are on $on"; else bnote="; branch kept"; fi
+        fi
+        echo "RETIRED $tag $why$bnote${ignote:+; $ignote went with it}"; removed=$((removed + 1))
       else echo "KEPT    $tag $why -> git would not remove it (a submodule, or something changed under it)"; kept=$((kept + 1)); fi
-    done < <(git worktree list --porcelain 2>/dev/null | awk '
+    done < <(git worktree list --porcelain -z 2>/dev/null | tr '\n\0' '\001\n' | awk '
       function out() { if (n > 1 && p != "") print p "|" b "|" l }
       /^worktree /{ out(); sub(/^worktree /, ""); p = $0; b = ""; l = ""; n++ }
       /^branch /{ b = $2; sub("refs/heads/", "", b) }
@@ -714,5 +784,5 @@ case "$cmd" in
     fi
     exit "$bad" ;;
 
-  *) echo "usage: ledger.sh {core|brief|rules <name>|append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
+  *) echo "usage: ledger.sh {core|brief|rules <name>|append '<json>'|retries <ticket>|reground|retire [--dry-run] [--ignored]|result <ticket> <dispatch_id> <file>|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
 esac

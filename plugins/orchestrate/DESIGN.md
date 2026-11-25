@@ -394,7 +394,8 @@ plugins/orchestrate/
 │   │   │   └── personas/          researcher · planner · implementer · verifier · actuator
 │   │   └── runtime/
 │   │       ├── ledger.sh          append · goal · clarify · decision · done · retries ·
-│   │       │                      metrics · feedback · conformance · reground
+│   │       │                      metrics · feedback · conformance · reground ·
+│   │       │                      retire · result
 │   │       ├── adr.sh             next · add · supersede · reindex
 │   │       └── hooks/
 │   │           ├── guard-shared-checkout.sh   PreToolUse(Bash): the shared-checkout floor
