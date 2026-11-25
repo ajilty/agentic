@@ -233,6 +233,13 @@ What it does not do, on purpose:
   file, an uncommitted change, a result nobody stored, or a lock. It names
   what is there and stops. Claude Code locks an agent's tree and does not
   always release it when the agent finishes; that lock is the operator's.
+- Judge a partial clone, where comparing content would download it. Elsewhere
+  it reads only: it takes no index lock and refreshes no index. Git may still
+  run a configured file-system monitor or clean filter while it reads.
+- See a commit that only a reflog holds. Removing a tree drops its reflog, and
+  deleting a branch drops the branch's; a commit reset away and never merged
+  goes with them. A tree with refs of its own (`refs/worktree/`, a bisect) is
+  listed `HOLDS`.
 - Fetch. With an `origin` it judges against the base as last fetched and says
   so; with none, against the local branch. A stale base makes it call fewer
   trees done, never more, unless the base was force-moved backwards since.

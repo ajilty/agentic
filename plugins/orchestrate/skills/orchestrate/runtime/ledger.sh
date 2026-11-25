@@ -233,6 +233,7 @@ case "$cmd" in
         t = f("ticket"); e = f("event"); if (t == "" || e == "") next
         if (e !~ /^(intake|clarify|dispatched|returned|verdict|fork|decision|lane|done)$/) next
         b = f("branch"); if (b != "" && e ~ /^(dispatched|returned|lane)$/) print "B|" b "|" t
+        r = f("replaces"); if (r != "" && e == "dispatched") print "B|" r "|" t   # a round that died: only its retry names it
         if (!(t in seen)) { seen[t] = 1; order[++n] = t }
         if (e == "dispatched") disp[t] = 1
         last[t] = e "|" f("persona") "|" b "|" f("slug") "|" f("verdict") "|" f("state") "|" f("mode")
@@ -336,7 +337,7 @@ case "$cmd" in
       done < <(git worktree list --porcelain 2>/dev/null | awk '
         /^worktree /{ sub(/^worktree /, ""); p = $0; n++ } /^branch /{ b = $2; sub("refs/heads/", "", b); if (n > 1) print p "|" b }')
       [ "$other" -gt 0 ] && echo "OTHER WORKTREES (not this run): $other"
-      [ "$ondisk" -gt 0 ] && echo "LANE WORKTREES ON DISK: $ondisk whose lane is not in flight -> run: ledger.sh leftovers (says which are finished and how to remove them; removes nothing itself)"
+      [ "$ondisk" -gt 0 ] && echo "LANE WORKTREES ON DISK: $ondisk whose lane is not in flight -> run: ledger.sh leftovers (says which are finished; removes nothing, and neither do you without the operator's yes)"
       made="$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{ p = $0 } /^detached/{ if (index(p, "/.agents/worktrees/")) n++ } END { print n + 0 }')"
       [ "$made" -gt 0 ] && echo "HAND-MADE COPIES: $made detached under .agents/worktrees -> yours to remove once the plan, apply or proof each was made for has ended"
     fi
@@ -386,7 +387,7 @@ case "$cmd" in
               # Never replaces a stored result that differs, and removes the writer's copy only
               # once the stored one is proven equal.
     tk="${1:?ticket}"; did="${2:?dispatch_id}"; src="${3:?file}"
-    case "$tk$did" in */*|*..*) echo "ledger.sh result: ticket and dispatch_id are names, not paths" >&2; exit 2 ;; esac
+    for n in "$tk" "$did"; do case "$n" in */*|.|..|*..*|-*) echo "ledger.sh result: ticket and dispatch_id are names, not paths" >&2; exit 2 ;; esac; done
     [ -f "$src" ] && [ ! -L "$src" ] || { echo "ledger.sh result: not a regular file: $src" >&2; exit 2; }
     # Inside a git checkout whose primary this helper cannot find (a worktree of a bare
     # repository), the run dir would resolve inside the caller's own tree: refuse.
@@ -434,12 +435,18 @@ case "$cmd" in
               #   once the lane is closed. No merge is run.
               # DONE replaced: the ticket is closed and a later `dispatched` row of it says
               #   "replaces":"<this branch>".
-              # A DONE line carries the commands that would remove the tree, for whoever the
-              # operator lets run them. HOLDS: done, but the tree has an untracked or ignored
+              # A DONE line carries the commands that would remove the tree, for the operator to
+              # allow or not. HOLDS: done, but the tree has an untracked or ignored
               # file, an uncommitted change or a lock, each named; no command is printed.
               # LEFT: not done. The base is origin's as last fetched when there is an origin.
     [ $# -eq 0 ] || { echo "usage: ledger.sh leftovers (reports; removes nothing)" >&2; exit 64; }
     git rev-parse --git-dir >/dev/null 2>&1 || { echo "LEFTOVERS: not a git checkout"; exit 0; }
+    # Reading must stay reading: no index refresh or index.lock in the trees it looks at (which
+    # would also run the post-index-change hook), and no blob fetched on demand in a partial
+    # clone. A partial clone is not judged at all: older git ignores the second setting.
+    GIT_OPTIONAL_LOCKS=0; GIT_NO_LAZY_FETCH=1; export GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH
+    [ -z "$(git config --get-regexp '^remote\..*\.(promisor|partialclonefilter)$' 2>/dev/null || true)" ] \
+      || { echo "LEFTOVERS: this is a partial clone, where comparing content would download it: nothing judged"; exit 0; }
     gline=""; [ -f "$LEDGER" ] && gline="$(grep '"event":"goal"' "$LEDGER" 2>/dev/null | tail -1 || true)"
     base="$(val "$gline" base)"
     [ -n "$base" ] || base="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
@@ -496,9 +503,10 @@ case "$cmd" in
       END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" last[t] } }' "$LEDGER")"
     ndone=0; nhold=0; nleft=0; tix=.agents/runs/orchestrate/tickets
     q() { printf '%q' "$1"; }
-    while IFS='|' read -r wt br locked; do
+    while IFS="$(printf '\001')" read -r wt br locked; do
       [ -n "$wt" ] && [ -n "$br" ] || continue                 # a detached copy is its maker's to remove
       [ "$br" != "$base" ] || continue                          # the base is nobody's lane
+      case "$br" in *'|'*) continue ;; esac                     # "|" separates the board fields below
       kt="$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b && !($3 in s) { s[$3] = 1; n++; t = $3 } END { if (n == 1) print t; else if (n > 1) print "|" }')"
       [ -n "$kt" ] || continue                                  # no row names it
       [ "$kt" != "|" ] || { echo "LEFT    $wt ($br) -> more than one ticket names its branch"; nleft=$((nleft + 1)); continue; }
@@ -538,19 +546,21 @@ case "$cmd" in
       [ -z "$unt" ] || hold="$hold$(printf '%s\n' "$unt" | wc -l | tr -d ' ') untracked: $(printf '%s\n' "$unt" | sed -n '1,3p' | tr '\n' ' ');"
       igs="$(git -C "$wt" ls-files --others --ignored --exclude-standard --directory --no-empty-directory -- . ":(exclude)$tix" 2>/dev/null || true)"
       [ -z "$igs" ] || hold="$hold$(printf '%s\n' "$igs" | wc -l | tr -d ' ') git-ignored: $(printf '%s\n' "$igs" | sed -n '1,3p' | tr '\n' ' ');"
+      wrefs="$(git -C "$wt" for-each-ref --format='%(refname)' refs/worktree refs/bisect refs/rewritten 2>/dev/null | sed -n '1,3p' | tr '\n' ' ' || true)"
+      [ -z "$wrefs" ] || hold="${hold}refs of its own that go with it: $wrefs;"
       [ -z "$locked" ] || hold="${hold}locked${locked#locked} (the operator's to release);"
       case "$(pwd -P)/" in "$wt"/*) hold="${hold}you are standing in it;" ;; esac
       if [ -n "$hold" ]; then echo "HOLDS   $tag $why -> $hold look before anyone removes it"; nhold=$((nhold + 1)); continue; fi
-      if [ "$why" = landed ]; then echo "DONE    $tag landed -> to remove: git worktree remove $(q "$wt") && git branch -D $(q "$br")"
-      else echo "DONE    $tag replaced -> to remove: git worktree remove $(q "$wt")   (keep the branch unless another branch holds its commits)"; fi
+      if [ "$why" = landed ]; then echo "DONE    $tag landed -> only if the operator says yes: git worktree remove -- $(q "$wt") && git branch -D -- $(q "$br")"
+      else echo "DONE    $tag replaced -> only if the operator says yes: git worktree remove -- $(q "$wt")   (keep the branch unless another branch holds its commits)"; fi
       ndone=$((ndone + 1))
-    done < <(git worktree list --porcelain -z 2>/dev/null | tr '\n\0' '\001\n' | awk '
-      function out() { if (n > 1 && p != "") print p "|" b "|" l }
+    done < <(git worktree list --porcelain -z 2>/dev/null | tr '\n\0' '\002\n' | awk '
+      function out() { if (n > 1 && p != "") print p "\001" b "\001" l }
       /^worktree /{ out(); sub(/^worktree /, ""); p = $0; b = ""; l = ""; n++ }
       /^branch /{ b = $2; sub("refs/heads/", "", b) }
       /^locked/{ l = $0 }
       END { out() }')
-    echo "LEFTOVERS: $ndone done, $nhold done but holding something, $nleft left; judged against $basesay; nothing was removed" ;;
+    echo "LEFTOVERS: $ndone done, $nhold done but holding something, $nleft left; judged against $basesay; nothing was removed, and nothing is to be without the operator's yes" ;;
   done)       # close a lane. Verification is guidance, not a gate: a non-T0 lane with no
               # verdict still closes, with a stderr warning; verify_coverage in `metrics`
               # is the retrospective signal. T0 (the oracle is the check) never warns.

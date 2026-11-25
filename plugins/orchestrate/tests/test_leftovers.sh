@@ -55,7 +55,10 @@ lane L14 orchestrate/L14 a14; squash orchestrate/L14
 mkdir -p "$W/a14/.agents/runs/orchestrate/tickets/L14/results" "$d/.agents/runs/orchestrate/tickets/L14/results"
 echo theirs > "$W/a14/.agents/runs/orchestrate/tickets/L14/results/d14.md"; echo ours > "$d/.agents/runs/orchestrate/tickets/L14/results/d14.md"
 
-snap(){ { git worktree list --porcelain; git for-each-ref; git stash list; find "$d" -path "$d/.git" -prune -o -type f -print | sort | xargs cksum; } 2>/dev/null | cksum; }
+snap(){ { git worktree list --porcelain; git for-each-ref; git stash list; find "$d" \( -type f -o -type l \) -print | sort | tr '\n' '\0' | xargs -0 cksum; find "$d" | sort; } 2>/dev/null | cksum; }
+# A hook that would run if anything rewrote an index, and files touched so that a plain `git status` would.
+printf '#!/bin/sh\necho ran >> "%s/hook.log"\n' "$d/.git" > "$d/.git/hooks/post-index-change"; chmod +x "$d/.git/hooks/post-index-change"
+touch "$W"/a1/*.txt "$W"/a6/*.txt; rm -f "$d/.git/hook.log"
 
 # Reground counts the copies a board row names, points at leftovers, and changes nothing.
 before="$(snap)"
@@ -65,12 +68,15 @@ has "LANE WORKTREES ON DISK: " "reground counts the copies of lanes no longer in
 has "-> run: ledger.sh leftovers" "and points at leftovers"
 has "HAND-MADE COPIES: 1 detached under .agents/worktrees" "reground counts the detached copies the router made by hand"
 
+# Reground's own status check may refresh an index; leftovers must not. Snapshot from here.
+touch "$W"/a1/*.txt "$W"/a6/*.txt; rm -f "$d/.git/hook.log"; before="$(snap)"
 out="$(bash "$R" leftovers 2>&1)"; rc=$?
 assert_eq "$rc" "0" "leftovers is a report"
-assert_eq "$(snap)" "$before" "leftovers changes no tree, branch, ref or file"
-has "DONE    $W/a1 (orchestrate/L1) ticket=L1 landed -> to remove: git worktree remove $W/a1 && git branch -D orchestrate/L1" "a squash-landed lane is done, with the commands to remove it"
+assert_eq "$(snap)" "$before" "leftovers changes no tree, branch, ref or file, the files under .git included"
+[ ! -e "$d/.git/hook.log" ] && pass || fail "leftovers rewrites no index, so the post-index-change hook never runs"
+has "DONE    $W/a1 (orchestrate/L1) ticket=L1 landed -> only if the operator says yes: git worktree remove -- $W/a1 && git branch -D -- orchestrate/L1" "a squash-landed lane is done, with the commands to remove it"
 has "LEFT    $W/a2 (orchestrate/L2) ticket=L2 -> its lane is open" "an open lane whose change has not landed is left"
-has "DONE    $W/a3 (orchestrate/L3) ticket=L3 replaced -> to remove: git worktree remove $W/a3 " "a round the board says was replaced is done, with no branch deletion offered"
+has "DONE    $W/a3 (orchestrate/L3) ticket=L3 replaced -> only if the operator says yes: git worktree remove -- $W/a3 " "a round the board says was replaced is done, with no branch deletion offered"
 has "DONE    $W/a3r2 (orchestrate/L3-r2) ticket=L3 landed" "the round that landed is done too"
 has "LEFT    $W/p1 (orchestrate/P-t1) ticket=P -> not all of it is on main" "parallel tasks of a closed ticket are left, not replaced"
 has "LEFT    $W/p2 (orchestrate/P-t2) ticket=P" "both of them"
@@ -116,6 +122,7 @@ fi
 rm -f r2.md "$t"
 ln -s f.txt link.md; out="$(bash "$R" result L2 a2c link.md 2>&1)"; rc=$?; assert_eq "$rc" "2" "a link handed in as the result is refused"; rm -f link.md
 out="$(bash "$R" result ../x a2 f.txt 2>&1)"; rc=$?; assert_eq "$rc" "2" "a ticket that is a path is refused"
+out="$(bash "$R" result . a2 f.txt 2>&1)"; rc=$?; assert_eq "$rc" "2" "a ticket that is a dot is refused"
 out="$(bash "$R" result L2 a2d a2.txt 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f a2.txt ] && pass || fail "a tracked file handed in as the result is copied, never removed"
 # In the primary checkout an untracked file handed in is copied and left where it was.
@@ -165,6 +172,8 @@ lane X1 orchestrate/X1 x1; ( cd "$W/x1" && echo n > ':(top)f.txt' && mkdir : && 
 # A tracked file git was told not to watch, edited on disk, with a quote in its name.
 echo v > 'say "hi".txt'; git add 'say "hi".txt'; git commit -qm quoted; git push -q origin main
 lane H1 orchestrate/H1 h1; land orchestrate/H1; ( cd "$W/h1" && git update-index --assume-unchanged 'say "hi".txt' && echo edited > 'say "hi".txt' )
+# A commit kept only under a ref of the tree's own, which goes when the tree does.
+lane WR orchestrate/WR wr; land orchestrate/WR; ( cd "$W/wr" && git update-ref refs/worktree/keep HEAD )
 # A tree whose path needs quoting in a command.
 lane SP orchestrate/SP "s p"; land orchestrate/SP
 # Landed locally but never pushed: origin's base does not hold it.
@@ -182,7 +191,8 @@ has "LEFT    $W/q1 (orchestrate/Q1) ticket=Q1 -> its lane is open" "the same edi
 has "DONE    $W/dead (worktree-agent-dead) ticket=D1 replaced" "a round that died is done once the retry that replaces it is closed"
 has "LEFT    $W/x1 (orchestrate/X1) ticket=X1 -> its lane is open" "a file named like pathspec magic is compared, not skipped"
 has "HOLDS   $W/h1 (orchestrate/H1) ticket=H1 landed -> 1 tracked files git was told not to watch" "a hidden edit to a file with a quote in its name is seen"
-has "git worktree remove $W/s\\ p && git branch -D orchestrate/SP" "a path with a space is quoted in the printed command"
+has "git worktree remove -- $W/s\\ p && git branch -D -- orchestrate/SP" "a path with a space is quoted in the printed command"
+has "HOLDS   $W/wr (orchestrate/WR) ticket=WR landed -> refs of its own that go with it: refs/worktree/keep ;" "a ref of the tree's own holds it"
 has "LEFT    $W/u1 (orchestrate/U1) ticket=U1" "a change on the local base that origin does not hold is not landed"
 hasnt "$W/pipe " "a ticket whose id holds the field separator is never judged"
 has "judged against origin/main as last fetched" "the last line says what it judged against"
@@ -194,3 +204,6 @@ has "not a branch name: nothing judged" "a base that is an option is refused"; [
 git remote remove origin; bash "$R" done C1 2>/dev/null; bash "$R" goal "own base" "" orchestrate/C1 >/dev/null
 out="$(bash "$R" leftovers 2>&1)"; hasnt "$W/c1 " "a lane whose branch the board names as the base is never judged against itself"
 rm -rf "${o:?}"
+# A partial clone is not judged: comparing content there would download it.
+git config remote.origin.promisor true 2>/dev/null || git config remote.x.promisor true
+out="$(bash "$R" leftovers 2>&1)"; has "partial clone" "a partial clone is not judged"
