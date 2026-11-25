@@ -508,6 +508,9 @@ def cmd_compare(a):
                             st[c["id"]]["split"] += o.get("run") != n.get("run")    # counted where it is judged
             except KeyboardInterrupt:
                 run.invalid("interrupted")       # queued sessions are dropped; those in flight finish and are counted
+        for s in st.values():                    # interrupted before a case was first looked at: nothing was asked for it
+            if s["judge"] is None:
+                s["judge"] = {"state": "open", "pairs": 0, "worse": 0, "better": 0, "old": 0.0, "new": 0.0}
         stopped = run.halt.is_set()
         verdict = "invalid" if stopped else judge.verdict(s["judge"]["state"] for s in st.values())
         untested = verdict == "pass" and bool(bare)      # part of the edit was never asked about: that is not a pass

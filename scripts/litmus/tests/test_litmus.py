@@ -558,6 +558,27 @@ class Compare(WithStandIn):
             self.assertIn(said, out)
         self.assertFalse((self.state / "out").exists(), "a refusal leaves no output folder")
 
+    def test_an_interrupt_before_any_case_is_judged_still_leaves_the_runs_record(self):
+        # The first look at each case takes a moment (the thresholds are worked out then). An interrupt that lands
+        # there, before the first case or between two, used to end in an internal error with no summary.
+        real = litmus.judge.judge_case
+        self.addCleanup(setattr, litmus.judge, "judge_case", real)
+        for label, lands_on in (("before-the-first", 1), ("between-two", 2)):
+            calls = []
+            def judge_case(*args, **kw):
+                calls.append(1)
+                if len(calls) == lands_on:
+                    raise KeyboardInterrupt
+                return real(*args, **kw)
+            litmus.judge.judge_case = judge_case
+            with self.subTest(label):
+                code, out = self.compare(1, 0, "--all", "--label", label)
+                self.assertNotIn("internal error", out)
+                s = self.summary()
+                self.assertEqual((code, s["verdict"], s["reason"], s["new_sessions"], s["label"]), (3, "invalid", "interrupted", 0, label), out)
+                self.assertEqual([(r["case"], r["state"], r["pairs"]) for r in s["rows"]], [("alpha", "not judged", 0), ("beta", "not judged", 0)])
+        self.assertFalse((self.state / "ledger.jsonl").exists(), "nothing was asked, nothing spent")
+
     def test_an_interrupt_stops_new_sessions_and_gives_no_verdict(self):
         self.control.write_text(json.dumps({"sleep": 0.25}))
         cmd = [sys.executable, str(HERE.parent / "litmus.py"),
