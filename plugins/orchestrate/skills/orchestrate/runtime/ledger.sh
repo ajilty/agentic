@@ -233,7 +233,6 @@ case "$cmd" in
         t = f("ticket"); e = f("event"); if (t == "" || e == "") next
         if (e !~ /^(intake|clarify|dispatched|returned|verdict|fork|decision|lane|done)$/) next
         b = f("branch"); if (b != "" && e ~ /^(dispatched|returned|lane)$/) print "B|" b "|" t
-        r = f("replaces"); if (r != "" && e == "dispatched") print "B|" r "|" t   # a round that died: only its retry names it
         if (!(t in seen)) { seen[t] = 1; order[++n] = t }
         if (e == "dispatched") disp[t] = 1
         last[t] = e "|" f("persona") "|" b "|" f("slug") "|" f("verdict") "|" f("state") "|" f("mode")
@@ -445,7 +444,11 @@ case "$cmd" in
     # would also run the post-index-change hook), and no blob fetched on demand in a partial
     # clone. A partial clone is not judged at all: older git ignores the second setting.
     GIT_OPTIONAL_LOCKS=0; GIT_NO_LAZY_FETCH=1; export GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH
-    [ -z "$(git config --get-regexp '^remote\..*\.(promisor|partialclonefilter)$' 2>/dev/null || true)" ] \
+    # No file-system monitor either: `git status` would start its daemon and leave it running.
+    _n="${GIT_CONFIG_COUNT:-0}"; case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+    eval "GIT_CONFIG_KEY_$_n=core.fsmonitor GIT_CONFIG_VALUE_$_n=false; export GIT_CONFIG_KEY_$_n GIT_CONFIG_VALUE_$_n"
+    GIT_CONFIG_COUNT=$((_n + 1)); export GIT_CONFIG_COUNT
+    [ -z "$(git config --get-regexp '^(remote\..*\.(promisor|partialclonefilter)|extensions\.partialclone)$' 2>/dev/null || true)" ] \
       || { echo "LEFTOVERS: this is a partial clone, where comparing content would download it: nothing judged"; exit 0; }
     gline=""; [ -f "$LEDGER" ] && gline="$(grep '"event":"goal"' "$LEDGER" 2>/dev/null | tail -1 || true)"
     base="$(val "$gline" base)"
@@ -503,7 +506,7 @@ case "$cmd" in
       END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" last[t] } }' "$LEDGER")"
     ndone=0; nhold=0; nleft=0; tix=.agents/runs/orchestrate/tickets
     q() { printf '%q' "$1"; }
-    while IFS="$(printf '\001')" read -r wt br locked; do
+    while IFS="$(printf '\037')" read -r wt br locked; do   # the unit separator: bash 3.2 cannot split on \001
       [ -n "$wt" ] && [ -n "$br" ] || continue                 # a detached copy is its maker's to remove
       [ "$br" != "$base" ] || continue                          # the base is nobody's lane
       case "$br" in *'|'*) continue ;; esac                     # "|" separates the board fields below
@@ -537,9 +540,16 @@ case "$cmd" in
       while IFS= read -r -d '' f; do
         case "$f" in [a-zS]\ ?*) f="${f#? }" ;; *) continue ;; esac
         [ -e "$wt/$f" ] || [ -L "$wt/$f" ] || continue
+        # A path with a clean filter (LFS) is not hashed, since the filter may write: it counts as differing.
+        case "$(GIT_LITERAL_PATHSPECS=1 git -C "$wt" check-attr filter -- "$f" 2>/dev/null)" in *": filter: unspecified"|*": filter: unset") ;; *) hid=$((hid + 1)); continue ;; esac
         [ "$(GIT_LITERAL_PATHSPECS=1 git -C "$wt" hash-object -- "$f" 2>/dev/null || echo unreadable)" = "$(GIT_LITERAL_PATHSPECS=1 git -C "$wt" ls-files -s -- "$f" 2>/dev/null | awk '{ print $2; exit }')" ] || hid=$((hid + 1))
       done < <(git -C "$wt" ls-files -v -z 2>/dev/null || true)
-      [ "$hid" = 0 ] || hold="$hold$hid tracked files git was told not to watch (skip-worktree or assume-unchanged) differ on disk;"
+      [ "$hid" = 0 ] || hold="$hold$hid tracked files git was told not to watch (skip-worktree or assume-unchanged) differ on disk or pass through a filter;"
+      # A merge, rebase, cherry-pick, revert or patch series stopped midway keeps its state in the tree's own git dir.
+      wgd="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null || true)"
+      for m in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-apply rebase-merge sequencer; do
+        [ -n "$wgd" ] && [ ! -e "$wgd/$m" ] || { hold="${hold}an operation stopped midway, or its git dir cannot be read ($m);"; break; }
+      done
       res="$(git -C "$wt" ls-files --others -- "$tix" 2>/dev/null | sed -n '1,3p' | tr '\n' ' ' || true)"
       [ -z "$res" ] || hold="${hold}run files, perhaps a result nobody stored (ledger.sh result stores one): $res;"
       unt="$(git -C "$wt" ls-files --others --exclude-standard --directory --no-empty-directory -- . ":(exclude)$tix" 2>/dev/null || true)"
@@ -551,11 +561,12 @@ case "$cmd" in
       [ -z "$locked" ] || hold="${hold}locked${locked#locked} (the operator's to release);"
       case "$(pwd -P)/" in "$wt"/*) hold="${hold}you are standing in it;" ;; esac
       if [ -n "$hold" ]; then echo "HOLDS   $tag $why -> $hold look before anyone removes it"; nhold=$((nhold + 1)); continue; fi
-      if [ "$why" = landed ]; then echo "DONE    $tag landed -> only if the operator says yes: git worktree remove -- $(q "$wt") && git branch -D -- $(q "$br")"
+      # The branch is deleted only if it still points at the commit judged here.
+      if [ "$why" = landed ]; then echo "DONE    $tag landed -> only if the operator says yes: git worktree remove -- $(q "$wt") && git update-ref -d $(q "refs/heads/$br") $tip"
       else echo "DONE    $tag replaced -> only if the operator says yes: git worktree remove -- $(q "$wt")   (keep the branch unless another branch holds its commits)"; fi
       ndone=$((ndone + 1))
     done < <(git worktree list --porcelain -z 2>/dev/null | tr '\n\0' '\002\n' | awk '
-      function out() { if (n > 1 && p != "") print p "\001" b "\001" l }
+      function out() { if (n > 1 && p != "") print p "\037" b "\037" l }
       /^worktree /{ out(); sub(/^worktree /, ""); p = $0; b = ""; l = ""; n++ }
       /^branch /{ b = $2; sub("refs/heads/", "", b) }
       /^locked/{ l = $0 }

@@ -74,7 +74,7 @@ out="$(bash "$R" leftovers 2>&1)"; rc=$?
 assert_eq "$rc" "0" "leftovers is a report"
 assert_eq "$(snap)" "$before" "leftovers changes no tree, branch, ref or file, the files under .git included"
 [ ! -e "$d/.git/hook.log" ] && pass || fail "leftovers rewrites no index, so the post-index-change hook never runs"
-has "DONE    $W/a1 (orchestrate/L1) ticket=L1 landed -> only if the operator says yes: git worktree remove -- $W/a1 && git branch -D -- orchestrate/L1" "a squash-landed lane is done, with the commands to remove it"
+has "DONE    $W/a1 (orchestrate/L1) ticket=L1 landed -> only if the operator says yes: git worktree remove -- $W/a1 && git update-ref -d refs/heads/orchestrate/L1 $(git rev-parse orchestrate/L1)" "a squash-landed lane is done, with the commands to remove it"
 has "LEFT    $W/a2 (orchestrate/L2) ticket=L2 -> its lane is open" "an open lane whose change has not landed is left"
 has "DONE    $W/a3 (orchestrate/L3) ticket=L3 replaced -> only if the operator says yes: git worktree remove -- $W/a3 " "a round the board says was replaced is done, with no branch deletion offered"
 has "DONE    $W/a3r2 (orchestrate/L3-r2) ticket=L3 landed" "the round that landed is done too"
@@ -98,7 +98,11 @@ has "nothing was removed" "and says nothing was removed"
 out="$(bash "$R" leftovers --dry-run 2>&1)"; rc=$?; assert_eq "$rc" "64" "leftovers takes no options"
 out="$(bash "$R" retire 2>&1)"; rc=$?; assert_eq "$rc" "64" "there is no command that removes"
 # Following a printed command is what removes a tree; a closed lane with no commits becomes done.
-git worktree remove "$W/a1" && git branch -q -D orchestrate/L1; bash "$R" done L10 2>/dev/null
+# The printed branch deletion names the commit that was judged: a branch that has moved since is not deleted.
+l1="$(git rev-parse orchestrate/L1)"; ( cd "$W/a1" && echo late > late.txt && git add late.txt && git commit -qm "after the report" )
+git update-ref -d refs/heads/orchestrate/L1 "$l1" 2>/dev/null && fail "a branch that moved after the report must not be deleted by the printed command" || pass
+out="$(bash "$R" leftovers 2>&1)"; has "LEFT    $W/a1 (orchestrate/L1) ticket=L1" "and the next report no longer calls it done"
+git -C "$W/a1" reset -q --hard "$l1"; git worktree remove "$W/a1" && git update-ref -d refs/heads/orchestrate/L1 "$l1"; bash "$R" done L10 2>/dev/null
 out="$(bash "$R" leftovers 2>&1)"; hasnt "$W/a1 " "a tree someone removed is no longer listed"
 has "DONE    $W/a10 (orchestrate/L10) ticket=L10 landed" "a tree with no commits is done once its lane is closed"
 
@@ -174,6 +178,8 @@ echo v > 'say "hi".txt'; git add 'say "hi".txt'; git commit -qm quoted; git push
 lane H1 orchestrate/H1 h1; land orchestrate/H1; ( cd "$W/h1" && git update-index --assume-unchanged 'say "hi".txt' && echo edited > 'say "hi".txt' )
 # A commit kept only under a ref of the tree's own, which goes when the tree does.
 lane WR orchestrate/WR wr; land orchestrate/WR; ( cd "$W/wr" && git update-ref refs/worktree/keep HEAD )
+# A merge stopped midway in a landed tree: its only trace is in the tree's own git dir.
+lane MG orchestrate/MG mg; land orchestrate/MG; ( cd "$W/mg" && git merge -q --no-commit -s ours orchestrate/Q1 >/dev/null 2>&1 || true )
 # A tree whose path needs quoting in a command.
 lane SP orchestrate/SP "s p"; land orchestrate/SP
 # Landed locally but never pushed: origin's base does not hold it.
@@ -191,8 +197,9 @@ has "LEFT    $W/q1 (orchestrate/Q1) ticket=Q1 -> its lane is open" "the same edi
 has "DONE    $W/dead (worktree-agent-dead) ticket=D1 replaced" "a round that died is done once the retry that replaces it is closed"
 has "LEFT    $W/x1 (orchestrate/X1) ticket=X1 -> its lane is open" "a file named like pathspec magic is compared, not skipped"
 has "HOLDS   $W/h1 (orchestrate/H1) ticket=H1 landed -> 1 tracked files git was told not to watch" "a hidden edit to a file with a quote in its name is seen"
-has "git worktree remove -- $W/s\\ p && git branch -D -- orchestrate/SP" "a path with a space is quoted in the printed command"
+has "git worktree remove -- $W/s\\ p && git update-ref -d refs/heads/orchestrate/SP $(git rev-parse orchestrate/SP)" "a path with a space is quoted in the printed command"
 has "HOLDS   $W/wr (orchestrate/WR) ticket=WR landed -> refs of its own that go with it: refs/worktree/keep ;" "a ref of the tree's own holds it"
+has "HOLDS   $W/mg (orchestrate/MG) ticket=MG landed -> an operation stopped midway" "a merge stopped midway holds the tree"
 has "LEFT    $W/u1 (orchestrate/U1) ticket=U1" "a change on the local base that origin does not hold is not landed"
 hasnt "$W/pipe " "a ticket whose id holds the field separator is never judged"
 has "judged against origin/main as last fetched" "the last line says what it judged against"

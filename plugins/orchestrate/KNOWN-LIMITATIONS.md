@@ -234,8 +234,10 @@ What it does not do, on purpose:
   what is there and stops. Claude Code locks an agent's tree and does not
   always release it when the agent finishes; that lock is the operator's.
 - Judge a partial clone, where comparing content would download it. Elsewhere
-  it reads only: it takes no index lock and refreshes no index. Git may still
-  run a configured file-system monitor or clean filter while it reads.
+  it reads only: it takes no index lock, refreshes no index and starts no
+  file-system monitor. One thing it cannot stop: where a tree already holds a
+  touched file under a clean filter (git-lfs), git's own status check may run
+  that filter, which can write an object.
 - See a commit that only a reflog holds. Removing a tree drops its reflog, and
   deleting a branch drops the branch's; a commit reset away and never merged
   goes with them. A tree with refs of its own (`refs/worktree/`, a bisect) is
@@ -251,9 +253,11 @@ What it does not do, on purpose:
   moved under the same files, does not match: the tree is listed `LEFT`. It
   asks no forge and runs no merge. A squash the base later reverted still
   counts as landed.
-- Prove a verdict beyond doubt. The printed `git branch -D` deletes a branch
-  on the strength of that comparison; `git worktree remove` without `--force`
-  is git's own second check for the tree, and there is none for the branch.
+- Prove a verdict beyond doubt. The printed branch deletion rests on that
+  comparison alone. It names the commit that was judged (`git update-ref -d
+  <ref> <commit>`), so it fails if the branch has moved since the report;
+  `git worktree remove` without `--force` is git's own second check for the
+  tree. A tree with a merge, rebase or patch series stopped midway is `HOLDS`.
 - Reuse a tree across retries. Each re-dispatch is a fresh writer in a fresh
   tree that merges the earlier round's branch in first; the earlier tree is
   listed done once the ticket is closed and the re-dispatch's row names the
