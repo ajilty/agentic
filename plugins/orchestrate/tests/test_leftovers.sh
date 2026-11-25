@@ -1,5 +1,6 @@
 # Lane copies pile up when nothing removes them after the lane ends. `ledger.sh leftovers` reports
-# which of this run's trees are finished and prints the commands that would remove them. It
+# which of this run's trees are finished and, in one fixed line, how to remove one safely. It
+# prints no command ready to paste: a pasted line is where a stale report loses work. It
 # removes nothing itself: no tree, branch, file, lock or ref, and it does not fetch. It judges
 # only a tree whose branch a board row names exactly, whose lane is not in flight, and calls it
 # done only when everything the branch changed is on the base (compared by content) or the board
@@ -34,6 +35,7 @@ lane L4i orchestrate/L4i a4i; squash orchestrate/L4i; echo saved > "$W/a4i/prod.
 tree orchestrate/L5 a5; squash orchestrate/L5                                           # landed, but its lane is in flight
 row '{"ticket":"L5","event":"dispatched","persona":"implementer","dispatch_id":"a5","branch":"orchestrate/L5"}'
 lane L6 orchestrate/L6 a6; squash orchestrate/L6; git worktree lock --reason "claude agent a6 (pid 1)" "$W/a6"
+lane IC orchestrate/IC ic; squash orchestrate/IC; git config core.ignoreCase true; echo mine > "$W/ic/F.TXT"   # landed; a stray file git is told to fold into f.txt
 lane L7 orchestrate/L7 a7; bash "$R" done L7 2>/dev/null                                # closed, not landed, nothing replaces it: handed over
 git worktree add -q -b orchestrate/L10 "$W/a10" main                                    # returned with no commit, lane open
 row '{"ticket":"L10","event":"returned","persona":"implementer","status":"BLOCKED","branch":"orchestrate/L10"}'
@@ -74,9 +76,15 @@ out="$(bash "$R" leftovers 2>&1)"; rc=$?
 assert_eq "$rc" "0" "leftovers is a report"
 assert_eq "$(snap)" "$before" "leftovers changes no tree, branch, ref or file, the files under .git included"
 [ ! -e "$d/.git/hook.log" ] && pass || fail "leftovers rewrites no index, so the post-index-change hook never runs"
-has "DONE    $W/a1 (orchestrate/L1) ticket=L1 landed -> only if the operator says yes: git worktree remove -- $W/a1 && git update-ref -d refs/heads/orchestrate/L1 $(git rev-parse orchestrate/L1)" "a squash-landed lane is done, with the commands to remove it"
+has "DONE    $W/a1 (orchestrate/L1) ticket=L1 landed -> everything it changed is on main; its branch was at $(git rev-parse orchestrate/L1) when judged" "a squash-landed lane is done, and its line names the commit judged"
+[ -z "$(printf '%s\n' "$out" | grep -v '^TO REMOVE' | grep -e 'worktree remove' -e 'worktree prune' -e 'update-ref' -e 'branch -[dD]' -e 'branch --delete' -e 'rm -')" ] && pass || fail "no line but the fixed one names a removal command, so none is ready to paste"
+out_c="$(GIT_CONFIG_PARAMETERS="'core.ignorecase=true'" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.ignorecase GIT_CONFIG_VALUE_0=true bash "$R" leftovers 2>&1)"
+case "$out_c" in *"HOLDS   $W/ic (orchestrate/IC) ticket=IC landed -> 1 untracked: F.TXT ;"*) pass ;; *) fail "a caller whose own git settings fold case cannot hide that file either" ;; esac
+case "$(printf '%s\n' "$out" | grep '^TO REMOVE')" in *"run this report again first"*"never --force"*) pass ;; *) fail "one fixed line says how to remove safely, re-run first" ;; esac
+case "$(printf '%s\n' "$out" | grep '^TO REMOVE')" in *"$d"*) fail "the fixed line names no path" ;; *) pass ;; esac
+has "HOLDS   $W/ic (orchestrate/IC) ticket=IC landed -> 1 untracked: F.TXT ;" "with core.ignoreCase set, an untracked file that differs from a tracked one only in case is still seen"
 has "LEFT    $W/a2 (orchestrate/L2) ticket=L2 -> its lane is open" "an open lane whose change has not landed is left"
-has "DONE    $W/a3 (orchestrate/L3) ticket=L3 replaced -> only if the operator says yes: git worktree remove -- $W/a3 " "a round the board says was replaced is done, with no branch deletion offered"
+has "DONE    $W/a3 (orchestrate/L3) ticket=L3 replaced -> a later round took its place; its branch is not on main, so the branch stays" "a round the board says was replaced is done, and its branch stays"
 has "DONE    $W/a3r2 (orchestrate/L3-r2) ticket=L3 landed" "the round that landed is done too"
 has "LEFT    $W/p1 (orchestrate/P-t1) ticket=P -> not all of it is on main" "parallel tasks of a closed ticket are left, not replaced"
 has "LEFT    $W/p2 (orchestrate/P-t2) ticket=P" "both of them"
@@ -93,14 +101,16 @@ hasnt "fix-refactor" "a session the operator opened is never judged"
 has "LEFT    $W/sh (orchestrate/shared) -> more than one ticket names its branch" "a branch two tickets name is left, with the reason"
 has "HOLDS   $W/a13 (orchestrate/L13) ticket=L13 landed -> run files, perhaps a result nobody stored (ledger.sh result stores one): .agents/runs/orchestrate/tickets/L13/results/d13.md ;" "an old result left in a tree is named, never moved"
 has "HOLDS   $W/a14 (orchestrate/L14) ticket=L14 landed -> run files" "and so is one that differs from the primary's"
-has "LEFTOVERS: 3 done, 5 done but holding something, " "the last line counts each kind"
+has "LEFTOVERS: 3 done, 6 done but holding something, " "the last line counts each kind"
 has "nothing was removed" "and says nothing was removed"
 out="$(bash "$R" leftovers --dry-run 2>&1)"; rc=$?; assert_eq "$rc" "64" "leftovers takes no options"
 out="$(bash "$R" retire 2>&1)"; rc=$?; assert_eq "$rc" "64" "there is no command that removes"
-# Following a printed command is what removes a tree; a closed lane with no commits becomes done.
-# The printed branch deletion names the commit that was judged: a branch that has moved since is not deleted.
+# Removing is the operator's, by hand; a closed lane with no commits becomes done.
+# A landed line names the commit that was judged: a branch that has moved since is not deleted by the pinned form.
+# A tree that gains an ignored file after a report is no longer done on the re-run the fixed line asks for.
 l1="$(git rev-parse orchestrate/L1)"; ( cd "$W/a1" && echo late > late.txt && git add late.txt && git commit -qm "after the report" )
-git update-ref -d refs/heads/orchestrate/L1 "$l1" 2>/dev/null && fail "a branch that moved after the report must not be deleted by the printed command" || pass
+git update-ref -d refs/heads/orchestrate/L1 "$l1" 2>/dev/null && fail "a branch that moved after the report must not be deleted by the pinned form" || pass
+echo late > "$W/a3r2/late.plan"; out="$(bash "$R" leftovers 2>&1)"; has "HOLDS   $W/a3r2 (orchestrate/L3-r2) ticket=L3 landed -> 1 git-ignored: late.plan ;" "a done tree that gains an ignored file is holding on the next report"; rm -f "$W/a3r2/late.plan"
 out="$(bash "$R" leftovers 2>&1)"; has "LEFT    $W/a1 (orchestrate/L1) ticket=L1" "and the next report no longer calls it done"
 git -C "$W/a1" reset -q --hard "$l1"; git worktree remove "$W/a1" && git update-ref -d refs/heads/orchestrate/L1 "$l1"; bash "$R" done L10 2>/dev/null
 out="$(bash "$R" leftovers 2>&1)"; hasnt "$W/a1 " "a tree someone removed is no longer listed"
@@ -197,7 +207,7 @@ has "LEFT    $W/q1 (orchestrate/Q1) ticket=Q1 -> its lane is open" "the same edi
 has "DONE    $W/dead (worktree-agent-dead) ticket=D1 replaced" "a round that died is done once the retry that replaces it is closed"
 has "LEFT    $W/x1 (orchestrate/X1) ticket=X1 -> its lane is open" "a file named like pathspec magic is compared, not skipped"
 has "HOLDS   $W/h1 (orchestrate/H1) ticket=H1 landed -> 1 tracked files git was told not to watch" "a hidden edit to a file with a quote in its name is seen"
-has "git worktree remove -- $W/s\\ p && git update-ref -d refs/heads/orchestrate/SP $(git rev-parse orchestrate/SP)" "a path with a space is quoted in the printed command"
+has "DONE    $W/s p (orchestrate/SP) ticket=SP landed" "a path with a space is reported as it is"
 has "HOLDS   $W/wr (orchestrate/WR) ticket=WR landed -> refs of its own that go with it: refs/worktree/keep ;" "a ref of the tree's own holds it"
 has "HOLDS   $W/mg (orchestrate/MG) ticket=MG landed -> an operation stopped midway" "a merge stopped midway holds the tree"
 has "LEFT    $W/u1 (orchestrate/U1) ticket=U1" "a change on the local base that origin does not hold is not landed"

@@ -215,9 +215,10 @@ committed. Its periodic sweep skips a tree with unpushed commits, which a
 squash merge that deletes the branch leaves forever. So nothing in the harness
 removes a finished lane's tree, and they pile up.
 
-`ledger.sh leftovers` reports which of a run's trees are finished and prints
-the commands that would remove each. It removes nothing: the operator decides,
-and the router runs the printed commands only on their word. An earlier design
+`ledger.sh leftovers` reports which of a run's trees are finished and says,
+in one fixed line, how to remove one safely. It removes nothing and prints no
+command ready to paste: the operator decides, and the router re-runs the
+report before it removes anything on their word. An earlier design
 removed the trees itself. Four rounds of independent review reproduced about
 25 ways it could delete work that existed nowhere else (4, then 9, then 4,
 then 8, each round on the fixes of the last), so the removing half was cut:
@@ -229,9 +230,19 @@ What it does not do, on purpose:
   row names. A hand-made plan or apply copy is the router's to remove
   (reground counts them), and a tree from before the board recorded its
   branch is never listed.
-- Offer a command for a tree that holds anything: an untracked or git-ignored
-  file, an uncommitted change, a result nobody stored, or a lock. It names
-  what is there and stops. Claude Code locks an agent's tree and does not
+- Print a removal command. It did, per tree, until a review of a sister tool
+  reproduced three ways a pasted line loses work, each then reproduced here:
+  a tree that gained git-ignored files after the report (`git worktree
+  remove` deletes those without asking); a path with a `#` in it, which zsh
+  with extended globbing expands to a different tree; and an untracked file
+  that `core.ignoreCase` hides. The report is true only when it is printed,
+  so the instruction is to run it again first.
+- Call a tree done that holds anything: an untracked or git-ignored file, an
+  uncommitted change, a result nobody stored, or a lock. It names what is
+  there. It reads names case-sensitively whatever `core.ignoreCase` says, so
+  a `readme.md` beside a tracked `README.md` is listed; git's own check at
+  removal does not see that file, and a write between the re-run and the
+  removal is still lost. Claude Code locks an agent's tree and does not
   always release it when the agent finishes; that lock is the operator's.
 - Judge a partial clone, where comparing content would download it. Elsewhere
   it reads only: it takes no index lock, refreshes no index and starts no
@@ -253,11 +264,13 @@ What it does not do, on purpose:
   moved under the same files, does not match: the tree is listed `LEFT`. It
   asks no forge and runs no merge. A squash the base later reverted still
   counts as landed.
-- Prove a verdict beyond doubt. The printed branch deletion rests on that
-  comparison alone. It names the commit that was judged (`git update-ref -d
-  <ref> <commit>`), so it fails if the branch has moved since the report;
-  `git worktree remove` without `--force` is git's own second check for the
-  tree. A tree with a merge, rebase or patch series stopped midway is `HOLDS`.
+- Prove a verdict beyond doubt. A branch deletion rests on that comparison
+  alone. Each landed line names the commit that was judged, and the
+  instruction is to delete the branch only while it points there (`git
+  update-ref -d <ref> <commit>` fails once it has moved); `git worktree
+  remove` without `--force` is git's own second check for the tree's
+  tracked and untracked files, not its ignored ones. A tree with a merge,
+  rebase or patch series stopped midway is `HOLDS`.
 - Reuse a tree across retries. Each re-dispatch is a fresh writer in a fresh
   tree that merges the earlier round's branch in first; the earlier tree is
   listed done once the ticket is closed and the re-dispatch's row names the

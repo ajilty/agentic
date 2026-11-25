@@ -27,9 +27,10 @@ already on the base (it compares content, path by path, against the base
 as last fetched; fetch first), or when a later round's `dispatched` row
 says it replaces that branch and the ticket is closed. Each line is a
 state. `LEFT` is not finished and needs nothing. `DONE` is finished and
-clean, and carries the commands that would remove it: show the operator
-those lines and run the commands only for the trees they say yes to, as
-printed, never with `--force`. `HOLDS` is finished but has files or a
+clean: show the operator those lines. For a tree they say yes to, run
+`ledger.sh leftovers` again right before and act only if it still says `DONE`, then
+do what the report's `TO REMOVE` line says, never with `--force`: a
+report read earlier is stale. `HOLDS` is finished but has files or a
 lock, each named: show the operator that line too, once, and leave the
 tree; a result file it names is yours to store with `ledger.sh result`.
 On the hand-over path tree and branch stay, and you tell the operator

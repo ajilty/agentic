@@ -8,7 +8,7 @@
 #   ledger.sh reground                 # reconstruct open lanes; reconcile vs this run's git worktrees
 #                                       # first archives run-state files no current version reads (0.8.x leases/, active-writer.json)
 #                                       # exit 0 = report (act on it), exit 3 = lane worktree the board lost -> HALT
-#   ledger.sh leftovers                # report the trees of lanes whose work has ended, with the commands to remove them; removes nothing
+#   ledger.sh leftovers                # report the trees of lanes whose work has ended and how to remove one safely; removes nothing, prints nothing to paste
 #   ledger.sh result <t> <id> <file>   # store a writer's handback in the primary checkout's run dir
 #   ledger.sh goal <note> [spec] [base] [main_model]  # journal the run-level goal (ADR-0020)
 # Runs under bash 3.2 (macOS /bin/bash): no associative arrays.
@@ -434,9 +434,13 @@ case "$cmd" in
               #   once the lane is closed. No merge is run.
               # DONE replaced: the ticket is closed and a later `dispatched` row of it says
               #   "replaces":"<this branch>".
-              # A DONE line carries the commands that would remove the tree, for the operator to
-              # allow or not. HOLDS: done, but the tree has an untracked or ignored
-              # file, an uncommitted change or a lock, each named; no command is printed.
+              # A DONE line names the tree and why, a landed one the commit judged. It carries no command:
+              # a line pasted later removed a tree that had since gained ignored files (git
+              # deletes those unasked), and a path with a "#" in it, pasted into zsh with
+              # extended globbing, removed a different tree. One fixed footer says how to
+              # remove safely instead, starting with running this report again.
+              # HOLDS: done, but the tree has an untracked or ignored file, an uncommitted
+              # change or a lock, each named.
               # LEFT: not done. The base is origin's as last fetched when there is an origin.
     [ $# -eq 0 ] || { echo "usage: ledger.sh leftovers (reports; removes nothing)" >&2; exit 64; }
     git rev-parse --git-dir >/dev/null 2>&1 || { echo "LEFTOVERS: not a git checkout"; exit 0; }
@@ -445,9 +449,11 @@ case "$cmd" in
     # clone. A partial clone is not judged at all: older git ignores the second setting.
     GIT_OPTIONAL_LOCKS=0; GIT_NO_LAZY_FETCH=1; export GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH
     # No file-system monitor either: `git status` would start its daemon and leave it running.
-    _n="${GIT_CONFIG_COUNT:-0}"; case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
-    eval "GIT_CONFIG_KEY_$_n=core.fsmonitor GIT_CONFIG_VALUE_$_n=false; export GIT_CONFIG_KEY_$_n GIT_CONFIG_VALUE_$_n"
-    GIT_CONFIG_COUNT=$((_n + 1)); export GIT_CONFIG_COUNT
+    # And names are read case-sensitively: with core.ignoreCase set on a case-sensitive disk,
+    # git takes an untracked readme.md for the tracked README.md and shows nothing. On a disk
+    # that folds case this can only add a HOLDS, never a DONE. Both go where `git -c` puts
+    # its settings, which git reads last: a caller's own -c or GIT_CONFIG_COUNT cannot undo them.
+    GIT_CONFIG_PARAMETERS="${GIT_CONFIG_PARAMETERS:+$GIT_CONFIG_PARAMETERS }'core.fsmonitor=false' 'core.ignorecase=false'"; export GIT_CONFIG_PARAMETERS
     [ -z "$(git config --get-regexp '^(remote\..*\.(promisor|partialclonefilter)|extensions\.partialclone)$' 2>/dev/null || true)" ] \
       || { echo "LEFTOVERS: this is a partial clone, where comparing content would download it: nothing judged"; exit 0; }
     gline=""; [ -f "$LEDGER" ] && gline="$(grep '"event":"goal"' "$LEDGER" 2>/dev/null | tail -1 || true)"
@@ -505,7 +511,6 @@ case "$cmd" in
       }
       END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" last[t] } }' "$LEDGER")"
     ndone=0; nhold=0; nleft=0; tix=.agents/runs/orchestrate/tickets
-    q() { printf '%q' "$1"; }
     while IFS="$(printf '\037')" read -r wt br locked; do   # the unit separator: bash 3.2 cannot split on \001
       [ -n "$wt" ] && [ -n "$br" ] || continue                 # a detached copy is its maker's to remove
       [ "$br" != "$base" ] || continue                          # the base is nobody's lane
@@ -561,9 +566,9 @@ case "$cmd" in
       [ -z "$locked" ] || hold="${hold}locked${locked#locked} (the operator's to release);"
       case "$(pwd -P)/" in "$wt"/*) hold="${hold}you are standing in it;" ;; esac
       if [ -n "$hold" ]; then echo "HOLDS   $tag $why -> $hold look before anyone removes it"; nhold=$((nhold + 1)); continue; fi
-      # The branch is deleted only if it still points at the commit judged here.
-      if [ "$why" = landed ]; then echo "DONE    $tag landed -> only if the operator says yes: git worktree remove -- $(q "$wt") && git update-ref -d $(q "refs/heads/$br") $tip"
-      else echo "DONE    $tag replaced -> only if the operator says yes: git worktree remove -- $(q "$wt")   (keep the branch unless another branch holds its commits)"; fi
+      # No command is printed: the line says what was judged, and the footer how to act on it.
+      if [ "$why" = landed ]; then echo "DONE    $tag landed -> everything it changed is on $base; its branch was at $tip when judged"
+      else echo "DONE    $tag replaced -> a later round took its place; its branch is not on $base, so the branch stays"; fi
       ndone=$((ndone + 1))
     done < <(git worktree list --porcelain -z 2>/dev/null | tr '\n\0' '\002\n' | awk '
       function out() { if (n > 1 && p != "") print p "\037" b "\037" l }
@@ -571,6 +576,7 @@ case "$cmd" in
       /^branch /{ b = $2; sub("refs/heads/", "", b) }
       /^locked/{ l = $0 }
       END { out() }')
+    [ "$ndone" = 0 ] || echo "TO REMOVE a DONE tree, only on the operator's yes: run this report again first and act only on a tree it still calls DONE, since git deletes a tree's ignored files unasked and this report is stale once anything writes there. Then: git worktree remove, never --force, with the path quoted so the shell reads it literally (git worktree list --porcelain -z gives it exactly). Only after that succeeded, a landed branch goes, and only while it still points at the commit on its line: git update-ref -d refs/heads/<branch> <that commit>. A replaced tree's branch stays."
     echo "LEFTOVERS: $ndone done, $nhold done but holding something, $nleft left; judged against $basesay; nothing was removed, and nothing is to be without the operator's yes" ;;
   done)       # close a lane. Verification is guidance, not a gate: a non-T0 lane with no
               # verdict still closes, with a stderr warning; verify_coverage in `metrics`
