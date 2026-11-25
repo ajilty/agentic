@@ -56,7 +56,7 @@ Run these in order on every invocation:
    the operator, nor an implementer before checking its result file and each
    unclaimed worktree as that file says. On a HALT, show the
    operator and dispatch nothing. When it lists lane worktrees on disk,
-   run `ledger.sh retire`.
+   run `ledger.sh leftovers`.
 2. **Intake and goal.** If the goal is non-code or a one-call fix, do it
    directly without the pipeline and journal nothing. Otherwise write the work
    the input points at (an issue, a URL, a file), or the input itself, to

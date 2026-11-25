@@ -40,7 +40,7 @@ commit, or the lane's approved commit while its pull request is still open),
 `git worktree add --detach .agents/worktrees/<ticket>-apply <sha>`, dispatch it
 with that path and SHA. The tree lives from the plan dispatch through the apply
 dispatch (the saved plan file stays in it between them). A detached copy you
-make by hand is yours alone to remove; `ledger.sh retire` never touches
+make by hand is yours alone to remove; `ledger.sh leftovers` never lists
 one, and reground only counts them (`HAND-MADE COPIES`). In the turn its
 purpose ends (the apply returns, the operator declines, the plan comes
 back blocked or is replaced by one at a new commit, or the lane is

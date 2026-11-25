@@ -207,49 +207,50 @@ and every other rule are prose in the briefs.
 `docs/notes/codex-support.md` records the earlier Codex enforcement work that
 ADR-0040 removed.
 
-## A writer's worktree outlives its lane until `retire` removes it (Claude Code)
+## A writer's worktree outlives its lane; `leftovers` reports, nothing removes (Claude Code)
 
 Claude Code keeps a subagent's worktree whenever git shows changed files,
 untracked files or new commits there, and a writer that did its job has
 committed. Its periodic sweep skips a tree with unpushed commits, which a
 squash merge that deletes the branch leaves forever. So nothing in the harness
-removes a finished lane's tree. `ledger.sh retire` does, when the router runs
-it: at landing, and whenever reground counts lane worktrees on disk.
+removes a finished lane's tree, and they pile up.
+
+`ledger.sh leftovers` reports which of a run's trees are finished and prints
+the commands that would remove each. It removes nothing: the operator decides,
+and the router runs the printed commands only on their word. An earlier design
+removed the trees itself. Four rounds of independent review reproduced about
+25 ways it could delete work that existed nowhere else (4, then 9, then 4,
+then 8, each round on the fixes of the last), so the removing half was cut:
+a wrong verdict now costs a wrong line in a report.
 
 What it does not do, on purpose:
 
 - Judge a tree by its name, a detached copy, or any tree whose branch no board
   row names. A hand-made plan or apply copy is the router's to remove
   (reground counts them), and a tree from before the board recorded its
-  branch stays until someone removes it.
-- Remove a tree that holds an untracked file or a change to a tracked file. It
-  names the files. A tree whose only leftovers are git-ignored (build output,
-  files a `.worktreeinclude` copied in) is kept too, until the router runs
-  `retire --ignored <tree>` for that tree with the operator's agreement; then
-  they go with the tree and are named. Never when an ignored folder holds a
-  repository or worktree of its own. The one thing it moves is a writer's result left in a tree by
-  a version before 0.9.8, which it carries to the primary checkout when that
-  has no such file or an equal one.
-- Release a lock. Claude Code locks an agent's tree and does not always
-  release it when the agent finishes; `retire` names the lock and leaves the
-  tree for the operator.
+  branch is never listed.
+- Offer a command for a tree that holds anything: an untracked or git-ignored
+  file, an uncommitted change, a result nobody stored, or a lock. It names
+  what is there and stops. Claude Code locks an agent's tree and does not
+  always release it when the agent finishes; that lock is the operator's.
+- Fetch. With an `origin` it judges against the base as last fetched and says
+  so; with none, against the local branch. A stale base makes it call fewer
+  trees done, never more, unless the base was force-moved backwards since.
 - Recognise every merged change. A branch counts as on the base when every
   path it changed is, on the base, exactly the branch's version, or when one
   commit on the base since the fork is its change and left those paths at
   the branch's version (a squash merge the base has since edited). A pull
   request edited before it merged, or a squash onto a base that had already
-  moved under the same files, does not match: the tree is named `LEFT` and
-  stays. It asks no forge and runs no merge. A squash the base later reverted
-  still counts: the branch is deleted, and its content stays in that commit.
-- Judge against a base it could not refresh. With an `origin` it fetches the
-  base first (bounded to 20 seconds where `timeout` or `gtimeout` exists) and
-  judges nothing when that fails; `--dry-run` judges against the last fetch.
-  With no `origin` the base is the local branch.
+  moved under the same files, does not match: the tree is listed `LEFT`. It
+  asks no forge and runs no merge. A squash the base later reverted still
+  counts as landed.
+- Prove a verdict beyond doubt. The printed `git branch -D` deletes a branch
+  on the strength of that comparison; `git worktree remove` without `--force`
+  is git's own second check for the tree, and there is none for the branch.
 - Reuse a tree across retries. Each re-dispatch is a fresh writer in a fresh
-  tree that merges the earlier round's branch in first; the earlier tree goes once
-  the ticket is closed and the re-dispatch's row names the branch it replaced.
-  One row names one branch, so a re-dispatch that takes over two tasks leaves
-  one tree for a later hand removal. Sending the retry back to the same writer
+  tree that merges the earlier round's branch in first; the earlier tree is
+  listed done once the ticket is closed and the re-dispatch's row names the
+  branch it replaced. One row names one branch. Sending the retry back to the same writer
   would hold one tree per ticket, but needs the writer kept alive after it
   returns, its id on the board, and a rule for escalating to a stronger
   model; not done.

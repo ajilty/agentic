@@ -16,22 +16,24 @@ list (`herdr agent list`, or the harness's own). If any is non-empty or
 unknown, treat the checkout as shared. Integrating onto the base yourself
 also needs a checkout that is not shared and a HEAD that already is the
 journaled base; never switch branches or move
-HEAD to make that true. A writer's worktree and branch go only after its
-change has landed, and `ledger.sh retire` removes them, not you: run it at
-landing and whenever reground counts lane worktrees on disk, since most pull
+HEAD to make that true. A writer's worktree and branch outlive its lane:
+nothing removes them, and you do not either without the operator's word.
+`ledger.sh leftovers` reports them and changes nothing; run it at landing
+and whenever reground counts lane worktrees on disk, since most pull
 requests merge in a later turn. That holds for a writer's tree the harness
 made as much as one you made. It judges only a tree whose branch a board
-row names, and removes one when everything the branch holds is already on
-the base (it compares content, path by path; it never trusts a merge), or
-when a later round's `dispatched` row says it replaces that branch and the
-ticket is closed. Each line it prints is a state:
-`RETIRED` is gone; `LEFT` is not on the base yet and needs nothing;
-`KEPT` needs someone. For `KEPT` with files, move what matters out and run
-it again. For `KEPT` with only git-ignored leftovers (build output, a
-copied `.env`), show the operator the entries it names and run `ledger.sh
-retire --ignored <tree>` for that tree only once they have agreed to it. For `KEPT` with a lock, tell the operator which tree, once: the
-lock is theirs to release. On the hand-over path it leaves both tree and
-branch, and you tell the operator where they are. Fix a stale base by recreating
+row names, and calls one done when everything the branch changed is
+already on the base (it compares content, path by path, against the base
+as last fetched; fetch first), or when a later round's `dispatched` row
+says it replaces that branch and the ticket is closed. Each line is a
+state. `LEFT` is not finished and needs nothing. `DONE` is finished and
+clean, and carries the commands that would remove it: show the operator
+those lines and run the commands only for the trees they say yes to, as
+printed, never with `--force`. `HOLDS` is finished but has files or a
+lock, each named: show the operator that line too, once, and leave the
+tree; a result file it names is yours to store with `ledger.sh result`.
+On the hand-over path tree and branch stay, and you tell the operator
+where they are. Fix a stale base by recreating
 the worktree, never by `reset --hard`. Treat a worktree you did not create as
 the operator's; the floor does not cover it.
 

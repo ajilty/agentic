@@ -395,7 +395,7 @@ plugins/orchestrate/
 │   │   └── runtime/
 │   │       ├── ledger.sh          append · goal · clarify · decision · done · retries ·
 │   │       │                      metrics · feedback · conformance · reground ·
-│   │       │                      retire · result
+│   │       │                      leftovers · result
 │   │       ├── adr.sh             next · add · supersede · reindex
 │   │       └── hooks/
 │   │           ├── guard-shared-checkout.sh   PreToolUse(Bash): the shared-checkout floor
@@ -422,8 +422,8 @@ empty ledger means a fresh start; open lanes mean a resume. The numbered loop in
    §5, counting the retry budget from the ledger.
 6. **Verify** every T1 and T2 change.
 7. **Land** onto the journaled base (or open a pull request) and `ledger.sh
-   done`; `ledger.sh retire` removes the lane's worktree once its change is on
-   the base.
+   done`; `ledger.sh leftovers` reports when the lane's worktree can go, and
+   the operator says whether it does.
 8. **Feedback.** Write the run review and a rating row when the goal closes.
 
 There is no config file at any step. Repo specifics are discovered, defaulted, or

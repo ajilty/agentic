@@ -18,9 +18,9 @@ its craft guide; add none.
   round left a branch (its result file names it; for a round that died, the
   branch of its tree in `git worktree list`), put the branch in the dispatch
   and add `"replaces":"<branch>"` to the `dispatched` row. The writer merges
-  that branch in first; the row is the only thing that lets `retire` remove the
-  earlier round's tree once the ticket is closed, since it never infers one
-  from names or order. One row replaces one branch.
+  that branch in first; the row is the only thing that lets `leftovers` call the
+  earlier round's tree done once the ticket is closed, since it never infers
+  one from names or order. One row replaces one branch.
 - **Hand over only the artifact:** the work item or spec task, the paths it
   needs, its result path; on a retry, the verdict file and the branch it
   replaces; on a plan revision,
