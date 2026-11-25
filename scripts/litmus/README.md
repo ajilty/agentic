@@ -210,12 +210,20 @@ record), or that the run was stopped.
   anything is spent.
 - **The login.** A session holds the login token, as any session does, and
   with tools it can print its own environment into its transcript, which is
-  kept. So after each batch the token is removed from every kept file, and the
-  run says so if it had to. It is found only as the exact text of the token: a
-  copy in another encoding or in pieces is not. If `litmus` is killed outright
-  mid-batch, that step has not run: treat the run's output folder (under
-  `.agents/runs/litmus/out/`) and any working folder left under the run root
-  as holding the token, and delete them.
+  kept. The harness cuts the token out of everything it keeps as its last
+  step, and says per replay whether it had to; the run reports how many
+  replays that was (`replays_with_login_in_kept_files` in the summary), and
+  counts a replay whose check did not finish as not measured
+  (`replays_login_unchecked`). After each
+  batch `litmus` looks once more through every kept file and the harness's
+  log (`login_removed_from_files`): a second look when the harness finished
+  its own, the only one when it was stopped first or is an older harness. The
+  harness finds the token as its exact text and also text shaped like a key;
+  `litmus` finds the exact text only. Neither finds a copy in another
+  encoding or in pieces. If `litmus` is killed outright
+  mid-batch, its own look has not run and the harness's may not have: treat
+  the run's output folder (under `.agents/runs/litmus/out/`) and any working
+  folder left under the run root as holding the token, and delete them.
 - **Stopping.** An interrupt, a closed terminal or the time limit stops the
   harness and everything it started. If `litmus` itself is killed outright,
   the harness is told to stop (Linux), and a working folder under the run root

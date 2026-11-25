@@ -635,12 +635,15 @@ for case in sys.argv[4:]:
             (o / "transcript.jsonl").write_text('{"cwd":"/x"} env says CLAUDE_CODE_OAUTH_TOKEN=' + os.environ["CLAUDE_CODE_OAUTH_TOKEN"] + "\n")
             (o / "say.md").write_text("my login is " + os.environ["CLAUDE_CODE_OAUTH_TOKEN"])
             print("harness log line with", os.environ["CLAUDE_CODE_OAUTH_TOKEN"])
+        if mark("note"): (o / "login-removed.txt").write_text("unchecked: this run stopped early\n" if mark("note") == "unchecked" else "transcript.jsonl\n")
         if mark("nofacts") == f"{case}.{k}": continue
         (o / "facts.json").write_text(json.dumps({
             "candidate_sha256": "0" * 64 if mark("wrongsha") else hashlib.sha256(cand.read_bytes()).hexdigest(), "noload": bool(mark("noload")),
             "loaded": ["home/.claude/CLAUDE.md", "repo/AGENTS.md"] + (["/etc/claude-code/CLAUDE.md"] if mark("stray") else []),
             "confined": not mark("unconfined"), "is_error": None if mark("noresult") else False,
-            "cost_usd": None if mark("nocost") else 0.5, "turns": 7, "seconds": 30.0, "refused": 1, "models_used": ["m"]}))
+            "cost_usd": None if mark("nocost") else 0.5, "turns": 7, "seconds": 30.0, "refused": 1, "models_used": ["m"]}
+            | ({} if mark("oldharness") else {"login_in_kept_files": True if mark("cut") else None if mark("unchecked") else
+                                              1 if mark("oddword") else False})))
 sys.exit(3 if mark("noload") or mark("refuse") else 0)
 """
 
@@ -893,11 +896,45 @@ class Replay(WithStandIn):
 
     def test_the_login_is_removed_from_everything_kept(self):
         code, out = self.replay("acts=0", "acts=1 leak=1", "--only", "merge")
-        self.assertIn("was removed from them", out)
+        self.assertIn("removed it from them", out)
         self.assertEqual(self.summary()["login_removed_from_files"], 5, "two transcripts, two closing messages, the harness log")
         for path in self.state.rglob("*"):
             if path.is_file():
                 self.assertNotIn(b"test-token", path.read_bytes(), str(path))
+
+    def test_the_harness_says_when_it_cut_the_login_out_of_what_it_kept(self):
+        def run(new, label):
+            code, out = self.replay("acts=0", new, "--only", "merge", "--label", label, "--ceiling-usd", "200")
+            s = self.summary()
+            return code, out, (s["replays_with_login_in_kept_files"], s["replays_login_unchecked"], s["login_removed_from_files"]), s
+        code, out, counts, s = run("acts=1 cut=1", "cut")
+        self.assertEqual((code, counts), (0, (2, 0, 0)), out)
+        self.assertIn("the harness changed what 2 replays kept", out)
+        self.assertEqual([r["login_in_kept_files"] for r in self.rows()["merge"]["old"] + self.rows()["merge"]["new"]], [False, False, True, True])
+        code, out, counts, s = run("acts=1", "clean")
+        self.assertEqual(counts, (0, 0, 0))
+        self.assertNotIn("the harness changed", out)
+        self.assertNotIn("own look", out)
+        # a check that did not finish: the files may hold the login, and the replay is not a measurement
+        code, out, counts, s = run("acts=1 unchecked=1", "unchecked")
+        self.assertEqual((code, counts, s["not_measured"]), (3, (0, 2, 0), 2), out)
+        self.assertIn("did not finish checking what it kept for the login", out)
+        self.assertIn("did not finish checking what 2 replays kept", out)
+        # a word that is neither yes nor no is no word: unchecked, never "found"
+        self.assertEqual(run("acts=1 oddword=1", "odd")[2], (0, 2, 0))
+        # a reason that came first is kept, and what the harness said about the login is still counted
+        code, out, counts, s = run("acts=1 unchecked=1 noresult=1", "both")
+        self.assertIn("ended without a result", out)
+        self.assertEqual(counts, (0, 2, 0))
+        self.assertEqual(run("acts=1 cut=1 noresult=1", "cut-and-failed")[2], (2, 0, 0))
+        # a run that left no facts still has the harness's own note
+        self.assertEqual(run("acts=1 nofacts=merge.1 note=unchecked", "no-facts-unchecked")[2], (0, 1, 0))
+        self.assertEqual(run("acts=1 nofacts=merge.1 note=cut oldharness=1", "no-facts-cut")[2], (2, 0, 0), "one from the note alone, one an older harness's note")
+        # an older harness says nothing either way: litmus's own look is then the only one, and the replay counts
+        code, out, counts, s = run("acts=1 oldharness=1 leak=1", "older")
+        self.assertEqual((code, counts), (0, (0, 0, 5)), out)
+        self.assertIn("litmus's own look found the login in 5 kept files", out)
+        self.assertNotIn("after the harness", out)
 
     def test_a_tool_record_that_is_missing_or_unreadable(self):
         code, out = self.replay("acts=0", "acts=1 noguard=1", "--only", "merge")

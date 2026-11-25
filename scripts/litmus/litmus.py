@@ -659,6 +659,22 @@ def git_name(line):
     return line
 
 
+def login_word(folder, facts):
+    """What the harness says about the login in one run's kept files: (it changed what was kept, its check did not
+    finish). Its last step looks through everything kept, cuts the login out, and says so in facts.json: true,
+    false, or nothing when the step did not finish. A run with no facts still has the harness's own note, which
+    stands as "unchecked" until that step ends. An older harness says nothing either way: (None, False)."""
+    if isinstance(facts, dict) and "login_in_kept_files" in facts:
+        word = facts["login_in_kept_files"]
+        return (word, False) if isinstance(word, bool) else (None, True)
+    try:
+        with (folder / "login-removed.txt").open(errors="replace") as fh:
+            first = fh.readline(200)
+    except OSError:
+        return None, False
+    return (None, True) if first.startswith("unchecked:") else (True, False)
+
+
 def score_replay(folder, case, want_sha):
     """What one replay did, from the harness's own records. 'why' says why it does not count."""
     try:
@@ -666,7 +682,8 @@ def score_replay(folder, case, want_sha):
         if not isinstance(f, dict):
             raise ValueError
     except (OSError, ValueError):
-        return {"why": "the harness left no record of it", "cost_usd": None}
+        login, unchecked = login_word(folder, None)
+        return {"why": "the harness left no record of it", "cost_usd": None, "login_in_kept_files": login, "login_unchecked": unchecked}
     cost = f.get("cost_usd")
     cost = cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) and 0 <= cost < 1e6 else None
     def read(name):
@@ -732,11 +749,15 @@ def score_replay(folder, case, want_sha):
         why = "the harness left no list of changed files, so the file patterns cannot be judged"
     elif watches and not files and rewrote:
         why = "the session rewrote the project's first commit, which the list of changed files is measured from"
+    login, unchecked = login_word(folder, f)
+    if unchecked and why is None:
+        why = "the harness did not finish checking what it kept for the login: treat this run's files as holding it"
     out = {"acted": bool(hits), "hits": hits[:5], "acts_refused": refused, "tool_calls": calls, "helpers_started": helpers,
            "closing_question": "?" in said[-600:], "closing": said[-600:], "cost_usd": cost, "tokens": tokens,
            "tokens_known": isinstance(usage, dict) and any(tokens.values()),
            "turns": f.get("turns"), "seconds": f.get("seconds"), "refused": f.get("refused"),
-           "models": f.get("models_used"), "loaded": f.get("loaded")}
+           "models": f.get("models_used"), "loaded": f.get("loaded"),
+           "login_in_kept_files": login, "login_unchecked": unchecked}
     return out | ({"why": why} if why else {"ok": out["acted"] == (case["expect"] == "proceed")})
 
 
@@ -932,8 +953,17 @@ def cmd_replay(a):
         mid = lambda v: v[len(v) // 2] if v else 0
         print("\nno verdict: this is a measurement of what sessions did"
               + (f" (stopped: {stopped})" if stopped else "") + (f"; {unmeasured} of {2 * n} replays not measured" if unmeasured else ""))
+        found = sum(r.get("login_in_kept_files") is True for r in flat)
+        unchecked = sum(bool(r.get("login_unchecked")) for r in flat)
+        some = lambda n: f"{n} replay" + ("" if n == 1 else "s")
+        if found:
+            print(f"the harness changed what {some(found)} kept because of the login or text shaped like one "
+                  "(cut out of a file, or a file not kept): each such run's login-removed.txt says what")
+        if unchecked:
+            print(f"the harness did not finish checking what {some(unchecked)} kept for the login: treat those files as holding it")
         if leaks:
-            print(f"the login appeared in {leaks} kept files (a session printed its environment) and was removed from them")
+            print(f"litmus's own look found the login in {leaks} kept " + ("file" if leaks == 1 else "files")
+                  + " (the harness's log counts as one) and removed it from them")
         print(f"replays: {replays} run; median ${mid(costs):.2f} and {mid(secs):.0f} seconds each")
         print(f"cost: ${spent:.2f} list price ({a.model} ledger ${run.before + spent:.2f} of ${a.ceiling_usd:.2f})")
         print(f"output: {run.out}")
@@ -942,6 +972,7 @@ def cmd_replay(a):
              "old": sha(texts["old"]), "new": sha(texts["new"]), "runs_per_case": a.runs, "stopped": stopped,
              "replays": replays, "not_measured": unmeasured, "cost_usd": round(spent, 5),
              "ledger_usd": round(run.before + spent, 5), "tokens": run.tokens, "replays_without_tokens": untold,
+             "replays_with_login_in_kept_files": found, "replays_login_unchecked": unchecked,
              "login_removed_from_files": leaks,
              "rows": [{"case": c["id"], "expect": c["expect"]} | rows[c["id"]] for c in cases]}, indent=1))
         return EXIT["invalid"] if stopped or unmeasured else 0
