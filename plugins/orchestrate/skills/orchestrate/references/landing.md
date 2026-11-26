@@ -16,9 +16,25 @@ list (`herdr agent list`, or the harness's own). If any is non-empty or
 unknown, treat the checkout as shared. Integrating onto the base yourself
 also needs a checkout that is not shared and a HEAD that already is the
 journaled base; never switch branches or move
-HEAD to make that true. Remove a lane's worktree and branch only after its
-change has landed (merged, or its pull request merged); on the hand-over path
-keep both and tell the operator where they are. Fix a stale base by recreating
+HEAD to make that true. A writer's worktree and branch outlive its lane:
+nothing removes them, and you do not either without the operator's word.
+`ledger.sh leftovers` reports them and changes nothing; run it at landing
+and whenever reground counts lane worktrees on disk, since most pull
+requests merge in a later turn. That holds for a writer's tree the harness
+made as much as one you made. It judges only a tree whose branch a board
+row names, and calls one done when everything the branch changed is
+already on the base (it compares content, path by path, against the base
+as last fetched; fetch first), or when a later round's `dispatched` row
+says it replaces that branch and the ticket is closed. Each line is a
+state. `LEFT` is not finished and needs nothing. `DONE` is finished and
+clean: show the operator those lines. For a tree they say yes to, run
+`ledger.sh leftovers` again right before and act only if it still says `DONE`, then
+do what the report's `TO REMOVE` line says, never with `--force`: a
+report read earlier is stale. `HOLDS` is finished but has files or a
+lock, each named: show the operator that line too, once, and leave the
+tree; a result file it names is yours to store with `ledger.sh result`.
+On the hand-over path tree and branch stay, and you tell the operator
+where they are. Fix a stale base by recreating
 the worktree, never by `reset --hard`. Treat a worktree you did not create as
 the operator's; the floor does not cover it.
 

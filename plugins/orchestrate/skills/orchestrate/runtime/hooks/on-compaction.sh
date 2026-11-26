@@ -33,13 +33,13 @@ HALT: ledger.sh reground failed (exit $rc), so the board above may be incomplete
 dispatch until it runs clean; run it yourself and show the operator the error."
 fi
 # Claude Code caps additionalContext at 10,000 characters per field. Keep the header and
-# the HALT whole, keep reground's summary lines (GOAL, board, OTHER WORKTREES, REGROUND)
+# the HALT whole, keep reground's summary lines (GOAL, board, the worktree counts, REGROUND)
 # whole, put writer and parked-lane lines (OPEN WRITER, DIRTY WORKTREE, OPEN LANE) before
 # read-only ones, and trim what is left over, pointing at the full replay.
 cap=9500
 room=$(( cap - ${#head} - ${#halt} - 2 ))
 if [ "${#board}" -gt "$room" ]; then
-  sre='^(GOAL:|board:|OTHER WORKTREES|REGROUND:|LEGACY STATE:)'; wre='^(OPEN WRITER|DIRTY WORKTREE|OPEN LANE)'
+  sre='^(GOAL:|board:|OTHER WORKTREES|LANE WORKTREES|HAND-MADE COPIES|REGROUND:|LEGACY STATE:)'; wre='^(OPEN WRITER|DIRTY WORKTREE|OPEN LANE)'
   summ="$(printf '%s\n' "$board" | grep -E "$sre" || true)"
   wl="$(printf '%s\n' "$board" | grep -E "$wre" || true)"
   rl="$(printf '%s\n' "$board" | grep -vE "$sre" | grep -vE "$wre" || true)"

@@ -55,7 +55,8 @@ Run these in order on every invocation:
    `references/resume.md` says. Never re-dispatch an actuator without asking
    the operator, nor an implementer before checking its result file and each
    unclaimed worktree as that file says. On a HALT, show the
-   operator and dispatch nothing.
+   operator and dispatch nothing. When it lists lane worktrees on disk,
+   run `ledger.sh leftovers`.
 2. **Intake and goal.** If the goal is non-code or a one-call fix, do it
    directly without the pipeline and journal nothing. Otherwise write the work
    the input points at (an issue, a URL, a file), or the input itself, to
@@ -127,7 +128,7 @@ Run these in order on every invocation:
 6. **Verify** every T1 and T2 change with an outcome-mode verifier. A change
    to instructions (a skill, a persona brief, a hook message, an agent
    definition, operator preferences) takes three lens verifiers. A `REJECTED`
-   goes back to the implementer once, with the verdict file's path
+   goes to a fresh implementer once, with the verdict file's path
    (`ledger.sh retries <ticket>`), then to the operator. The lens split,
    the merged round file and the next-round rules are in
    `references/review-rounds.md`; read it before the first verifier dispatch.

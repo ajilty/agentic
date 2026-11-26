@@ -8,6 +8,8 @@
 #   ledger.sh reground                 # reconstruct open lanes; reconcile vs this run's git worktrees
 #                                       # first archives run-state files no current version reads (0.8.x leases/, active-writer.json)
 #                                       # exit 0 = report (act on it), exit 3 = lane worktree the board lost -> HALT
+#   ledger.sh leftovers                # report the trees of lanes whose work has ended and how to remove one safely; removes nothing, prints nothing to paste
+#   ledger.sh result <t> <id> <file>   # store a writer's handback in the primary checkout's run dir
 #   ledger.sh goal <note> [spec] [base] [main_model]  # journal the run-level goal (ADR-0020)
 # Runs under bash 3.2 (macOS /bin/bash): no associative arrays.
 set -euo pipefail
@@ -292,7 +294,7 @@ case "$cmd" in
     #     branch is named on a dispatched/returned/lane row, or it lives under
     #     .claude/worktrees/ or .agents/worktrees/ on a branch naming a ticket on the board.
     #     Other worktrees belong to other sessions: counted once, never judged.
-    other=0
+    other=0; ondisk=0
     if git rev-parse --git-dir >/dev/null 2>&1; then
       while IFS='|' read -r wt br; do
         [ -n "$br" ] || continue
@@ -321,6 +323,9 @@ case "$cmd" in
           esac
         fi
         [ -n "$kt" ] || { other=$((other + 1)); continue; }
+        # A lane that is no longer in flight and still has its copy on disk: counted here, judged by `leftovers`.
+        case "$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $4 }')" in dispatched) ;;
+          *) [ -z "$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b')" ] || ondisk=$((ondisk + 1)) ;; esac
         [ -n "$dirt" ] || continue
         printed=1
         if [ "$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $3 }')" = 1 ]; then
@@ -331,6 +336,9 @@ case "$cmd" in
       done < <(git worktree list --porcelain 2>/dev/null | awk '
         /^worktree /{ sub(/^worktree /, ""); p = $0; n++ } /^branch /{ b = $2; sub("refs/heads/", "", b); if (n > 1) print p "|" b }')
       [ "$other" -gt 0 ] && echo "OTHER WORKTREES (not this run): $other"
+      [ "$ondisk" -gt 0 ] && echo "LANE WORKTREES ON DISK: $ondisk whose lane is not in flight -> run: ledger.sh leftovers (says which are finished; removes nothing, and neither do you without the operator's yes)"
+      made="$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{ p = $0 } /^detached/{ if (index(p, "/.agents/worktrees/")) n++ } END { print n + 0 }')"
+      [ "$made" -gt 0 ] && echo "HAND-MADE COPIES: $made detached under .agents/worktrees -> yours to remove once the plan, apply or proof each was made for has ended"
     fi
     # Run-level anchor (ADR-0020): the latest `goal` event carries the north star + a
     # pointer to where the plan durably lives (spec/ADR). Surface it so a clean board
@@ -370,6 +378,206 @@ case "$cmd" in
     printf '{"ts":"%s","event":"goal","note":"%s","spec":"%s","base":"%s"%s}\n' \
       "$(date -u +%FT%TZ)" "$(jtext "$note")" "$spec" "$base" "${mm:+,\"main_model\":\"$(jtext "$mm")\"}" >> "$LEDGER" ;;
 
+  result)     # a writer's handback, stored in the PRIMARY checkout's run dir from wherever the
+              # writer runs: `ledger.sh result <ticket> <dispatch_id> <file>`. A writer in its own
+              # worktree cannot write there with its file tools, and a result left inside its tree
+              # is untracked work that keeps the tree alive after the lane ends (measured
+              # 2026-11-21: 36 of 51 leftover trees, 5 holding the only copy of a result).
+              # Never replaces a stored result that differs, and removes the writer's copy only
+              # once the stored one is proven equal.
+    tk="${1:?ticket}"; did="${2:?dispatch_id}"; src="${3:?file}"
+    for n in "$tk" "$did"; do case "$n" in */*|.|..|*..*|-*) echo "ledger.sh result: ticket and dispatch_id are names, not paths" >&2; exit 2 ;; esac; done
+    [ -f "$src" ] && [ ! -L "$src" ] || { echo "ledger.sh result: not a regular file: $src" >&2; exit 2; }
+    # Inside a git checkout whose primary this helper cannot find (a worktree of a bare
+    # repository), the run dir would resolve inside the caller's own tree: refuse.
+    if [ -z "$_base" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+      echo "ledger.sh result: cannot find the primary checkout from here; nothing stored" >&2; exit 1
+    fi
+    dst="$ROOT/tickets/$tk/results/$did.md"
+    mkdir -p "${dst%/*}" 2>/dev/null || { echo "ledger.sh result: cannot create ${dst%/*}; nothing stored" >&2; exit 1; }
+    if [ -L "$dst" ] || { [ -e "$dst" ] && [ ! -f "$dst" ]; }; then
+      echo "ledger.sh result: $dst exists and is not a plain file; nothing stored, your file is untouched at $src" >&2; exit 1
+    fi
+    sdir="$(cd "$(dirname "$src")" && pwd -P)"
+    if [ "$sdir/$(basename "$src")" != "$(cd "${dst%/*}" && pwd -P)/$did.md" ]; then
+      if [ -e "$dst" ]; then
+        cmp -s "$src" "$dst" || { echo "ledger.sh result: a different result is already stored at $dst; nothing replaced, your file is untouched at $src" >&2; exit 1; }
+      else
+        tmp="$(mktemp "${dst%/*}/.handin.XXXXXX" 2>/dev/null)" || { echo "ledger.sh result: could not store $dst; your file is untouched at $src" >&2; exit 1; }
+        # ln refuses an existing name, so two hand-ins of one id cannot replace each other;
+        # where the disk has no hard links, an exclusive create does the same.
+        if cp "$src" "$tmp" 2>/dev/null && cmp -s "$src" "$tmp"; then
+          ln "$tmp" "$dst" 2>/dev/null || { [ -e "$dst" ] || ( set -C; cat "$tmp" > "$dst" ) 2>/dev/null; } || true
+        fi
+        rm -f "${tmp:?}" 2>/dev/null || true
+        { [ -f "$dst" ] && cmp -s "$src" "$dst"; } || { echo "ledger.sh result: could not store $dst; your file is untouched at $src" >&2; exit 1; }
+      fi
+      # The writer's copy is now a duplicate. It is removed only when it sits in a linked
+      # worktree (a writer's own tree) and git does not track it there; anywhere else it stays.
+      gd="$(git -C "$sdir" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+      gc="$(git -C "$sdir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+      if [ -n "$gd" ] && [ "$gd" != "$gc" ] && [ -z "$(git -C "$sdir" ls-files -- "$(basename "$src")" 2>/dev/null)" ]; then rm -f "${src:?}"; fi
+    fi
+    tail -n 1 "$dst" | grep -q 'orchestrate:complete' || echo "ledger.sh result: WARNING $dst does not end with the completion sentinel; the router will read it as unfinished" >&2
+    echo "$dst" ;;
+  leftovers)  # report the trees of lanes whose work has ended: `ledger.sh leftovers`. It REMOVES
+              # NOTHING and changes nothing: no worktree, branch, file, lock or ref, and no fetch.
+              # Four review rounds of a version that removed found about 25 ways to delete work
+              # that existed nowhere else; a wrong verdict here costs a wrong line, not the work.
+              # Judges only a worktree whose branch a board row names, exactly, for one ticket,
+              # and whose lane is not in flight. Never a name match, never a detached copy,
+              # never another session's tree, never the base branch itself.
+              # DONE landed: every path the branch changed since the fork is, on the base,
+              #   exactly the branch's version; or one commit on the base since the fork is the
+              #   branch's change and left every such path at the branch's version (a squash
+              #   merge the base has since edited). A branch with nothing of its own counts only
+              #   once the lane is closed. No merge is run.
+              # DONE replaced: the ticket is closed and a later `dispatched` row of it says
+              #   "replaces":"<this branch>".
+              # A DONE line names the tree and why, a landed one the commit judged. It carries no command:
+              # a line pasted later removed a tree that had since gained ignored files (git
+              # deletes those unasked), and a path with a "#" in it, pasted into zsh with
+              # extended globbing, removed a different tree. One fixed footer says how to
+              # remove safely instead, starting with running this report again.
+              # HOLDS: done, but the tree has an untracked or ignored file, an uncommitted
+              # change or a lock, each named.
+              # LEFT: not done. The base is origin's as last fetched when there is an origin.
+    [ $# -eq 0 ] || { echo "usage: ledger.sh leftovers (reports; removes nothing)" >&2; exit 64; }
+    git rev-parse --git-dir >/dev/null 2>&1 || { echo "LEFTOVERS: not a git checkout"; exit 0; }
+    # Reading must stay reading: no index refresh or index.lock in the trees it looks at (which
+    # would also run the post-index-change hook), and no blob fetched on demand in a partial
+    # clone. A partial clone is not judged at all: older git ignores the second setting.
+    GIT_OPTIONAL_LOCKS=0; GIT_NO_LAZY_FETCH=1; export GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH
+    # No file-system monitor either: `git status` would start its daemon and leave it running.
+    # And names are read case-sensitively: with core.ignoreCase set on a case-sensitive disk,
+    # git takes an untracked readme.md for the tracked README.md and shows nothing. On a disk
+    # that folds case this can only add a HOLDS, never a DONE. Both go where `git -c` puts
+    # its settings, which git reads last: a caller's own -c or GIT_CONFIG_COUNT cannot undo them.
+    GIT_CONFIG_PARAMETERS="${GIT_CONFIG_PARAMETERS:+$GIT_CONFIG_PARAMETERS }'core.fsmonitor=false' 'core.ignorecase=false'"; export GIT_CONFIG_PARAMETERS
+    [ -z "$(git config --get-regexp '^(remote\..*\.(promisor|partialclonefilter)|extensions\.partialclone)$' 2>/dev/null || true)" ] \
+      || { echo "LEFTOVERS: this is a partial clone, where comparing content would download it: nothing judged"; exit 0; }
+    gline=""; [ -f "$LEDGER" ] && gline="$(grep '"event":"goal"' "$LEDGER" 2>/dev/null | tail -1 || true)"
+    base="$(val "$gline" base)"
+    [ -n "$base" ] || base="$(git symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
+    [ -n "$base" ] || { echo "LEFTOVERS: no base branch known (no goal row names one, and origin/HEAD is not set): nothing judged"; exit 0; }
+    case "$base" in -*) base_ok="" ;; *) base_ok=1 ;; esac
+    { [ -n "$base_ok" ] && git check-ref-format --branch "$base" >/dev/null 2>&1; } || { echo "LEFTOVERS: the base on the board is not a branch name: nothing judged"; exit 0; }
+    if git remote get-url origin >/dev/null 2>&1; then baseref="refs/remotes/origin/$base"; basesay="origin/$base as last fetched (fetch first for a current answer)"
+    else baseref="refs/heads/$base"; basesay="the local branch $base"; fi
+    git rev-parse --verify -q "$baseref^{commit}" >/dev/null 2>&1 || { echo "LEFTOVERS: base $base is not a branch here: nothing judged"; exit 0; }
+    git worktree list --porcelain -z >/dev/null 2>&1 || { echo "LEFTOVERS: this git cannot list worktrees safely (needs git 2.36 or later): nothing judged"; exit 0; }
+    # Paths are compared literally (a file may be named like pathspec magic) and from the top of
+    # the checkout (the names git prints are top-relative, whatever folder the caller stands in).
+    # Any git failure here means "not proven", never "nothing to lose".
+    top="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "LEFTOVERS: run it from inside a checkout's working tree: nothing judged"; exit 0; }
+    gd() { GIT_LITERAL_PATHSPECS=1 git -C "$top" -c core.quotePath=false diff --no-ext-diff --no-textconv --no-color --no-renames --ignore-submodules=none "$@"; }
+    same_paths() { [ -s "$3" ] && xargs -0 env GIT_LITERAL_PATHSPECS=1 git -C "$top" diff --quiet --no-ext-diff --no-textconv --ignore-submodules=none "$1" "$2" -- < "$3" 2>/dev/null; }   # <commit> <tip> <name list>
+    onbase() {   # <tip>: 0 when everything it changed is on the base; sets `own`, the number of paths it changed
+      local nl rc; own=1
+      nl="$(mktemp 2>/dev/null)" || return 1
+      rc=0; onbase_ "$1" "$nl" || rc=$?
+      rm -f "${nl:?}"; return "$rc"
+    }
+    onbase_() {
+      local mb pid s
+      mb="$(git merge-base "$baseref" "$1" 2>/dev/null)" || return 1
+      gd --name-only -z "$mb" "$1" > "$2" 2>/dev/null || return 1
+      own="$(tr -cd '\000' < "$2" | wc -c | tr -d ' ')"
+      [ "$own" != 0 ] || return 0
+      same_paths "$baseref" "$1" "$2" && return 0
+      # A squash merge the base has since edited: one base commit with the branch's patch
+      # that left every path the branch changed at exactly the branch's version.
+      pid="$(gd "$mb" "$1" 2>/dev/null | git patch-id --stable 2>/dev/null | awk '{ print $1 }' || true)"
+      [ -n "$pid" ] || return 1
+      for s in $(git -C "$top" -c core.quotePath=false log -p --no-merges --max-count=1000 --no-ext-diff --no-textconv --no-color --no-renames --ignore-submodules=none "$mb..$baseref" 2>/dev/null \
+                 | git patch-id --stable 2>/dev/null | awk -v p="$pid" '$1 == p { print $2 }' || true); do
+        same_paths "$s" "$1" "$2" && return 0
+      done
+      return 1
+    }
+    # One pass over the board. T: a ticket's last event and state. B: a branch and the ticket
+    # that named it. R: a branch a later dispatch of that ticket says it replaces.
+    rows=""
+    [ -f "$LEDGER" ] && rows="$(awk '
+      function f(k,   m) { if (match($0, "\"" k "\":\"[^\"]*\"")) { m = substr($0, RSTART, RLENGTH); sub("^\"" k "\":\"", "", m); sub("\"$", "", m); return m } return "" }
+      {
+        t = f("ticket"); e = f("event"); if (t == "" || e == "") next
+        if (e !~ /^(intake|clarify|dispatched|returned|verdict|fork|decision|lane|done)$/) next
+        if (index(t, "|")) next                         # "|" separates the fields below: such a ticket is never judged
+        b = f("branch"); if (b != "" && !index(b, "|") && e ~ /^(dispatched|returned|lane)$/) print "B|" b "|" t
+        r = f("replaces"); if (r != "" && !index(r, "|") && e == "dispatched") { print "R|" r "|" t; print "B|" r "|" t }
+        if (!(t in seen)) { seen[t] = 1; order[++n] = t }
+        last[t] = e "|" f("state")
+      }
+      END { for (i = 1; i <= n; i++) { t = order[i]; print "T|" t "|" last[t] } }' "$LEDGER")"
+    ndone=0; nhold=0; nleft=0; tix=.agents/runs/orchestrate/tickets
+    while IFS="$(printf '\037')" read -r wt br locked; do   # the unit separator: bash 3.2 cannot split on \001
+      [ -n "$wt" ] && [ -n "$br" ] || continue                 # a detached copy is its maker's to remove
+      [ "$br" != "$base" ] || continue                          # the base is nobody's lane
+      case "$br" in *'|'*) continue ;; esac                     # "|" separates the board fields below
+      kt="$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" '$1 == "B" && $2 == b && !($3 in s) { s[$3] = 1; n++; t = $3 } END { if (n == 1) print t; else if (n > 1) print "|" }')"
+      [ -n "$kt" ] || continue                                  # no row names it
+      [ "$kt" != "|" ] || { echo "LEFT    $wt ($br) -> more than one ticket names its branch"; nleft=$((nleft + 1)); continue; }
+      ts="$(printf '%s\n' "$rows" | awk -F'|' -v t="$kt" '$1 == "T" && $2 == t { print $3 "|" $4 }')"
+      ev="${ts%%|*}"; st="${ts#*|}"
+      [ "$ev" = dispatched ] && continue                        # in flight
+      closed=""; case "$ev" in done) closed=1 ;; lane) [ "$st" = closed ] && closed=1 ;; esac
+      tag="$wt ($br) ticket=$kt"
+      tip="$(git rev-parse --verify -q "refs/heads/$br^{commit}" 2>/dev/null || true)"
+      [ -n "$tip" ] && [ -d "$wt" ] || { echo "LEFT    $tag -> its folder or branch is missing"; nleft=$((nleft + 1)); continue; }
+      why=""; own=1
+      if onbase "$tip"; then { [ "$own" = 0 ] && [ -z "$closed" ]; } || why=landed
+      elif [ -n "$closed" ] && [ -n "$(printf '%s\n' "$rows" | awk -F'|' -v b="$br" -v t="$kt" '$1 == "R" && $2 == b && $3 == t')" ]; then why=replaced
+      fi
+      if [ -z "$why" ]; then
+        if [ -n "$closed" ]; then echo "LEFT    $tag -> not all of it is on $base: waiting for its merge, handed over, or merged in another form"
+        elif [ "$own" = 0 ]; then echo "LEFT    $tag -> its lane is open and it holds no change of its own yet"
+        else echo "LEFT    $tag -> its lane is open and its change is not on $base"; fi
+        nleft=$((nleft + 1)); continue
+      fi
+      # What the tree holds beyond its commits: anything here is named, and no command is printed.
+      hold=""
+      sts="$(git -C "$wt" status --porcelain --untracked-files=no --ignore-submodules=none 2>/dev/null)" || hold="git status failed there;"
+      [ -z "$sts" ] || hold="$hold$(printf '%s\n' "$sts" | sed -n '1,3p' | tr '\n' ';')"
+      # Tracked files git was told not to look at (sparse checkout, assume-unchanged): one that
+      # is on disk and differs from what git holds is an edit `status` cannot show.
+      hid=0
+      while IFS= read -r -d '' f; do
+        case "$f" in [a-zS]\ ?*) f="${f#? }" ;; *) continue ;; esac
+        [ -e "$wt/$f" ] || [ -L "$wt/$f" ] || continue
+        # A path with a clean filter (LFS) is not hashed, since the filter may write: it counts as differing.
+        case "$(GIT_LITERAL_PATHSPECS=1 git -C "$wt" check-attr filter -- "$f" 2>/dev/null)" in *": filter: unspecified"|*": filter: unset") ;; *) hid=$((hid + 1)); continue ;; esac
+        [ "$(GIT_LITERAL_PATHSPECS=1 git -C "$wt" hash-object -- "$f" 2>/dev/null || echo unreadable)" = "$(GIT_LITERAL_PATHSPECS=1 git -C "$wt" ls-files -s -- "$f" 2>/dev/null | awk '{ print $2; exit }')" ] || hid=$((hid + 1))
+      done < <(git -C "$wt" ls-files -v -z 2>/dev/null || true)
+      [ "$hid" = 0 ] || hold="$hold$hid tracked files git was told not to watch (skip-worktree or assume-unchanged) differ on disk or pass through a filter;"
+      # A merge, rebase, cherry-pick, revert or patch series stopped midway keeps its state in the tree's own git dir.
+      wgd="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null || true)"
+      for m in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-apply rebase-merge sequencer; do
+        [ -n "$wgd" ] && [ ! -e "$wgd/$m" ] || { hold="${hold}an operation stopped midway, or its git dir cannot be read ($m);"; break; }
+      done
+      res="$(git -C "$wt" ls-files --others -- "$tix" 2>/dev/null | sed -n '1,3p' | tr '\n' ' ' || true)"
+      [ -z "$res" ] || hold="${hold}run files, perhaps a result nobody stored (ledger.sh result stores one): $res;"
+      unt="$(git -C "$wt" ls-files --others --exclude-standard --directory --no-empty-directory -- . ":(exclude)$tix" 2>/dev/null || true)"
+      [ -z "$unt" ] || hold="$hold$(printf '%s\n' "$unt" | wc -l | tr -d ' ') untracked: $(printf '%s\n' "$unt" | sed -n '1,3p' | tr '\n' ' ');"
+      igs="$(git -C "$wt" ls-files --others --ignored --exclude-standard --directory --no-empty-directory -- . ":(exclude)$tix" 2>/dev/null || true)"
+      [ -z "$igs" ] || hold="$hold$(printf '%s\n' "$igs" | wc -l | tr -d ' ') git-ignored: $(printf '%s\n' "$igs" | sed -n '1,3p' | tr '\n' ' ');"
+      wrefs="$(git -C "$wt" for-each-ref --format='%(refname)' refs/worktree refs/bisect refs/rewritten 2>/dev/null | sed -n '1,3p' | tr '\n' ' ' || true)"
+      [ -z "$wrefs" ] || hold="${hold}refs of its own that go with it: $wrefs;"
+      [ -z "$locked" ] || hold="${hold}locked${locked#locked} (the operator's to release);"
+      case "$(pwd -P)/" in "$wt"/*) hold="${hold}you are standing in it;" ;; esac
+      if [ -n "$hold" ]; then echo "HOLDS   $tag $why -> $hold look before anyone removes it"; nhold=$((nhold + 1)); continue; fi
+      # No command is printed: the line says what was judged, and the footer how to act on it.
+      if [ "$why" = landed ]; then echo "DONE    $tag landed -> everything it changed is on $base; its branch was at $tip when judged"
+      else echo "DONE    $tag replaced -> a later round took its place; its branch is not on $base, so the branch stays"; fi
+      ndone=$((ndone + 1))
+    done < <(git worktree list --porcelain -z 2>/dev/null | tr '\n\0' '\002\n' | awk '
+      function out() { if (n > 1 && p != "") print p "\037" b "\037" l }
+      /^worktree /{ out(); sub(/^worktree /, ""); p = $0; b = ""; l = ""; n++ }
+      /^branch /{ b = $2; sub("refs/heads/", "", b) }
+      /^locked/{ l = $0 }
+      END { out() }')
+    [ "$ndone" = 0 ] || echo "TO REMOVE a DONE tree, only on the operator's yes: run this report again first and act only on a tree it still calls DONE, since git deletes a tree's ignored files unasked and this report is stale once anything writes there. Then: git worktree remove, never --force, with the path quoted so the shell reads it literally (git worktree list --porcelain -z gives it exactly). Only after that succeeded, a landed branch goes, and only while it still points at the commit on its line: git update-ref -d refs/heads/<branch> <that commit>. A replaced tree's branch stays."
+    echo "LEFTOVERS: $ndone done, $nhold done but holding something, $nleft left; judged against $basesay; nothing was removed, and nothing is to be without the operator's yes" ;;
   done)       # close a lane. Verification is guidance, not a gate: a non-T0 lane with no
               # verdict still closes, with a stderr warning; verify_coverage in `metrics`
               # is the retrospective signal. T0 (the oracle is the check) never warns.
@@ -586,5 +794,5 @@ case "$cmd" in
     fi
     exit "$bad" ;;
 
-  *) echo "usage: ledger.sh {core|brief|rules <name>|append '<json>'|retries <ticket>|reground|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
+  *) echo "usage: ledger.sh {core|brief|rules <name>|append '<json>'|retries <ticket>|reground|leftovers|result <ticket> <dispatch_id> <file>|metrics [ticket]|feedback <note>|conformance <event[:detail]>...|clarify <skill> [ticket]|decision <ticket> <fork_id> [adr] [note]|goal <note> [spec] [base] [main_model]|done <ticket>}" >&2; exit 64 ;;
 esac

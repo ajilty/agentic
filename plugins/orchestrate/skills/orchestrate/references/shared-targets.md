@@ -39,9 +39,17 @@ worktree for it at the exact approved commit (the landed integration-base
 commit, or the lane's approved commit while its pull request is still open),
 `git worktree add --detach .agents/worktrees/<ticket>-apply <sha>`, dispatch it
 with that path and SHA. The tree lives from the plan dispatch through the apply
-dispatch (the saved plan file stays in it between them); remove it after the
-apply lands or the operator declines, and a declined prod-ack also releases the
-target for the next lane. The core's
+dispatch (the saved plan file stays in it between them). A detached copy you
+make by hand is yours alone to remove; `ledger.sh leftovers` never lists
+one, and reground only counts them (`HAND-MADE COPIES`). In the turn its
+purpose ends (the apply returns, the operator declines, the plan comes
+back blocked or is replaced by one at a new commit, or the lane is
+abandoned), delete the saved plan file
+(its output is in the result), check `git -C <path> status --porcelain
+--ignored` shows nothing else you need, then `git worktree remove` the path
+you recorded; a declined prod-ack also releases the target for the next
+lane. Any other copy you make by hand (to land, or to prove something) goes
+the same way, in the turn its purpose ends. The core's
 confirmation applies at a `consequence: prod` target (untagged reads as
 `prod`): show the operator the target, the commit, and the plan output, with
 your recommendation and the risk relative to today, and journal the answer
