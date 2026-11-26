@@ -498,52 +498,90 @@ def cmd_compare(a):
                   f"({run.cli_version}); everything will be asked now")
         m, tries = len(cases), rules.cap + a.void_limit
         st = {c["id"]: {"pairs": [], "next": 0, "void": 0, "judge": None, "split": 0, "mixed": 0} for c in cases}
-        with cf.ThreadPoolExecutor(a.jobs) as ex:
+        def count(c, o, n):                      # the two answers of one pair, into its case's tally
+            s = st[c["id"]]
+            if "stopped" in (o.get("void"), n.get("void")):
+                return                           # a half that was never asked, because the run was stopping: no pair, no void
+            if "void" in o or "void" in n:
+                s["void"] += 1
+            elif o.get("models") and n.get("models") and o["models"] != n["models"]:
+                s["void"] += 1                   # two models answered: not a pair
+                s["mixed"] += 1
+            else:
+                s["pairs"].append((o["pass"], n["pass"]))
+                s["split"] += o.get("run") != n.get("run")          # counted where it is judged
+        def ask(*args):
             try:
-                while not run.halt.is_set():
-                    todo = []
-                    for c in cases:
-                        s = st[c["id"]]
-                        s["judge"] = j = judge.judge_case(s["pairs"], m, rules)
-                        if s["void"] > a.void_limit and j["state"] != "worse":
-                            s["judge"] = j | {"state": "undecided"}     # too many answers could not be counted
-                            continue
-                        if j["state"] != "open":
-                            continue
-                        n = min(j["need"], tries - s["next"])
-                        if n <= 0:
-                            s["judge"] = judge.judge_case(s["pairs"], m, rules, final=True)
-                            continue
-                        todo += [(c, i) for i in range(s["next"], s["next"] + n)]
-                        s["next"] += n
-                    if not todo:
-                        break
-                    futs = {}
-                    for c, i in todo:
-                        # a pair is reused only whole: both answers from the cache, or both asked now, back to back.
-                        # --reuse-old lets an old-side answer stand alone: the same position, so the same option
-                        # order, but sampled earlier than its new-side partner. The summary says how many.
-                        has_old = run.has(slot("old", i), old, c)
-                        whole = has_old and run.has(slot("new", i), new, c)
-                        fresh = {"old": not (whole or (a.reuse_old and has_old)), "new": not whole}
-                        for side, text in (("old", old), ("new", new)):
-                            futs[(c["id"], i, side)] = ex.submit(run.ask, slot(side, i), text, c, i, fresh[side])
-                    for c, i in todo:
-                        o, n = futs[(c["id"], i, "old")].result(), futs[(c["id"], i, "new")].result()
-                        if "void" in o or "void" in n:
-                            st[c["id"]]["void"] += 1
-                        elif o.get("models") and n.get("models") and o["models"] != n["models"]:
-                            st[c["id"]]["void"] += 1         # two models answered: not a pair
-                            st[c["id"]]["mixed"] += 1
-                        else:
-                            st[c["id"]]["pairs"].append((o["pass"], n["pass"]))
-                            st[c["id"]]["split"] += o.get("run") != n.get("run")    # counted where it is judged
-            except KeyboardInterrupt:
-                run.invalid("interrupted")       # queued sessions are dropped; those in flight finish and are counted
-        for s in st.values():                    # interrupted before a case was first looked at: nothing was asked for it
-            if s["judge"] is None:
-                s["judge"] = {"state": "open", "pairs": 0, "worse": 0, "better": 0, "old": 0.0, "new": 0.0}
+                return run.ask(*args)
+            except BaseException as e:           # an error of our own: stop here, before a worker starts the next one
+                run.invalid(f"litmus failed while sessions ran ({type(e).__name__})")
+                raise
+        ex, futs, left = cf.ThreadPoolExecutor(a.jobs), {}, []
+        try:
+            while not run.halt.is_set():
+                todo = []
+                for c in cases:
+                    s = st[c["id"]]
+                    s["judge"] = j = judge.judge_case(s["pairs"], m, rules)
+                    if s["void"] > a.void_limit and j["state"] != "worse":
+                        s["judge"] = j | {"state": "undecided"}     # too many answers could not be counted
+                        continue
+                    if j["state"] != "open":
+                        continue
+                    n = min(j["need"], tries - s["next"])
+                    if n <= 0:
+                        s["judge"] = judge.judge_case(s["pairs"], m, rules, final=True)
+                        continue
+                    todo += [(c, i) for i in range(s["next"], s["next"] + n)]
+                    s["next"] += n
+                if not todo:
+                    break
+                futs, left = {}, list(todo)          # left: pairs of this round not yet taken into the tally
+                for c, i in todo:
+                    # a pair is reused only whole: both answers from the cache, or both asked now, back to back.
+                    # --reuse-old lets an old-side answer stand alone: the same position, so the same option
+                    # order, but sampled earlier than its new-side partner. The summary says how many.
+                    has_old = run.has(slot("old", i), old, c)
+                    whole = has_old and run.has(slot("new", i), new, c)
+                    fresh = {"old": not (whole or (a.reuse_old and has_old)), "new": not whole}
+                    for side, text in (("old", old), ("new", new)):
+                        futs[(c["id"], i, side)] = ex.submit(ask, slot(side, i), text, c, i, fresh[side])
+                while left:
+                    c, i = left[0]
+                    o, n = futs[(c["id"], i, "old")].result(), futs[(c["id"], i, "new")].result()
+                    left.pop(0)
+                    count(c, o, n)
+        except KeyboardInterrupt:
+            run.invalid("interrupted")           # queued sessions are dropped; those in flight finish and are counted
+        except BaseException:
+            run.invalid("litmus failed while sessions ran")         # whatever it was: the queued ones do not start
+            raise
+        finally:
+            while True:                          # the sessions already started are paid for: they are waited for and
+                try:                             # booked, however often the interrupt is repeated
+                    ex.shutdown(wait=True)
+                    break
+                except KeyboardInterrupt:
+                    run.invalid("interrupted")
+                    print("litmus: stopping: waiting for the sessions already started (each ends within its time limit)", file=sys.stderr)
         stopped = run.halt.is_set()
+        if stopped:
+            # What came in after the last look at a case still counts: every pair of the last round whose two
+            # halves were asked, as it would have been counted had the run gone on.
+            for c, i in left:
+                fo, fn = futs.get((c["id"], i, "old")), futs.get((c["id"], i, "new"))
+                if fo is None or fn is None:     # stopped while the round was being handed out
+                    continue
+                try:
+                    count(c, fo.result(), fn.result())
+                except Exception as e:
+                    print(f"litmus: a session failed while the run was stopping ({type(e).__name__}: {e}); its pair is not counted", file=sys.stderr)
+            for s in st.values():                # a case with no decision shows every answer gathered, not those at its last look
+                if s["judge"] is None or s["judge"]["state"] == "open":
+                    got, k = s["pairs"], len(s["pairs"])
+                    s["judge"] = {"state": "open", "pairs": k, "worse": sum(1 for o, n in got if o and not n),
+                                  "better": sum(1 for o, n in got if n and not o),
+                                  "old": sum(o for o, _ in got) / k if k else 0.0, "new": sum(n for _, n in got) / k if k else 0.0}
         verdict = "invalid" if stopped else judge.verdict(s["judge"]["state"] for s in st.values())
         untested = verdict == "pass" and bool(bare)      # part of the edit was never asked about: that is not a pass
         if untested:

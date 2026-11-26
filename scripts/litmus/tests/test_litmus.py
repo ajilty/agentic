@@ -713,6 +713,67 @@ class Compare(WithStandIn):
                 self.assertEqual([(r["case"], r["state"], r["pairs"]) for r in s["rows"]], [("alpha", "not judged", 0), ("beta", "not judged", 0)])
         self.assertFalse((self.state / "ledger.jsonl").exists(), "nothing was asked, nothing spent")
 
+    def test_a_stopped_run_counts_every_answer_it_gathered(self):
+        # One session at a time, so the order is fixed: alpha's pairs first, old side then new. The run is stopped
+        # while it waits for the sixth session; that session ends and completes alpha's third pair.
+        real = engine.run_session
+        self.addCleanup(setattr, engine, "run_session", real)
+
+        def interrupted_after(sixth_does):
+            done = []
+            def run_session(**kw):
+                f = real(**kw)
+                done.append(1)
+                if len(done) == 6:
+                    sixth_does()
+                return f
+            return run_session
+
+        def interrupt(times):
+            def press():
+                for _ in range(times):
+                    os.kill(os.getpid(), signal.SIGINT)      # as Ctrl-C does: the waiting main thread gets it
+                    time.sleep(0.4)                          # and has stopped the run before this session returns
+            return press
+        for label, times in (("once", 1), ("twice", 2)):     # a second interrupt, while the run waits for this session, changes nothing
+            with self.subTest(label):
+                engine.run_session = interrupted_after(interrupt(times))
+                code, out = self.compare(1, 0, "--all", "--jobs", "1", "--label", label, "--draw", label)
+                self.assertNotIn("internal error", out)
+                s = self.summary()
+                self.assertEqual((code, s["verdict"], s["reason"], s["new_sessions"], s["label"]), (3, "invalid", "interrupted", 6, label), out)
+                self.assertEqual([(r["case"], r["state"], r["pairs"], r["worse"], r["void"]) for r in s["rows"]],
+                                 [("alpha", "not judged", 3, 3, 0), ("beta", "not judged", 0, 0, 0)], "three pairs answered, none dropped as void")
+                self.assertEqual("waiting for the sessions already started" in out, times == 2)
+        # a run stopped for any other reason counts what it gathered too: here the cap on new sessions, after two pairs and a half
+        engine.run_session = real
+        code, out = self.compare(1, 0, "--all", "--jobs", "1", "--call-cap", "5", "--label", "capped", "--draw", "capped")
+        s = self.summary()
+        self.assertEqual((code, s["verdict"], s["new_sessions"]), (3, "invalid", 5), out)
+        self.assertEqual([(r["case"], r["state"], r["pairs"], r["worse"], r["void"]) for r in s["rows"]],
+                         [("alpha", "not judged", 2, 2, 0), ("beta", "not judged", 0, 0, 0)], "a pair that was never asked is not a void")
+        # an error of our own while sessions run stops the run there: the rest of the round of 32 does not run on,
+        # paid for, behind it
+        calls = []
+        def breaks(**kw):
+            calls.append(1)
+            if len(calls) == 2:
+                raise OSError("the engine broke")
+            return real(**kw)
+        engine.run_session = breaks
+        code, out = self.compare(1, 0, "--all", "--jobs", "1", "--label", "broke", "--draw", "broke")
+        self.assertEqual((code, len(calls)), (3, 2), out)
+        self.assertIn("the engine broke", out)
+        # sessions that really failed are voids, also in a run that is then stopped: here every session fails (each
+        # half is tried twice), and the failure limit stops the run at the fifth: one pair asked in full and void, the
+        # next cut off and so not counted either way
+        self.control.write_text(json.dumps({"fail": True}))
+        engine.run_session = real
+        code, out = self.compare(1, 0, "--all", "--jobs", "1", "--label", "failing", "--draw", "failing")
+        s = self.summary()
+        self.assertEqual((code, s["failed_sessions"]), (3, 5), out)
+        self.assertEqual([(r["case"], r["pairs"], r["void"]) for r in s["rows"]], [("alpha", 0, 1), ("beta", 0, 0)])
+
     def test_an_interrupt_stops_new_sessions_and_gives_no_verdict(self):
         self.control.write_text(json.dumps({"sleep": 0.25}))
         cmd = [sys.executable, str(HERE.parent / "litmus.py"),

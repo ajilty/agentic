@@ -126,7 +126,11 @@ reads it.
 - **One run at a time, at most three sessions.** A second invocation on the
   same state folder is refused.
 - **An interrupt stops cleanly.** Sessions not yet started are dropped; the
-  up to three in flight finish and are counted; no verdict is given.
+  up to three in flight finish and are counted; no verdict is given. A second
+  interrupt does not cut that wait short: those sessions are paid for, and
+  each ends within its time limit. The table and the summary of a stopped run
+  count every pair that was asked in full, up to the moment it stopped; a
+  pair that was cut off by the stop is neither counted nor shown as void.
 
 This is not an operating-system boundary: a session runs as you, with the
 network up, and the tool-refusing hook is all that stands between it and your
