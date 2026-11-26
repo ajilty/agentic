@@ -54,7 +54,10 @@
 #   turn1.md result.json say.md   what was sent, the result event, the closing message
 #   guard.jsonl                   every tool call the guard judged, allowed or refused
 #   transcript.jsonl              the session transcript
-#   changed-files.txt             project files the session changed
+#   changed-files.txt             project files that differ from the snapshot, as
+#                                 its own git reports them, one name per line; a
+#                                 control character in a name shows as "?".
+#                                 Every file, if git cannot compare at all
 #   journal.jsonl                 rows added to REPLAY_JOURNAL
 #   post-compaction mode adds compact.result.json, guard.compact.jsonl,
 #   turn2.result.json, turn2.say.md, guard.turn2.jsonl, journal.turn2.jsonl,
@@ -147,6 +150,7 @@ LOGIN_VAR=""; [ -z "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || LOG
 [ -n "$LOGIN_VAR" ] || echo "replay: no login variable is set, so each session gets a copy of the full login file and can read it, and only what is shaped like a key is cut from what a run keeps; a model-only token (claude setup-token) in CLAUDE_CODE_OAUTH_TOKEN avoids both" >&2
 command -v python3 >/dev/null 2>&1 || { echo "(skip replay: python3 absent)"; exit 0; }
 [ "$(df -Pk "${TMPDIR:-/tmp}" | awk 'NR==2{print $4}')" -ge 1048576 ] || { echo "(skip replay: low tmp space)"; exit 0; }
+case "${REPLAY_JOBS:-4}" in [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;; *) echo "replay: REPLAY_JOBS must be a whole number from 1 to 999, written without a leading zero (got: ${REPLAY_JOBS:-})" >&2; exit 2 ;; esac
 # A source repo of - means there is none: every case then brings its own tree/.
 [ "$SRC" != - ] || SRC=""
 [ -d "$SET" ] && { [ -z "$SRC" ] || git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1; } || { echo "replay: need a set dir and a git source repo" >&2; exit 2; }
@@ -365,6 +369,9 @@ TREE
       && { [ -z "$IGNORE" ] || printf '%s\n' "$IGNORE" >> .git/info/exclude; } \
       && cgit add --all >/dev/null 2>&1 && cgit commit -qm snapshot $([ -n "$commit" ] || echo --allow-empty) ) \
     || { drop "cannot commit the snapshot"; return; }
+  # The snapshot's own commit, remembered now: what the session changed is measured against it,
+  # whatever the session does to the history afterwards.
+  local snap; snap="$(cd "$repo" && cgit rev-parse --verify --quiet HEAD)"
   # Only the model login, the operator's standing preferences (they shape how a
   # session asks) and the named skills are carried into the sandbox HOME.
   # A candidate takes the place of those preferences: the caller's own are then left behind.
@@ -451,15 +458,32 @@ JSON
     [ -z "$PC" ] || { [ -n "$t2" ] && emit "$repo" "$journal" | tail -n +"$(( $(num "$t2") + 1 ))"; } > "$o/journal.turn2.jsonl"
   fi
   for f in "$home"/.claude/projects/*/*.jsonl; do emit "$home" "$f"; done > "$o/transcript.jsonl" 2>/dev/null
-  # Everything the session changed since the snapshot, committed or not. The
-  # repo's git configuration is now the session's, so git runs inside the sandbox.
+  # What the session changed since the snapshot, committed or not, as the
+  # snapshot's own git reports it: what differs from the snapshot's commit (a
+  # renamed file under both names), plus files git neither tracks nor ignores.
+  # The repo's git configuration is now the session's, so git runs inside the
+  # sandbox, and a session that changes what git reports (its configuration, or
+  # flags in the index that tell git to overlook a file) can shorten the list.
   # While the sandbox is up it shows placeholders over paths it protects
   # (.bashrc, .mcp.json), so a new file counts only if it is still there after.
-  s="$(inbox ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 5 60 sh -c 'git diff --name-only "$(git rev-list --max-parents=0 HEAD | tail -1)"; echo //; git ls-files --others --exclude-standard' 2>/dev/null)"
-  printf '%s\n' "$s" | { n=""; while IFS= read -r f; do
-      [ "$f" = // ] && { n=1; continue; }
-      [ -z "$n" ] || [ -e "$repo/$f" ] || [ -L "$repo/$f" ] || continue; [ -z "$f" ] || printf '%s\n' "$f"; done; } \
-    | awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | sort -u > "$o/changed-files.txt"
+  # Names arrive NUL-ended, each as it is; in the list, a control character in a
+  # name shows as "?". If git cannot make the comparison at all (the session
+  # removed the snapshot's commit or the repository), every file is listed.
+  # The list is taken whole first: the placeholders are gone only once the sandbox has ended.
+  rm -f "$cfg/nocompare"
+  inbox ${box[@]+"${box[@]}"} "${tmp[@]}" "$TIMEOUT" -k 5 60 sh -c \
+      'git --no-replace-objects diff --name-only --no-renames -z "$1" && printf "//\0" && git ls-files -z --others --exclude-standard && printf "/ok\0"' sh "$snap" 2>/dev/null > "$cfg/changed.z"
+  { LC_ALL=C; n=""; ok=""; while IFS= read -r -d '' f; do
+        [ "$f" = // ] && { n=1; continue; }; [ "$f" = /ok ] && { ok=1; continue; }
+        [ -z "$n" ] || [ -e "$repo/$f" ] || [ -L "$repo/$f" ] || continue; [ -z "$f" ] || printf '%s\n' "${f//[[:cntrl:]]/?}"; done
+      [ -n "$ok" ] || : > "$cfg/nocompare"; } < "$cfg/changed.z" \
+    | LC_ALL=C awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
+  if [ -e "$cfg/nocompare" ]; then
+    echo "replay: $c.$k: cannot compare the project with its snapshot: changed-files.txt lists every file" >&2
+    ( cd "$repo" && find . -name .git -prune -o \( -type f -o -type l \) -print0 ) \
+      | { LC_ALL=C; while IFS= read -r -d '' f; do f="${f#./}"; printf '%s\n' "${f//[[:cntrl:]]/?}"; done; } \
+      | LC_ALL=C awk -v p="$IGNORE" 'p == "" || index($0, p) != 1' | LC_ALL=C sort -u > "$o/changed-files.txt"
+  fi
   take "$log" "$log/stderr.txt" "$o/stderr.txt"
   # The load hook runs on its own time and may lose a row at session end, so the
   # transcript counts as well. In neither: the run did not have its instructions.

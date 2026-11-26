@@ -139,6 +139,10 @@ cp "\$HOME/.claude/CLAUDE.md" keep/userfile 2>/dev/null; printf '%s\n' "\$@" > k
 printf 'key=%s token=%s file=%s\n' "\${ANTHROPIC_API_KEY:-}" "\${CLAUDE_CODE_OAUTH_TOKEN:-}" "\$(cat "\$HOME/.claude/.credentials.json" 2>/dev/null)" | tee keep/spill >&2
 echo forged > keep/login-removed.txt
 [ -z "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { mkdir -p "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN"; echo in > "keep/d-\$CLAUDE_CODE_OAUTH_TOKEN/inner"; echo n > "keep/n-\$CLAUDE_CODE_OAUTH_TOKEN"; printf '%s' "\$CLAUDE_CODE_OAUTH_TOKEN" > "keep/odd\$(printf '\377')name"; }
+# For the changed-files tests: new files whose names git would quote, and a session that rewrites or removes history.
+touch 'keep/odd "q" é.txt' "keep/ctl\$(printf '\tx')" "keep/s\$(printf '\377')x" "keep/s\$(printf '\376')x"
+[ ! -e amend ] || { git mv AGENTS.md RULES.md 2>/dev/null; echo more >> a.txt; git -c user.email=t@t -c user.name=t commit -qa --amend -m amended; }
+[ ! -e wipe ] || rm -rf .git/objects
 echo "SESSION WROTE THIS" > keep/facts.json; printf '%s\n' "\$REPLAY_ROOTS" > keep/roots; [ ! -e "$d/plug/marker" ] || : > keep/plugseen; for f in lnk sub/inner CLAUDE.md; do [ ! -L "\$f" ] || echo "\$f"; done > keep/links
 [ -e hang ] && { sleep $nap & sleep $nap; }
 own=\$(cat /proc/[0-9]*/environ 2>/dev/null | tr '\0' '\n' | grep -q '^HOME=' && echo seen || echo blind)   # the control: /proc is readable
@@ -487,5 +491,29 @@ out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_KEEP="keep keep/login-removed.txt")
   && case "$(head -n 1 "$o/login-removed.txt" 2>/dev/null)" in unchecked:*) true ;; *) false ;; esac \
   && case "$out" in *'could not check the kept files'*) true ;; *) false ;; esac && pass \
   || fail "a run whose kept files could not be checked keeps the runner's mark, says so in the summary and facts.json, and fails the call (exit $rc; mark: $(head -n 1 "$o/login-removed.txt" 2>/dev/null))"
+# --- What the session changed. A new file is listed under its own name, whatever git would do to quote it;
+# a control character in a name shows as "?".
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+grep -qxF 'keep/odd "q" é.txt' "$o/changed-files.txt" && grep -qxF 'keep/ctl?x' "$o/changed-files.txt" && pass \
+  || fail "a new file with a quote, a letter outside ASCII or a control character in its name is listed (got: $(grep '^keep/[oc]' "$o/changed-files.txt" | tr '\n' ' '))"
+# Two names that differ in one byte are two lines, whatever the caller's language settings would merge.
+[ "$(LC_ALL=C grep -c '^keep/s.x$' "$o/changed-files.txt")" = 2 ] && pass || fail "names are listed and sorted byte for byte (got: $(LC_ALL=C grep -c '^keep/s' "$o/changed-files.txt") of 2)"
+# A session that amends the snapshot's commit is still measured against the snapshot.
+( cd "$d/plug/src" && touch amend && git add amend && git commit -qm amend ) >/dev/null 2>&1; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+grep -qx AGENTS.md "$o/changed-files.txt" && grep -qx RULES.md "$o/changed-files.txt" && pass || fail "a renamed file is listed under its old name and its new one (got: $(grep -v '^keep' "$o/changed-files.txt" | tr '\n' ' '))"
+grep -qx a.txt "$o/changed-files.txt" && grep -qx new.txt "$o/changed-files.txt" && pass || fail "a file changed in an amended first commit is listed (got: $(grep -v '^keep' "$o/changed-files.txt" | tr '\n' ' '))"
+# A session that removes the history cannot be compared: every file is listed, and the runner says so.
+( cd "$d/plug/src" && git mv amend wipe && git commit -qm wipe ) >/dev/null 2>&1; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+out="$(rp env ${conf[@]+"${conf[@]}"})"; rc=$?
+case "$out" in *'cannot compare the project with its snapshot'*) grep -qx a.txt "$o/changed-files.txt" && grep -qx AGENTS.md "$o/changed-files.txt" && grep -qx new.txt "$o/changed-files.txt" && ! grep -q '^\.git' "$o/changed-files.txt" \
+  && grep -qx keeplink "$o/changed-files.txt" && grep -qxF 'keep/ctl?x' "$o/changed-files.txt" && ! grep -q '^log/' "$o/changed-files.txt" && pass \
+  || fail "with the history gone every project file is listed, and nothing of .git (got: $(grep -v '^keep' "$o/changed-files.txt" | tr '\n' ' '))" ;;
+  *) fail "a project that cannot be compared with its snapshot is reported (exit $rc)" ;; esac
+( cd "$d/plug/src" && git rm -q wipe && git commit -qm unwipe ) >/dev/null 2>&1; git -C "$d/plug/src" rev-parse HEAD > "$d/plug/set/one/commit"
+# Refused before anything runs: a jobs setting that is no number in range.
+echo stale > "$o/say.md"
+for bad in 0 x 1.5 01 1000 18446744073709551616; do out="$(rp env ${conf[@]+"${conf[@]}"} REPLAY_JOBS="$bad")"; rc=$?
+  case "$rc:$out" in 2:*'REPLAY_JOBS must be'*) [ "$(cat "$o/say.md")" = stale ] && pass || fail "REPLAY_JOBS=$bad runs nothing" ;; *) fail "REPLAY_JOBS=$bad is refused by that message (exit $rc)" ;; esac; done
 kill "$lp" 2>/dev/null
 echo "replay: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" = 0 ]

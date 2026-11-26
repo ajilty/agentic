@@ -106,6 +106,22 @@ hook's record only, so it can be empty on a run that passed the check through
 its transcript. In post-compaction mode cost, turns, seconds and refused calls
 are the first turn's, as in the summary; changed files cover the whole run.
 
+`changed-files.txt` is the project files that differ from the snapshot, one
+name per line, committed or not, as the snapshot's own git reports them: what
+differs from the snapshot's commit, a renamed file under both its names, plus
+new files git neither tracks nor ignores. It is measured against the
+snapshot's commit, remembered before the session, so a session that amends,
+rebases or resets is measured the same. Names are given as they are, with any
+control character shown as `?`. Not listed: a new file the project's ignore
+rules cover (`.env`, a build folder), and anything a session hid by changing
+what git reports: its git configuration is its own, and so are the flags in
+the index that tell git to overlook a file. If git cannot give the list (the
+session removed the snapshot's commit or the repository, or git failed or
+ran out of time), the runner says so on stderr and lists every file.
+
+`REPLAY_JOBS` must be a whole number from 1 to 999, written without a leading
+zero.
+
 The file is always strict JSON. A number the session reported that is not a
 finite number is `null`. The two lists the session reports about itself,
 `loaded` and `models_used`, are cut to a few short entries made of the
